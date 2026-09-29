@@ -141,13 +141,13 @@ function useKeyboardShortcuts() {
         zoomBy(1.25)
       } else if (is2d && !mod && k === '-') {
         zoomBy(0.8)
-      } else if (!mod && k === 'e' && st.selection?.kind === 'symbol') {
+      } else if (is2d && !mod && k === 'e' && st.selection?.kind === 'symbol') {
         const id = st.selection.id
         st.commit((d) => {
           const s = draftFloor(d).symbols.find((x) => x.id === id)
           if (s && !s.wall) s.rotation = (s.rotation + 90) % 360
         })
-      } else if (k.startsWith('arrow') && st.selection) {
+      } else if (is2d && k.startsWith('arrow') && st.selection) {
         e.preventDefault()
         const step = e.shiftKey ? 10 : 1
         const map: Record<string, [number, number]> = {

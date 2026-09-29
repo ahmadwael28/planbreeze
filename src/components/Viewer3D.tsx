@@ -3,7 +3,9 @@ import type { PointerEvent as RPointerEvent } from 'react'
 import * as THREE from 'three'
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
 import { RectAreaLightUniformsLib } from 'three/addons/lights/RectAreaLightUniformsLib.js'
-import { Box, DoorOpen, Lightbulb, LightbulbOff, Moon, RotateCcw, SquareDashed, Sun, X } from 'lucide-react'
+import { DoorOpen, Keyboard, Lightbulb, LightbulbOff, Moon, RotateCcw, SquareDashed, Sun, X } from 'lucide-react'
+import { Kbd } from '@/components/ui/kbd'
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { Button } from '@/components/ui/button'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Slider } from '@/components/ui/slider'
@@ -18,6 +20,7 @@ import type { LightColor } from '@/model/types'
 import { currentFloor, draftFloor, useEditor, useFloor } from '@/store/editor'
 import { buildProjectGroup, SLAB } from '@/three/buildScene'
 import type { FloorFilter, PickInfo } from '@/three/buildScene'
+import { KEY_HELP, KeyboardNav } from '@/three/keyboardNav'
 import { applyLightState } from '@/three/lighting3d'
 
 /** The scene is modeled in cm and shown in meters, so light falloff is physically plausible. */
@@ -35,6 +38,8 @@ interface Ctx {
   content: THREE.Group | null
   dirty: boolean
   fitted: boolean
+  /** Top of the visible walls (m): keyboard walking collides with walls below this. */
+  wallTop: number
 }
 
 const mix = (a: string, b: string, t: number) => new THREE.Color(a).lerp(new THREE.Color(b), t)
@@ -248,9 +253,20 @@ export default function Viewer3D() {
     ground.receiveShadow = true
     scene.add(ground)
 
-    const ctx: Ctx = { renderer, scene, world, camera, controls, sun, hemi, ground, content: null, dirty: true, fitted: false }
+    const ctx: Ctx = { renderer, scene, world, camera, controls, sun, hemi, ground, content: null, dirty: true, fitted: false, wallTop: -Infinity }
     ctxRef.current = ctx
     controls.addEventListener('change', () => (ctx.dirty = true))
+
+    // Walk with the keyboard; mouse orbiting keeps working alongside.
+    const nav = new KeyboardNav(camera, controls, {
+      obstacles: () => (ctx.content?.userData.walls as THREE.Object3D[] | undefined) ?? [],
+      collideBelow: () => ctx.wallTop,
+      // Allow looking up at ceilings while walking.
+      onStart: () => (controls.maxPolarAngle = Math.PI - 0.05),
+    })
+    const detachKeys = nav.attach()
+    if (import.meta.env.DEV) Object.assign(window, { __viewer: { ctx, nav } })
+    const clock = new THREE.Clock()
 
     const resize = () => {
       const { clientWidth: w, clientHeight: h } = host
@@ -265,6 +281,7 @@ export default function Viewer3D() {
     resize()
 
     renderer.setAnimationLoop(() => {
+      if (nav.update(clock.getDelta())) ctx.dirty = true
       controls.update()
       if (ctx.dirty) {
         ctx.dirty = false
@@ -274,6 +291,7 @@ export default function Viewer3D() {
 
     return () => {
       renderer.setAnimationLoop(null)
+      detachKeys()
       ro.disconnect()
       controls.dispose()
       ctx.content?.userData.dispose?.()
@@ -366,6 +384,8 @@ export default function Viewer3D() {
     cam.near = 0.1
     cam.far = r * 5
     cam.updateProjectionMatrix()
+    const walls = (content.userData.walls as THREE.Object3D[]) ?? []
+    ctx.wallTop = walls.length ? walls.reduce((top, w) => Math.max(top, new THREE.Box3().setFromObject(w).max.y), -Infinity) + 0.05 : -Infinity
     ctx.ground.scale.set(r * 8, r * 8, 1)
     ctx.ground.position.set(center.x, (-SLAB - 0.5) * WORLD_SCALE, center.z)
 
@@ -468,10 +488,41 @@ export default function Viewer3D() {
           </TooltipTrigger>
           <TooltipContent>Reset camera</TooltipContent>
         </Tooltip>
+        <Popover>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <PopoverTrigger asChild>
+                <Button variant="ghost" size="icon-sm" aria-label="Keyboard controls">
+                  <Keyboard />
+                </Button>
+              </PopoverTrigger>
+            </TooltipTrigger>
+            <TooltipContent>Keyboard controls</TooltipContent>
+          </Tooltip>
+          <PopoverContent align="end" className="w-72">
+            <div className="mb-2 text-sm font-medium">Walk with the keyboard</div>
+            <dl className="grid grid-cols-[auto_1fr] items-center gap-x-3 gap-y-1.5 text-sm">
+              {KEY_HELP.map(([keys, what]) => (
+                <div key={keys} className="contents">
+                  <dt className="flex gap-1">
+                    {keys.split(' / ').map((k) => (
+                      <Kbd key={k}>{k}</Kbd>
+                    ))}
+                  </dt>
+                  <dd className="text-muted-foreground">{what}</dd>
+                </div>
+              ))}
+            </dl>
+            <p className="mt-3 text-xs text-muted-foreground">
+              Walls stop you when you walk inside; go through doorways. Fly above the walls to move freely. Try{' '}
+              <b>Walk inside</b> in the Lighting panel first.
+            </p>
+          </PopoverContent>
+        </Popover>
       </div>
-      <div className="pointer-events-none absolute bottom-16 left-1/2 flex -translate-x-1/2 items-center gap-2 rounded-full bg-foreground/80 px-3 py-1.5 text-xs text-background max-sm:hidden">
-        <Box className="size-3.5" />
-        Drag to orbit · right-drag to pan · scroll to zoom · click to select
+      <div className="pointer-events-none absolute bottom-16 left-1/2 flex -translate-x-1/2 items-center gap-1.5 rounded-full bg-foreground/80 px-3 py-1.5 text-xs whitespace-nowrap text-background max-md:hidden">
+        <Keyboard className="size-3.5" />
+        WASD / arrows to walk · Q / E down / up · Shift faster · drag to look around
       </div>
     </div>
   )

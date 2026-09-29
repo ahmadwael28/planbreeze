@@ -384,6 +384,7 @@ export function buildProjectGroup(project: Project, opts: BuildOptions): THREE.G
   const root = new THREE.Group()
   const mats = new Materials()
   const handles: { lights: LightHandle[]; switches: SwitchHandle[] } = { lights: [], switches: [] }
+  const walls: THREE.Mesh[] = []
   const currentIdx = Math.max(
     0,
     project.floors.findIndex((f) => f.id === opts.floorId),
@@ -432,7 +433,11 @@ export function buildProjectGroup(project: Project, opts: BuildOptions): THREE.G
       const merged = mergeGeometries(geos)
       geos.forEach((g) => g.dispose())
       const hl = sel?.kind === 'room' && sel.id === room.id
-      if (merged) group.add(mesh(merged, mats.get(COLORS.wall, hl), { floorId: floor.id, kind: 'room', id: room.id }))
+      if (merged) {
+        const w = mesh(merged, mats.get(COLORS.wall, hl), { floorId: floor.id, kind: 'room', id: room.id })
+        walls.push(w) // the walk-through camera collides with these
+        group.add(w)
+      }
     }
 
     // Gypsum ceilings (seen from inside the rooms).
@@ -465,6 +470,7 @@ export function buildProjectGroup(project: Project, opts: BuildOptions): THREE.G
     root.add(group)
   })
 
+  root.userData.walls = walls
   root.userData.lightHandles = handles.lights
   root.userData.switchHandles = handles.switches
   root.userData.dispose = () => {
