@@ -112,6 +112,17 @@ export interface Floor {
   symbols: PlanSymbol[]
   dimensions?: Dimension[]
   underlay?: Underlay
+  /** Camera spots saved in 3D. */
+  views?: SavedView[]
+}
+
+/** A 3D camera spot saved by the user: plan position (cm) and height above this floor's level. */
+export interface SavedView {
+  id: string
+  name: string
+  eye: { x: number; y: number; h: number }
+  /** A point the camera looks at. */
+  look: { x: number; y: number; h: number }
 }
 
 export interface Project {

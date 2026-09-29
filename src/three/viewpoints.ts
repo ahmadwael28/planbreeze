@@ -17,13 +17,15 @@ export const LOOK_RADIUS = 0.05
 export interface Viewpoint {
   id: string
   label: string
-  kind: 'room' | 'outside'
+  kind: 'room' | 'saved' | 'outside'
+  /** For saved views: the id of the SavedView. */
+  savedId?: string
   /** Arrow showing which corner of the plan an outside viewpoint is at. */
   arrow?: string
   /** World positions (m). */
   eye: THREE.Vector3
   look: THREE.Vector3
-  /** Where its marker is drawn: on the floor for rooms, at the eye outside. */
+  /** Where its marker is drawn: on the floor inside, at the eye outside. */
   marker: THREE.Vector3
 }
 
@@ -53,15 +55,20 @@ const CORNERS = [
   { sx: 1, sz: -1, arrow: '↗', name: 'top-right' },
 ] as const
 
-/** Viewpoints for the given floor: one per room, then four around the outside (corners of the plan). */
-export function computeViewpoints(project: Project, floorId: string): Viewpoint[] {
+/** Height of a floor's level above the ground floor (cm). */
+export function floorBase(project: Project, floorId: string) {
   const idx = Math.max(
     0,
     project.floors.findIndex((f) => f.id === floorId),
   )
-  const floor = project.floors[idx]
+  return project.floors.slice(0, idx).reduce((s, f) => s + f.height + SLAB, 0)
+}
+
+/** Viewpoints for the given floor: one per room, the user's saved views, then four around the outside. */
+export function computeViewpoints(project: Project, floorId: string): Viewpoint[] {
+  const floor = project.floors.find((f) => f.id === floorId) ?? project.floors[0]
   if (!floor) return []
-  const base = project.floors.slice(0, idx).reduce((s, f) => s + f.height + SLAB, 0)
+  const base = floorBase(project, floor.id)
   const rooms = floor.rooms.filter((r) => r.points.length >= 3)
   const out: Viewpoint[] = rooms.map((room, i) => {
     const { eye, look } = roomSpot(room.points)
@@ -74,6 +81,19 @@ export function computeViewpoints(project: Project, floorId: string): Viewpoint[
       marker: new THREE.Vector3(eye.x * M, (base + 3) * M, eye.y * M),
     }
   })
+  for (const v of floor.views ?? []) {
+    const eye = new THREE.Vector3(v.eye.x * M, (base + v.eye.h) * M, v.eye.y * M)
+    const inside = v.eye.h < floor.height
+    out.push({
+      id: `saved:${v.id}`,
+      savedId: v.id,
+      label: v.name,
+      kind: 'saved',
+      eye,
+      look: new THREE.Vector3(v.look.x * M, (base + v.look.h) * M, v.look.y * M),
+      marker: inside ? new THREE.Vector3(eye.x, (base + 3) * M, eye.z) : eye.clone(),
+    })
+  }
   if (!rooms.length) return out
 
   const b = bbox(rooms.flatMap((r) => r.points))
@@ -89,7 +109,7 @@ export function computeViewpoints(project: Project, floorId: string): Viewpoint[
       (base + floor.height + r * 0.75) * M,
       (cz + c.sz * (d / 2 + r * 0.6)) * M,
     )
-    out.push({ id: `out:${c.name}`, label: `Outside, ${c.name}`, kind: 'outside', arrow: c.arrow, eye, look: look.clone(), marker: eye })
+    out.push({ id: `out:${floor.id}:${c.name}`, label: `Outside, ${c.name}`, kind: 'outside', arrow: c.arrow, eye, look: look.clone(), marker: eye })
   }
   return out
 }

@@ -5,6 +5,7 @@
  * scene to meters so three.js' physically based light falloff behaves realistically.
  */
 import * as THREE from 'three'
+import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js'
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js'
 import { signedArea } from '@/model/geometry'
 import { ceilingHeightAt, ceilingZones, COVE_WIDTH, covePath, inset, LIGHT_COLORS } from '@/model/lighting'
@@ -193,6 +194,22 @@ function mesh(geo: THREE.BufferGeometry, mat: THREE.Material, x = 0, y = 0, z = 
   return m
 }
 
+/** Flat ring lying in the ceiling plane. */
+function ring(r: number, tube: number, mat: THREE.Material, x: number, y: number, z: number) {
+  const m = mesh(new THREE.TorusGeometry(r, tube, 8, 40), mat, x, y, z)
+  m.rotation.x = Math.PI / 2
+  return m
+}
+
+/** Thin rod from a to b. */
+function rod(a: THREE.Vector3, b: THREE.Vector3, r: number, mat: THREE.Material) {
+  const len = a.distanceTo(b)
+  const m = mesh(new THREE.CylinderGeometry(r, r, len, 8), mat)
+  m.position.copy(a).add(b).multiplyScalar(0.5)
+  m.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), b.clone().sub(a).normalize())
+  return m
+}
+
 function coveFixture(ctx: Ctx, room: Room, floor: Floor, base: number): THREE.Group {
   const g = new THREE.Group()
   const { path, up, drop } = covePath(room)
@@ -228,9 +245,10 @@ export function buildFixture(
 
   if (kind === 'switch') {
     const g = new THREE.Group()
-    const plate = mesh(new THREE.BoxGeometry(8, 12, 1.2), white())
+    const plate = mesh(new RoundedBoxGeometry(8.5, 12.5, 1.2, 2, 0.45), white())
     const indicator = new THREE.MeshStandardMaterial({ color: '#22c55e', emissive: '#22c55e', emissiveIntensity: 1 })
-    plate.add(mesh(new THREE.BoxGeometry(1.2, 1.2, 0.6), indicator, 0, 3.5, 0.8))
+    plate.add(mesh(new RoundedBoxGeometry(5.2, 7.6, 1, 2, 0.35), white(), 0, -0.8, 0.5)) // rocker
+    plate.add(mesh(new THREE.BoxGeometry(1.2, 1.2, 0.6), indicator, 0, 4.6, 0.8))
     g.add(plate)
     g.position.set(pose.x, base + (sym.height || 110), pose.y)
     // Local +Z is the symbol's local +y, which points into the room; the plate sits on the wall behind.
@@ -268,6 +286,8 @@ export function buildFixture(
   switch (kind) {
     case 'spot': {
       g.add(mesh(new THREE.CylinderGeometry(5, 5, 1.2, 24), white(), 0, top - 0.6, 0))
+      g.add(ring(4.6, 0.45, white(), 0, top - 1.2, 0)) // trim
+      g.add(mesh(new THREE.CylinderGeometry(3.6, 2.8, 2.2, 24, 1, true), dark(), 0, top - 1.6, 0)) // recessed reflector
       g.add(lens(ctx, new THREE.CylinderGeometry(3.4, 3.4, 0.4, 24)).translateY(top - 1.3))
       g.add(glow(ctx, 22, 0, top - 3, 0))
       spotLight(ctx, g, 0, top - 2, 0, 12, 0.5)
@@ -302,6 +322,7 @@ export function buildFixture(
     }
     case 'pendant': {
       const h = sym.height || 30
+      g.add(mesh(new THREE.CylinderGeometry(5, 5, 2, 24), dark(), 0, top - 1, 0)) // ceiling canopy
       g.add(mesh(new THREE.CylinderGeometry(0.3, 0.3, Math.max(1, top - (hang + h)), 6), dark(), 0, (top + hang + h) / 2, 0))
       const shade = mesh(new THREE.CylinderGeometry(4, w / 2, h, 32, 1, true), dark(), 0, hang + h / 2, 0)
       ;(shade.material as THREE.MeshStandardMaterial).side = THREE.DoubleSide
@@ -317,6 +338,7 @@ export function buildFixture(
     case 'linear-pendant': {
       const h = sym.height || 8
       for (const x of [-w / 2 + 10, w / 2 - 10]) {
+        g.add(mesh(new THREE.CylinderGeometry(3, 3, 1.5, 16), dark(), x, top - 0.75, 0))
         g.add(mesh(new THREE.CylinderGeometry(0.25, 0.25, Math.max(1, top - (hang + h)), 6), dark(), x, (top + hang + h) / 2, 0))
       }
       g.add(mesh(new THREE.BoxGeometry(w, h, d), dark(), 0, hang + h / 2, 0))
@@ -329,6 +351,9 @@ export function buildFixture(
       const r = (w / 2) * 0.75
       const brass = new THREE.MeshStandardMaterial({ color: '#b08d57', metalness: 0.8, roughness: 0.3 })
       g.add(mesh(new THREE.CylinderGeometry(0.6, 0.6, Math.max(1, top - (hang + h)), 8), brass, 0, (top + hang + h) / 2, 0))
+      g.add(mesh(new THREE.CylinderGeometry(6, 6, 2, 24), brass, 0, top - 1, 0)) // canopy
+      g.add(mesh(new THREE.SphereGeometry(3, 16, 12), brass, 0, hang + h * 0.3, 0)) // hub
+      g.add(mesh(new THREE.ConeGeometry(2, 5, 12), brass, 0, hang + h * 0.3 - 5, 0).rotateX(Math.PI)) // finial
       g.add(mesh(new THREE.CylinderGeometry(0.8, 0.8, h * 0.7, 8), brass, 0, hang + h * 0.55, 0))
       const ring = mesh(new THREE.TorusGeometry(r, 0.8, 8, 48), brass, 0, hang + h * 0.3, 0)
       ring.rotation.x = Math.PI / 2
@@ -337,6 +362,11 @@ export function buildFixture(
         const a = (i / 6) * Math.PI * 2
         const x = Math.cos(a) * r
         const z = Math.sin(a) * r
+        // Curved-looking arm from the hub, a candle cup and a bulb.
+        const hub = new THREE.Vector3(0, hang + h * 0.3, 0)
+        const elbow = new THREE.Vector3(x * 0.55, hang + h * 0.3 - 6, z * 0.55)
+        g.add(rod(hub, elbow, 0.5, brass), rod(elbow, new THREE.Vector3(x, hang + h * 0.3, z), 0.5, brass))
+        g.add(mesh(new THREE.CylinderGeometry(2.4, 1.4, 3, 12), brass, x, hang + h * 0.3 + 1.5, z))
         g.add(lens(ctx, new THREE.SphereGeometry(3, 12, 10)).translateX(x).translateY(hang + h * 0.3 + 5).translateZ(z))
         g.add(glow(ctx, 18, x, hang + h * 0.3 + 5, z))
       }
@@ -347,6 +377,7 @@ export function buildFixture(
     }
     case 'ceiling': {
       g.add(mesh(new THREE.CylinderGeometry(w / 2, w / 2, 5, 32), white(), 0, top - 2.5, 0))
+      g.add(ring(w / 2 - 0.6, 0.7, white(), 0, top - 5, 0)) // rim
       g.add(lens(ctx, new THREE.CylinderGeometry(w / 2 - 2, w / 2 - 2, 0.4, 32)).translateY(top - 5.2))
       g.add(glow(ctx, w * 1.6, 0, top - 8, 0))
       const p = add(ctx, new THREE.PointLight(ctx.color, 6, 0, 2), 6)
@@ -356,7 +387,7 @@ export function buildFixture(
     }
     case 'wall': {
       const h = sym.height || 25
-      g.add(mesh(new THREE.BoxGeometry(w * 0.6, h, 4), dark(), 0, hang + h / 2, -d / 2 + 2))
+      g.add(mesh(new RoundedBoxGeometry(w * 0.6, h, 4, 2, 1), dark(), 0, hang + h / 2, -d / 2 + 2))
       // Half cylinder bulging into the room (+Z).
       g.add(lens(ctx, new THREE.CylinderGeometry(w / 2, w / 2, h * 0.8, 24, 1, false, -Math.PI / 2, Math.PI)).translateY(hang + h / 2).translateZ(-d / 2 + 3))
       g.add(glow(ctx, 40, 0, hang + h / 2, 4))

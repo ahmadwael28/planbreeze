@@ -3,7 +3,8 @@ import type { PointerEvent as RPointerEvent } from 'react'
 import * as THREE from 'three'
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
 import { RectAreaLightUniformsLib } from 'three/addons/lights/RectAreaLightUniformsLib.js'
-import { Aperture, Camera, DoorOpen, Keyboard, Lightbulb, LightbulbOff, Moon, RotateCcw, SquareDashed, Sun, X } from 'lucide-react'
+import { toast } from 'sonner'
+import { Aperture, BookmarkPlus, Camera, DoorOpen, Keyboard, Lightbulb, LightbulbOff, Moon, RotateCcw, SquareDashed, Sun, X } from 'lucide-react'
 import { ViewpointBar, ViewpointMarkers } from '@/components/Viewpoints'
 import {
   DropdownMenu,
@@ -24,6 +25,7 @@ import { usePlanTheme } from '@/hooks/use-plan-theme'
 import { cn } from '@/lib/utils'
 import { bbox, labelPoint, pointInPolygon } from '@/model/geometry'
 import { isLightOn, LIGHT_COLORS, OTHER_LIGHTS, switchesFor, WIRE_COLORS } from '@/model/lighting'
+import { uid } from '@/model/project'
 import { SYMBOL_MAP } from '@/model/symbols'
 import type { LightColor } from '@/model/types'
 import { currentFloor, draftFloor, useEditor, useFloor } from '@/store/editor'
@@ -31,7 +33,7 @@ import { buildProjectGroup, SLAB } from '@/three/buildScene'
 import type { FloorFilter, PickInfo } from '@/three/buildScene'
 import { KEY_HELP, KeyboardNav, NUMPAD_HELP } from '@/three/keyboardNav'
 import { applyLightState } from '@/three/lighting3d'
-import { computeViewpoints, LENSES, planFlight, stepFlight, verticalFov } from '@/three/viewpoints'
+import { computeViewpoints, floorBase, LENSES, planFlight, stepFlight, verticalFov } from '@/three/viewpoints'
 import type { Flight, Lens, Viewpoint } from '@/three/viewpoints'
 
 /** The scene is modeled in cm and shown in meters, so light falloff is physically plausible. */
@@ -57,6 +59,16 @@ interface Ctx {
   tour: { points: Viewpoint[]; active: string | null } | null
   markers: Map<string, HTMLElement>
   flight: Flight | null
+}
+
+/** The camera's current spot as a saved view (plan cm, heights above the floor's level). */
+function captureView(ctx: Ctx, base: number) {
+  const r = (n: number) => Math.round(n * 10) / 10
+  const cam = ctx.camera.position
+  const dir = ctx.controls.target.clone().sub(cam).normalize()
+  const eye = { x: r(cam.x * 100), y: r(cam.z * 100), h: r(cam.y * 100 - base) }
+  const look = { x: r(eye.x + dir.x * 100), y: r(eye.y + dir.z * 100), h: r(eye.h + dir.y * 100) }
+  return { eye, look }
 }
 
 function walls(ctx: Ctx) {
@@ -85,8 +97,8 @@ function placeMarkers(ctx: Ctx) {
     const el = ctx.markers.get(vp.id)
     if (!el) continue
     const dist = camera.position.distanceTo(vp.marker)
-    // Outside viewpoints float above the home, so they'd only confuse from inside a room.
-    let show = !ctx.flight && vp.id !== ctx.tour.active && dist > 0.3 && !(inside && vp.kind === 'outside')
+    // Markers floating above the walls (outside views) would only confuse from inside a room.
+    let show = !ctx.flight && vp.id !== ctx.tour.active && dist > 0.3 && !(inside && vp.marker.y > ctx.wallTop)
     if (show) {
       _p.copy(vp.marker).project(camera)
       show = _p.z < 1 && Math.abs(_p.x) < 1.05 && Math.abs(_p.y) < 1.05
@@ -542,6 +554,53 @@ export default function Viewer3D() {
     return () => window.removeEventListener('keydown', onKey)
   }, [tour, step, exitTour])
 
+  // ---------- saved views ----------
+  const savedActions = {
+    onSave: () => {
+      const ctx = ctxRef.current
+      if (!ctx) return
+      const st = useEditor.getState()
+      const floor = currentFloor(st)
+      const view = captureView(ctx, floorBase(st.project, floor.id))
+      const inRoom =
+        view.eye.h < floor.height ? floor.rooms.find((r) => pointInPolygon({ x: view.eye.x, y: view.eye.y }, r.points)) : undefined
+      const stem = inRoom ? `${inRoom.name.trim() || 'Room'} view` : view.eye.h > floor.height ? "Bird's-eye view" : 'Outside view'
+      const taken = new Set((floor.views ?? []).map((v) => v.name))
+      let name = stem
+      for (let i = 2; taken.has(name); i++) name = `${stem} ${i}`
+      const id = uid()
+      st.commit((d) => {
+        const f = draftFloor(d)
+        f.views = [...(f.views ?? []), { id, name, ...view }]
+      })
+      if (tour) setActive(`saved:${id}`)
+      toast.success(`Saved “${name}”`, { description: tour ? undefined : 'Find it under Viewpoints.' })
+    },
+    onRename: (savedId: string, name: string) =>
+      useEditor.getState().commit((d) => {
+        const v = draftFloor(d).views?.find((x) => x.id === savedId)
+        if (v) v.name = name
+      }),
+    onUpdate: (savedId: string) => {
+      const ctx = ctxRef.current
+      if (!ctx) return
+      const st = useEditor.getState()
+      const view = captureView(ctx, floorBase(st.project, st.floorId))
+      st.commit((d) => {
+        const v = draftFloor(d).views?.find((x) => x.id === savedId)
+        if (v) Object.assign(v, view)
+      })
+      toast.success('View updated')
+    },
+    onDelete: (savedId: string) => {
+      useEditor.getState().commit((d) => {
+        const f = draftFloor(d)
+        f.views = (f.views ?? []).filter((x) => x.id !== savedId)
+      })
+      if (active === `saved:${savedId}`) setActive(null)
+    },
+  }
+
   const registerMarker = useCallback((id: string, el: HTMLElement | null) => {
     const ctx = ctxRef.current
     if (!ctx) return
@@ -788,6 +847,7 @@ export default function Viewer3D() {
             onStep={step}
             onTogglePlay={() => setPlaying((p) => !p)}
             onExit={exitTour}
+            saved={savedActions}
           />
           <div className="pointer-events-none absolute bottom-30 left-1/2 -translate-x-1/2 rounded-full bg-foreground/80 px-3 py-1.5 text-xs whitespace-nowrap text-background max-md:hidden">
             Drag to look around · tap a marker or a name to go there
@@ -799,11 +859,21 @@ export default function Viewer3D() {
             <Keyboard className="size-3.5" />
             WASD / arrows to walk · numpad to look around · Q / E down / up · Shift faster
           </div>
-          {viewpoints.length > 0 && (
-            <Button size="lg" className="absolute right-3 bottom-3 rounded-full shadow-lg" onClick={startTour}>
-              <Camera /> Viewpoints
-            </Button>
-          )}
+          <div className="absolute right-3 bottom-3 flex items-center gap-2">
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button variant="secondary" size="icon-lg" className="rounded-full shadow-lg" onClick={savedActions.onSave} aria-label="Save this view">
+                  <BookmarkPlus />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>Save this view</TooltipContent>
+            </Tooltip>
+            {viewpoints.length > 0 && (
+              <Button size="lg" className="rounded-full shadow-lg" onClick={startTour}>
+                <Camera /> Viewpoints
+              </Button>
+            )}
+          </div>
         </>
       )}
     </div>
