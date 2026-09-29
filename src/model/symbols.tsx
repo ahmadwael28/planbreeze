@@ -1,0 +1,1028 @@
+import type { ReactNode } from 'react'
+import { LIGHT_COLORS } from './lighting'
+import type { PlanTheme } from './theme'
+import type { CeilingStyle, PlanSymbol } from './types'
+
+export type SymbolCategory =
+  | 'Doors & Windows'
+  | 'Lighting'
+  | 'Ceilings'
+  | 'Living'
+  | 'Bedroom'
+  | 'Kitchen'
+  | 'Bathroom'
+  | 'Electrical'
+  | 'Other'
+
+/** How a light fixture is mounted and how it lights the room in 3D. */
+export type FixtureKind =
+  | 'spot'
+  | 'profile'
+  | 'track'
+  | 'cove'
+  | 'pendant'
+  | 'linear-pendant'
+  | 'chandelier'
+  | 'ceiling'
+  | 'wall'
+  | 'switch'
+
+export interface SymbolDef {
+  type: string
+  name: string
+  category: SymbolCategory
+  width: number
+  depth: number
+  height: number
+  /** Door/window symbols snap into walls. */
+  wall?: boolean
+  /** Default height of the bottom of a wall opening above the floor (windows). */
+  sill?: number
+  /** Light fixtures and switches. */
+  fixture?: FixtureKind
+  /** Default height of the bottom above the floor (suspended and wall-mounted items). */
+  elevation?: number
+  /** Snaps flat against the inside of a wall (switches, wall lights). */
+  wallMount?: boolean
+  /** Library items that apply a gypsum ceiling style to a room instead of placing a symbol. */
+  ceilingStyle?: CeilingStyle
+  /** Draw the symbol centered at the origin: x ∈ [-w/2, w/2], y ∈ [-d/2, d/2]. */
+  render: (w: number, d: number, t: PlanTheme, sym?: PlanSymbol) => ReactNode
+}
+
+const glow = (sym?: PlanSymbol) => LIGHT_COLORS[sym?.light?.color ?? 'warm'].hex
+const AMBER = '#f59e0b'
+
+/** Small ceiling-plan icon for the gypsum ceiling styles. */
+function ceilingIcon(style: CeilingStyle, t: PlanTheme) {
+  const k = kit(t)
+  const hatch = t.dark ? '#52525b' : '#d4d4d8'
+  const W = 120
+  const H = 90
+  const box = (inset: number, fill: string, dash?: string) => (
+    <rect
+      x={-W / 2 + inset}
+      y={-H / 2 + inset}
+      width={W - inset * 2}
+      height={H - inset * 2}
+      {...k.s(fill)}
+      strokeDasharray={dash}
+    />
+  )
+  const led = (inset: number) => (
+    <rect
+      x={-W / 2 + inset}
+      y={-H / 2 + inset}
+      width={W - inset * 2}
+      height={H - inset * 2}
+      fill="none"
+      stroke={AMBER}
+      strokeWidth={2}
+      strokeDasharray="2 3"
+      vectorEffect="non-scaling-stroke"
+    />
+  )
+  return (
+    <>
+      {box(0, style === 'floating' ? t.fill : hatch)}
+      {(style === 'tray' || style === 'cove' || style === 'stepped') && box(18, t.fill, '4 3')}
+      {style === 'stepped' && box(30, t.fill, '4 3')}
+      {style === 'cove' && led(14)}
+      {style === 'floating' && (
+        <>
+          {box(16, hatch, '4 3')}
+          {led(12)}
+        </>
+      )}
+    </>
+  )
+}
+
+/** Drawing helpers bound to a theme. */
+function kit(t: PlanTheme) {
+  const base = {
+    stroke: t.ink,
+    strokeWidth: 1.2,
+    vectorEffect: 'non-scaling-stroke',
+    strokeLinejoin: 'round',
+  } as const
+  const s = (fill = t.fill) => ({ ...base, fill })
+  const line = { ...base, fill: 'none' }
+  const thin = { ...line, strokeWidth: 0.8 }
+
+  const box = (w: number, d: number, r = 0, fill = t.fill) => (
+    <rect x={-w / 2} y={-d / 2} width={w} height={d} rx={r} {...s(fill)} />
+  )
+
+  /** Door leaf + swing arc, hinged at x = hx, opening toward +y from the wall face y0. */
+  const swing = (hx: number, y0: number, leaf: number, dir: 1 | -1) => {
+    const tip = hx + dir * leaf
+    return (
+      <>
+        <line x1={hx} y1={y0} x2={hx} y2={y0 + leaf} {...s()} strokeWidth={2} />
+        <path
+          d={`M${tip},${y0} A${leaf},${leaf} 0 0 ${dir === 1 ? 1 : 0} ${hx},${y0 + leaf}`}
+          {...thin}
+          strokeDasharray="4 3"
+        />
+      </>
+    )
+  }
+
+  const opening = (w: number, d: number) => (
+    <>
+      <rect x={-w / 2} y={-d / 2 - 0.5} width={w} height={d + 1} fill={t.opening} stroke="none" />
+      <line x1={-w / 2} y1={-d / 2} x2={-w / 2} y2={d / 2} {...line} />
+      <line x1={w / 2} y1={-d / 2} x2={w / 2} y2={d / 2} {...line} />
+    </>
+  )
+
+  const chair = (x: number, y: number, rot: number, cw = 42, cd = 42) => (
+    <g transform={`translate(${x},${y}) rotate(${rot})`}>
+      <rect x={-cw / 2} y={-cd / 2} width={cw} height={cd} rx={5} {...s()} />
+      <rect x={-cw / 2} y={-cd / 2} width={cw} height={8} rx={3} {...s(t.fill2)} />
+    </g>
+  )
+
+  return { s, line, thin, box, swing, opening, chair }
+}
+
+export const SYMBOLS: SymbolDef[] = [
+  // ---------- Doors & Windows ----------
+  {
+    type: 'door',
+    name: 'Door',
+    category: 'Doors & Windows',
+    width: 90,
+    depth: 10,
+    height: 210,
+    wall: true,
+    render: (w, d, t) => {
+      const k = kit(t)
+      return (
+        <>
+          {k.opening(w, d)}
+          {k.swing(-w / 2, d / 2, w, 1)}
+        </>
+      )
+    },
+  },
+  {
+    type: 'door-double',
+    name: 'Double door',
+    category: 'Doors & Windows',
+    width: 160,
+    depth: 10,
+    height: 210,
+    wall: true,
+    render: (w, d, t) => {
+      const k = kit(t)
+      return (
+        <>
+          {k.opening(w, d)}
+          {k.swing(-w / 2, d / 2, w / 2, 1)}
+          {k.swing(w / 2, d / 2, w / 2, -1)}
+        </>
+      )
+    },
+  },
+  {
+    type: 'door-sliding',
+    name: 'Sliding door',
+    category: 'Doors & Windows',
+    width: 180,
+    depth: 10,
+    height: 210,
+    wall: true,
+    render: (w, d, t) => {
+      const k = kit(t)
+      return (
+        <>
+          {k.opening(w, d)}
+          <rect x={-w / 2} y={-d / 4} width={w * 0.55} height={d / 4} {...k.s()} />
+          <rect x={w / 2 - w * 0.55} y={0} width={w * 0.55} height={d / 4} {...k.s()} />
+        </>
+      )
+    },
+  },
+  {
+    type: 'opening',
+    name: 'Opening',
+    category: 'Doors & Windows',
+    width: 90,
+    depth: 10,
+    height: 210,
+    wall: true,
+    render: (w, d, t) => kit(t).opening(w, d),
+  },
+  {
+    type: 'window',
+    name: 'Window',
+    category: 'Doors & Windows',
+    width: 120,
+    depth: 10,
+    height: 120,
+    sill: 90,
+    wall: true,
+    render: (w, d, t) => {
+      const k = kit(t)
+      return (
+        <>
+          {k.opening(w, d)}
+          <rect x={-w / 2} y={-d / 2} width={w} height={d} {...k.s()} />
+          <line x1={-w / 2} y1={0} x2={w / 2} y2={0} {...k.line} />
+        </>
+      )
+    },
+  },
+  {
+    type: 'window-wide',
+    name: 'Double window',
+    category: 'Doors & Windows',
+    width: 180,
+    depth: 10,
+    height: 140,
+    sill: 80,
+    wall: true,
+    render: (w, d, t) => {
+      const k = kit(t)
+      return (
+        <>
+          {k.opening(w, d)}
+          <rect x={-w / 2} y={-d / 2} width={w} height={d} {...k.s()} />
+          <line x1={-w / 2} y1={0} x2={w / 2} y2={0} {...k.line} />
+          <line x1={0} y1={-d / 2} x2={0} y2={d / 2} {...k.line} />
+        </>
+      )
+    },
+  },
+
+  // ---------- Living ----------
+  {
+    type: 'sofa',
+    name: 'Sofa',
+    category: 'Living',
+    width: 210,
+    depth: 90,
+    height: 80,
+    render: (w, d, t) => {
+      const k = kit(t)
+      return (
+        <>
+          {k.box(w, d, 8)}
+          <rect x={-w / 2} y={-d / 2} width={w} height={d * 0.25} rx={6} {...k.s(t.fill2)} />
+          <rect x={-w / 2} y={-d / 2} width={w * 0.1} height={d} rx={6} {...k.s(t.fill2)} />
+          <rect x={w / 2 - w * 0.1} y={-d / 2} width={w * 0.1} height={d} rx={6} {...k.s(t.fill2)} />
+          <line x1={0} y1={-d / 4} x2={0} y2={d / 2} {...k.thin} />
+        </>
+      )
+    },
+  },
+  {
+    type: 'armchair',
+    name: 'Armchair',
+    category: 'Living',
+    width: 85,
+    depth: 85,
+    height: 80,
+    render: (w, d, t) => {
+      const k = kit(t)
+      return (
+        <>
+          {k.box(w, d, 8)}
+          <rect x={-w / 2} y={-d / 2} width={w} height={d * 0.25} rx={6} {...k.s(t.fill2)} />
+          <rect x={-w / 2} y={-d / 2} width={w * 0.18} height={d} rx={6} {...k.s(t.fill2)} />
+          <rect x={w / 2 - w * 0.18} y={-d / 2} width={w * 0.18} height={d} rx={6} {...k.s(t.fill2)} />
+        </>
+      )
+    },
+  },
+  {
+    type: 'coffee-table',
+    name: 'Coffee table',
+    category: 'Living',
+    width: 110,
+    depth: 60,
+    height: 45,
+    render: (w, d, t) => {
+      const k = kit(t)
+      return (
+        <>
+          {k.box(w, d, 4)}
+          <rect x={-w / 2 + 6} y={-d / 2 + 6} width={w - 12} height={d - 12} rx={2} {...k.thin} />
+        </>
+      )
+    },
+  },
+  {
+    type: 'tv-unit',
+    name: 'TV unit',
+    category: 'Living',
+    width: 160,
+    depth: 45,
+    height: 50,
+    render: (w, d, t) => {
+      const k = kit(t)
+      return (
+        <>
+          {k.box(w, d)}
+          <rect x={-w * 0.35} y={-d / 2 + 4} width={w * 0.7} height={6} {...k.s(t.ink)} />
+        </>
+      )
+    },
+  },
+  {
+    type: 'dining-table',
+    name: 'Dining table',
+    category: 'Living',
+    width: 160,
+    depth: 90,
+    height: 75,
+    render: (w, d, t) => {
+      const k = kit(t)
+      return (
+        <>
+          {k.chair(-w / 4, -d / 2 - 10, 0)}
+          {k.chair(w / 4, -d / 2 - 10, 0)}
+          {k.chair(-w / 4, d / 2 + 10, 180)}
+          {k.chair(w / 4, d / 2 + 10, 180)}
+          {k.box(w, d, 3)}
+        </>
+      )
+    },
+  },
+  {
+    type: 'round-table',
+    name: 'Round table',
+    category: 'Living',
+    width: 110,
+    depth: 110,
+    height: 75,
+    render: (w, d, t) => {
+      const k = kit(t)
+      return (
+        <>
+          {k.chair(0, -d / 2 - 8, 0)}
+          {k.chair(0, d / 2 + 8, 180)}
+          {k.chair(-w / 2 - 8, 0, -90)}
+          {k.chair(w / 2 + 8, 0, 90)}
+          <ellipse cx={0} cy={0} rx={w / 2} ry={d / 2} {...k.s()} />
+        </>
+      )
+    },
+  },
+  {
+    type: 'chair',
+    name: 'Chair',
+    category: 'Living',
+    width: 45,
+    depth: 45,
+    height: 90,
+    render: (w, d, t) => kit(t).chair(0, 0, 0, w, d),
+  },
+  {
+    type: 'bookshelf',
+    name: 'Bookshelf',
+    category: 'Living',
+    width: 100,
+    depth: 35,
+    height: 200,
+    render: (w, d, t) => {
+      const k = kit(t)
+      return (
+        <>
+          {k.box(w, d)}
+          {[-0.25, 0, 0.25].map((f) => (
+            <line key={f} x1={f * w} y1={-d / 2} x2={f * w} y2={d / 2} {...k.thin} />
+          ))}
+        </>
+      )
+    },
+  },
+  {
+    type: 'plant',
+    name: 'Plant',
+    category: 'Living',
+    width: 50,
+    depth: 50,
+    height: 100,
+    render: (w, d, t) => {
+      const k = kit(t)
+      return (
+        <>
+          <ellipse cx={0} cy={0} rx={w / 2} ry={d / 2} {...k.s(t.tint('#dcfce7'))} />
+          {[0, 60, 120].map((a) => (
+            <ellipse key={a} cx={0} cy={0} rx={w / 2} ry={d / 7} transform={`rotate(${a})`} {...k.thin} />
+          ))}
+        </>
+      )
+    },
+  },
+
+  // ---------- Bedroom ----------
+  {
+    type: 'bed-double',
+    name: 'Double bed',
+    category: 'Bedroom',
+    width: 160,
+    depth: 200,
+    height: 50,
+    render: (w, d, t) => {
+      const k = kit(t)
+      return (
+        <>
+          {k.box(w, d, 3)}
+          <rect x={-w / 2 + 8} y={-d / 2 + 8} width={w / 2 - 12} height={d * 0.14} rx={6} {...k.s(t.fill2)} />
+          <rect x={4} y={-d / 2 + 8} width={w / 2 - 12} height={d * 0.14} rx={6} {...k.s(t.fill2)} />
+          <path d={`M${-w / 2},${-d / 2 + d * 0.3} H${w / 2} V${d / 2} H${-w / 2} Z`} {...k.s(t.tint('#e0e7ff'))} />
+        </>
+      )
+    },
+  },
+  {
+    type: 'bed-single',
+    name: 'Single bed',
+    category: 'Bedroom',
+    width: 90,
+    depth: 200,
+    height: 50,
+    render: (w, d, t) => {
+      const k = kit(t)
+      return (
+        <>
+          {k.box(w, d, 3)}
+          <rect x={-w / 2 + 8} y={-d / 2 + 8} width={w - 16} height={d * 0.14} rx={6} {...k.s(t.fill2)} />
+          <path d={`M${-w / 2},${-d / 2 + d * 0.3} H${w / 2} V${d / 2} H${-w / 2} Z`} {...k.s(t.tint('#e0e7ff'))} />
+        </>
+      )
+    },
+  },
+  {
+    type: 'wardrobe',
+    name: 'Wardrobe',
+    category: 'Bedroom',
+    width: 120,
+    depth: 60,
+    height: 220,
+    render: (w, d, t) => {
+      const k = kit(t)
+      return (
+        <>
+          {k.box(w, d)}
+          <line x1={0} y1={-d / 2} x2={0} y2={d / 2} {...k.line} />
+          <line x1={-w / 2 + 5} y1={0} x2={w / 2 - 5} y2={0} {...k.thin} strokeDasharray="6 4" />
+        </>
+      )
+    },
+  },
+  {
+    type: 'nightstand',
+    name: 'Nightstand',
+    category: 'Bedroom',
+    width: 45,
+    depth: 40,
+    height: 55,
+    render: (w, d, t) => {
+      const k = kit(t)
+      return (
+        <>
+          {k.box(w, d, 2)}
+          <circle cx={0} cy={0} r={Math.min(w, d) / 5} {...k.thin} />
+        </>
+      )
+    },
+  },
+  {
+    type: 'desk',
+    name: 'Desk',
+    category: 'Bedroom',
+    width: 120,
+    depth: 60,
+    height: 75,
+    render: (w, d, t) => {
+      const k = kit(t)
+      return (
+        <>
+          {k.chair(0, d / 2 + 5, 180)}
+          {k.box(w, d)}
+        </>
+      )
+    },
+  },
+
+  // ---------- Kitchen ----------
+  {
+    type: 'counter',
+    name: 'Counter',
+    category: 'Kitchen',
+    width: 120,
+    depth: 60,
+    height: 90,
+    render: (w, d, t) => {
+      const k = kit(t)
+      return (
+        <>
+          {k.box(w, d, 0, t.fill)}
+          <line x1={-w / 2} y1={d / 2 - 4} x2={w / 2} y2={d / 2 - 4} {...k.thin} />
+        </>
+      )
+    },
+  },
+  {
+    type: 'kitchen-sink',
+    name: 'Sink',
+    category: 'Kitchen',
+    width: 80,
+    depth: 60,
+    height: 90,
+    render: (w, d, t) => {
+      const k = kit(t)
+      return (
+        <>
+          {k.box(w, d)}
+          <rect x={-w / 2 + 8} y={-d / 2 + 12} width={w - 16} height={d - 20} rx={6} {...k.s(t.fill2)} />
+          <circle cx={0} cy={-d / 2 + 7} r={2.5} {...k.s(t.ink)} />
+        </>
+      )
+    },
+  },
+  {
+    type: 'stove',
+    name: 'Stove',
+    category: 'Kitchen',
+    width: 60,
+    depth: 60,
+    height: 90,
+    render: (w, d, t) => {
+      const k = kit(t)
+      return (
+        <>
+          {k.box(w, d)}
+          {[
+            [-1, -1],
+            [1, -1],
+            [-1, 1],
+            [1, 1],
+          ].map(([a, b]) => (
+            <circle key={`${a}${b}`} cx={(a * w) / 4.5} cy={(b * d) / 4.5} r={Math.min(w, d) / 7} {...k.line} />
+          ))}
+        </>
+      )
+    },
+  },
+  {
+    type: 'fridge',
+    name: 'Fridge',
+    category: 'Kitchen',
+    width: 70,
+    depth: 70,
+    height: 180,
+    render: (w, d, t) => {
+      const k = kit(t)
+      return (
+        <>
+          {k.box(w, d)}
+          <line x1={-w / 2} y1={d / 2 - 8} x2={w / 2} y2={d / 2 - 8} {...k.line} />
+          <text x={0} y={4} fontSize={Math.min(w, d) / 3.5} textAnchor="middle" fill={t.ink} fontFamily="sans-serif">
+            REF
+          </text>
+        </>
+      )
+    },
+  },
+
+  // ---------- Bathroom ----------
+  {
+    type: 'toilet',
+    name: 'Toilet',
+    category: 'Bathroom',
+    width: 40,
+    depth: 65,
+    height: 80,
+    render: (w, d, t) => {
+      const k = kit(t)
+      return (
+        <>
+          <rect x={-w / 2} y={-d / 2} width={w} height={d * 0.3} rx={3} {...k.s()} />
+          <ellipse cx={0} cy={d * 0.12} rx={w * 0.42} ry={d * 0.36} {...k.s()} />
+        </>
+      )
+    },
+  },
+  {
+    type: 'washbasin',
+    name: 'Washbasin',
+    category: 'Bathroom',
+    width: 60,
+    depth: 45,
+    height: 85,
+    render: (w, d, t) => {
+      const k = kit(t)
+      return (
+        <>
+          {k.box(w, d, 4)}
+          <ellipse cx={0} cy={d * 0.06} rx={w * 0.36} ry={d * 0.3} {...k.s(t.fill2)} />
+          <circle cx={0} cy={-d / 2 + 6} r={2.5} {...k.s(t.ink)} />
+        </>
+      )
+    },
+  },
+  {
+    type: 'bathtub',
+    name: 'Bathtub',
+    category: 'Bathroom',
+    width: 170,
+    depth: 75,
+    height: 55,
+    render: (w, d, t) => {
+      const k = kit(t)
+      return (
+        <>
+          {k.box(w, d, 6)}
+          <rect x={-w / 2 + 8} y={-d / 2 + 8} width={w - 16} height={d - 16} rx={d / 3} {...k.s(t.fill2)} />
+          <circle cx={-w / 2 + 18} cy={0} r={3} {...k.s(t.ink)} />
+        </>
+      )
+    },
+  },
+  {
+    type: 'shower',
+    name: 'Shower',
+    category: 'Bathroom',
+    width: 90,
+    depth: 90,
+    height: 200,
+    render: (w, d, t) => {
+      const k = kit(t)
+      return (
+        <>
+          {k.box(w, d)}
+          <line x1={-w / 2} y1={-d / 2} x2={w / 2} y2={d / 2} {...k.thin} />
+          <line x1={w / 2} y1={-d / 2} x2={-w / 2} y2={d / 2} {...k.thin} />
+          <circle cx={0} cy={0} r={4} {...k.s()} />
+        </>
+      )
+    },
+  },
+
+  // ---------- Electrical ----------
+  {
+    type: 'outlet',
+    name: 'Outlet',
+    category: 'Electrical',
+    width: 20,
+    depth: 20,
+    height: 30,
+    render: (w, d, t) => {
+      const k = kit(t)
+      return (
+        <>
+          <circle cx={0} cy={0} r={Math.min(w, d) / 2} {...k.s()} />
+          <line x1={-w / 2} y1={0} x2={w / 2} y2={0} {...k.line} />
+          <line x1={-w / 5} y1={-d / 2} x2={-w / 5} y2={0} {...k.line} />
+          <line x1={w / 5} y1={-d / 2} x2={w / 5} y2={0} {...k.line} />
+        </>
+      )
+    },
+  },
+  {
+    type: 'switch',
+    name: 'Light switch',
+    category: 'Lighting',
+    width: 20,
+    depth: 20,
+    height: 110,
+    fixture: 'switch',
+    wallMount: true,
+    render: (w, d, t) => {
+      const k = kit(t)
+      return (
+        <>
+          <circle cx={0} cy={0} r={Math.min(w, d) / 3} {...k.s()} />
+          <line x1={w / 5} y1={-d / 5} x2={w / 2} y2={-d / 2} {...k.line} />
+        </>
+      )
+    },
+  },
+  {
+    type: 'light',
+    name: 'Ceiling light',
+    category: 'Lighting',
+    width: 30,
+    depth: 30,
+    height: 8,
+    fixture: 'ceiling',
+    render: (w, d, t, sym) => {
+      const k = kit(t)
+      return (
+        <>
+          <circle cx={0} cy={0} r={Math.min(w, d) / 2} {...k.s(glow(sym))} />
+          <line x1={-w / 2.8} y1={-d / 2.8} x2={w / 2.8} y2={d / 2.8} {...k.line} />
+          <line x1={w / 2.8} y1={-d / 2.8} x2={-w / 2.8} y2={d / 2.8} {...k.line} />
+        </>
+      )
+    },
+  },
+
+  // ---------- Lighting ----------
+  {
+    type: 'spot',
+    name: 'Recessed spot',
+    category: 'Lighting',
+    width: 16,
+    depth: 16,
+    height: 8,
+    fixture: 'spot',
+    render: (w, _d, t, sym) => {
+      const k = kit(t)
+      return (
+        <>
+          <circle cx={0} cy={0} r={w / 2} {...k.s()} />
+          <circle cx={0} cy={0} r={w / 4} {...k.s(glow(sym))} />
+          <line x1={-w * 0.7} y1={0} x2={w * 0.7} y2={0} {...k.thin} />
+          <line x1={0} y1={-w * 0.7} x2={0} y2={w * 0.7} {...k.thin} />
+        </>
+      )
+    },
+  },
+  {
+    type: 'led-profile',
+    name: 'LED profile',
+    category: 'Lighting',
+    width: 120,
+    depth: 6,
+    height: 7,
+    fixture: 'profile',
+    render: (w, d, t, sym) => {
+      const k = kit(t)
+      return (
+        <>
+          <rect x={-w / 2} y={-d / 2} width={w} height={d} rx={1} {...k.s(glow(sym))} />
+          <line x1={-w / 2 + 3} y1={0} x2={w / 2 - 3} y2={0} {...k.thin} strokeDasharray="6 4" />
+        </>
+      )
+    },
+  },
+  {
+    type: 'track',
+    name: 'Magnetic track',
+    category: 'Lighting',
+    width: 200,
+    depth: 5,
+    height: 5,
+    fixture: 'track',
+    render: (w, d, t, sym) => {
+      const k = kit(t)
+      const mods = sym?.modules ?? [
+        { id: 'a', kind: 'spot' as const, offset: w * 0.2 },
+        { id: 'b', kind: 'linear' as const, offset: w * 0.5 },
+        { id: 'c', kind: 'spot' as const, offset: w * 0.8 },
+      ]
+      return (
+        <>
+          <rect x={-w / 2} y={-d / 2} width={w} height={d} {...k.s(t.ink)} />
+          {mods.map((m) => {
+            const x = m.offset - w / 2
+            if (m.kind === 'spot') return <circle key={m.id} cx={x} cy={0} r={7} {...k.s(glow(sym))} />
+            if (m.kind === 'linear') {
+              return <rect key={m.id} x={x - 18} y={-5} width={36} height={10} rx={2} {...k.s(glow(sym))} />
+            }
+            return (
+              <g key={m.id}>
+                <rect x={x - 14} y={-6} width={28} height={12} rx={2} {...k.s()} />
+                {[-8, 0, 8].map((o) => (
+                  <circle key={o} cx={x + o} cy={0} r={3} {...k.s(glow(sym))} />
+                ))}
+              </g>
+            )
+          })}
+        </>
+      )
+    },
+  },
+  {
+    type: 'cove-light',
+    name: 'Cove / hidden light',
+    category: 'Lighting',
+    width: 90,
+    depth: 70,
+    height: 2,
+    fixture: 'cove',
+    render: (w, d, t, sym) => (
+      <>
+        <rect x={-w / 2} y={-d / 2} width={w} height={d} fill="none" stroke={t.ink} strokeWidth={1} vectorEffect="non-scaling-stroke" />
+        <rect
+          x={-w / 2 + 8}
+          y={-d / 2 + 8}
+          width={w - 16}
+          height={d - 16}
+          fill="none"
+          stroke={sym?.light?.color === 'cool' ? '#60a5fa' : AMBER}
+          strokeWidth={2.5}
+          strokeDasharray="3 3"
+          vectorEffect="non-scaling-stroke"
+        />
+      </>
+    ),
+  },
+  {
+    type: 'pendant',
+    name: 'Pendant light',
+    category: 'Lighting',
+    width: 40,
+    depth: 40,
+    height: 30,
+    elevation: 165,
+    fixture: 'pendant',
+    render: (w, _d, t, sym) => {
+      const k = kit(t)
+      return (
+        <>
+          <circle cx={0} cy={0} r={w / 2} {...k.s()} strokeDasharray="4 3" />
+          <circle cx={0} cy={0} r={w / 5} {...k.s(glow(sym))} />
+          <line x1={-w / 2} y1={0} x2={w / 2} y2={0} {...k.thin} />
+          <line x1={0} y1={-w / 2} x2={0} y2={w / 2} {...k.thin} />
+        </>
+      )
+    },
+  },
+  {
+    type: 'linear-pendant',
+    name: 'Linear pendant',
+    category: 'Lighting',
+    width: 120,
+    depth: 12,
+    height: 8,
+    elevation: 170,
+    fixture: 'linear-pendant',
+    render: (w, d, t, sym) => {
+      const k = kit(t)
+      return (
+        <>
+          <rect x={-w / 2} y={-d / 2} width={w} height={d} rx={d / 2} {...k.s()} strokeDasharray="4 3" />
+          <rect x={-w / 2 + 6} y={-d / 6} width={w - 12} height={d / 3} {...k.s(glow(sym))} />
+        </>
+      )
+    },
+  },
+  {
+    type: 'chandelier',
+    name: 'Chandelier',
+    category: 'Lighting',
+    width: 70,
+    depth: 70,
+    height: 60,
+    elevation: 190,
+    fixture: 'chandelier',
+    render: (w, _d, t, sym) => {
+      const k = kit(t)
+      const r = w / 2
+      return (
+        <>
+          <circle cx={0} cy={0} r={r} {...k.thin} strokeDasharray="4 3" />
+          {[0, 60, 120, 180, 240, 300].map((a) => {
+            const x = Math.cos((a * Math.PI) / 180) * r * 0.75
+            const y = Math.sin((a * Math.PI) / 180) * r * 0.75
+            return (
+              <g key={a}>
+                <line x1={0} y1={0} x2={x} y2={y} {...k.line} />
+                <circle cx={x} cy={y} r={r * 0.14} {...k.s(glow(sym))} />
+              </g>
+            )
+          })}
+          <circle cx={0} cy={0} r={r * 0.16} {...k.s(t.ink)} />
+        </>
+      )
+    },
+  },
+  {
+    type: 'wall-light',
+    name: 'Wall light',
+    category: 'Lighting',
+    width: 30,
+    depth: 15,
+    height: 25,
+    elevation: 180,
+    fixture: 'wall',
+    wallMount: true,
+    render: (w, d, t, sym) => {
+      const k = kit(t)
+      return (
+        <>
+          <path d={`M${-w / 2},${-d / 2} A${w / 2},${d} 0 0 0 ${w / 2},${-d / 2} Z`} {...k.s(glow(sym))} />
+          <line x1={-w / 2} y1={-d / 2} x2={w / 2} y2={-d / 2} {...k.s()} strokeWidth={2} />
+        </>
+      )
+    },
+  },
+
+  // ---------- Ceilings (gypsum board) ----------
+  ...(['flat', 'tray', 'cove', 'floating', 'stepped'] as const).map(
+    (style): SymbolDef => ({
+      type: `ceiling-${style}`,
+      name: {
+        flat: 'Flat drop ceiling',
+        tray: 'Tray ceiling',
+        cove: 'Cove ceiling',
+        floating: 'Floating panel',
+        stepped: 'Double step',
+      }[style],
+      category: 'Ceilings',
+      width: 120,
+      depth: 90,
+      height: 0,
+      ceilingStyle: style,
+      render: (_w, _d, t) => ceilingIcon(style, t),
+    }),
+  ),
+  {
+    type: 'gypsum-box',
+    name: 'Gypsum box',
+    category: 'Ceilings',
+    width: 120,
+    depth: 60,
+    height: 30,
+    render: (w, d, t) => {
+      const k = kit(t)
+      const hatch = t.dark ? '#52525b' : '#d4d4d8'
+      return (
+        <>
+          <rect x={-w / 2} y={-d / 2} width={w} height={d} {...k.s(hatch)} strokeDasharray="6 4" />
+          <line x1={-w / 2} y1={-d / 2} x2={w / 2} y2={d / 2} {...k.thin} />
+          <line x1={w / 2} y1={-d / 2} x2={-w / 2} y2={d / 2} {...k.thin} />
+        </>
+      )
+    },
+  },
+
+  // ---------- Other ----------
+  {
+    type: 'stairs',
+    name: 'Stairs',
+    category: 'Other',
+    width: 100,
+    depth: 280,
+    height: 280,
+    render: (w, d, t) => {
+      const k = kit(t)
+      const steps = Math.max(2, Math.round(d / 28))
+      return (
+        <>
+          {k.box(w, d)}
+          {Array.from({ length: steps - 1 }, (_, i) => {
+            const y = -d / 2 + ((i + 1) * d) / steps
+            return <line key={i} x1={-w / 2} y1={y} x2={w / 2} y2={y} {...k.thin} />
+          })}
+          <path
+            d={`M0,${d / 2 - 10} V${-d / 2 + 14} M-8,${-d / 2 + 26} L0,${-d / 2 + 12} L8,${-d / 2 + 26}`}
+            {...k.line}
+          />
+        </>
+      )
+    },
+  },
+  {
+    type: 'column',
+    name: 'Column',
+    category: 'Other',
+    width: 30,
+    depth: 30,
+    height: 250,
+    render: (w, d, t) => kit(t).box(w, d, 0, t.wall),
+  },
+  {
+    type: 'label',
+    name: 'Text label',
+    category: 'Other',
+    width: 120,
+    depth: 30,
+    height: 0,
+    render: (_w, d, t, sym) => (
+      <text
+        x={0}
+        y={0}
+        fontSize={d}
+        textAnchor="middle"
+        dominantBaseline="central"
+        fill={t.label}
+        fontFamily="system-ui, sans-serif"
+      >
+        {sym?.label || 'Label'}
+      </text>
+    ),
+  },
+]
+
+export const SYMBOL_MAP = new Map(SYMBOLS.map((d) => [d.type, d]))
+
+export const CATEGORIES: SymbolCategory[] = [
+  'Doors & Windows',
+  'Lighting',
+  'Ceilings',
+  'Living',
+  'Bedroom',
+  'Kitchen',
+  'Bathroom',
+  'Electrical',
+  'Other',
+]
