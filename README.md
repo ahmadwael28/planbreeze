@@ -41,6 +41,8 @@ Built with React 19, TypeScript, Vite, Tailwind CSS v4, shadcn/ui (Radix), zusta
 - Symbol library: furniture, kitchen, bathroom, electrical, stairs, labels
 - Multiple floors, with the floor below shown faintly while editing
 - 3D view with openings cut into walls, floor stacking, orbit camera and click-to-select
+- Viewpoints: one tap takes the camera to a spot in any room or around the home, then drag to look around (no steering needed); an automatic tour visits every spot
+- Camera lens: normal, wide or ultra-wide, to see more of a room at once
 - Walk through the 3D model with the keyboard: WASD / arrow keys, numpad to look in any direction (5 looks straight ahead), Q / E down / up, Shift to run; walls stop you, doorways let you through
 - Automatic room, wall and level areas, perimeters and symbol counts
 - Metric and imperial units

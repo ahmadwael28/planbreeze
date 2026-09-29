@@ -27,6 +27,9 @@ const CODE_ACTIONS = new Map<string, Action[]>()
 for (const a of Object.keys(ACTIONS) as Action[]) {
   for (const c of ACTIONS[a]) CODE_ACTIONS.set(c, [...(CODE_ACTIONS.get(c) ?? []), a])
 }
+const LOOK_ACTIONS = new Set<Action>(['turnLeft', 'turnRight', 'lookUp', 'lookDown', 'level'])
+/** When only looking around, the up / down arrows look up / down instead of walking. */
+const LOOK_ONLY_ARROWS: Record<string, Action[]> = { ArrowUp: ['lookUp'], ArrowDown: ['lookDown'] }
 
 const UP = new THREE.Vector3(0, 1, 0)
 const WALK = 1.6 // m/s
@@ -60,6 +63,7 @@ export class KeyboardNav {
   private camera: THREE.PerspectiveCamera
   private controls: OrbitControls
   private opts: KeyboardNavOptions
+  private lookOnly = false
 
   constructor(camera: THREE.PerspectiveCamera, controls: OrbitControls, opts: KeyboardNavOptions) {
     this.camera = camera
@@ -67,11 +71,24 @@ export class KeyboardNav {
     this.opts = opts
   }
 
+  /** Only look around (turn and tilt) without moving, e.g. while standing at a viewpoint. */
+  setLookOnly(on: boolean) {
+    this.lookOnly = on
+    this.held.clear()
+    this.pressed.clear()
+  }
+
+  private actionsFor(code: string): Action[] | undefined {
+    if (!this.lookOnly) return CODE_ACTIONS.get(code)
+    const look = LOOK_ONLY_ARROWS[code] ?? CODE_ACTIONS.get(code)?.filter((a) => LOOK_ACTIONS.has(a))
+    return look?.length ? look : undefined
+  }
+
   /** Start listening; returns a function that stops. */
   attach() {
     const down = (e: KeyboardEvent) => {
       this.fast = e.shiftKey
-      if (!CODE_ACTIONS.has(e.code) || e.ctrlKey || e.metaKey || e.altKey || isEditing(e.target)) return
+      if (!this.actionsFor(e.code) || e.ctrlKey || e.metaKey || e.altKey || isEditing(e.target)) return
       e.preventDefault() // no page scrolling on arrow keys
       if (!this.held.size) this.opts.onStart?.()
       this.held.add(e.code)
@@ -125,7 +142,7 @@ export class KeyboardNav {
     const tapped = [...this.pressed].some((c) => !this.held.has(c))
     this.pressed.clear()
     if (!codes.size) return false
-    const h = new Set([...codes].flatMap((c) => CODE_ACTIONS.get(c) ?? []))
+    const h = new Set([...codes].flatMap((c) => this.actionsFor(c) ?? []))
     dt = tapped ? Math.max(dt, TAP) : Math.min(dt, 0.1) // don't jump after a stall
     const cam = this.camera.position
     const target = this.controls.target

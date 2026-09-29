@@ -40,6 +40,8 @@ export interface Settings {
   daylight: number
   /** 3D: show gypsum ceilings (seen from inside rooms). */
   showCeilings: boolean
+  /** 3D camera lens: how much of the scene fits in view. */
+  lens3d: 'normal' | 'wide' | 'ultra'
 }
 
 export type ViewMode = '2d' | '3d'
@@ -57,6 +59,7 @@ const defaultSettings: Settings = {
   showDimensions: true,
   daylight: 1,
   showCeilings: true,
+  lens3d: 'normal',
 }
 
 function loadSettings(): Settings {

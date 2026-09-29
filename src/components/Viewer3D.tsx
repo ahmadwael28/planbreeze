@@ -1,9 +1,18 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { PointerEvent as RPointerEvent } from 'react'
 import * as THREE from 'three'
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
 import { RectAreaLightUniformsLib } from 'three/addons/lights/RectAreaLightUniformsLib.js'
-import { DoorOpen, Keyboard, Lightbulb, LightbulbOff, Moon, RotateCcw, SquareDashed, Sun, X } from 'lucide-react'
+import { Aperture, Camera, DoorOpen, Keyboard, Lightbulb, LightbulbOff, Moon, RotateCcw, SquareDashed, Sun, X } from 'lucide-react'
+import { ViewpointBar, ViewpointMarkers } from '@/components/Viewpoints'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuLabel,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
 import { Kbd } from '@/components/ui/kbd'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { Button } from '@/components/ui/button'
@@ -22,6 +31,8 @@ import { buildProjectGroup, SLAB } from '@/three/buildScene'
 import type { FloorFilter, PickInfo } from '@/three/buildScene'
 import { KEY_HELP, KeyboardNav, NUMPAD_HELP } from '@/three/keyboardNav'
 import { applyLightState } from '@/three/lighting3d'
+import { computeViewpoints, LENSES, planFlight, stepFlight, verticalFov } from '@/three/viewpoints'
+import type { Flight, Lens, Viewpoint } from '@/three/viewpoints'
 
 /** The scene is modeled in cm and shown in meters, so light falloff is physically plausible. */
 const WORLD_SCALE = 0.01
@@ -40,6 +51,54 @@ interface Ctx {
   fitted: boolean
   /** Top of the visible walls (m): keyboard walking collides with walls below this. */
   wallTop: number
+  nav: KeyboardNav | null
+  lens: Lens
+  /** Set while showing viewpoints: their markers are positioned after each render. */
+  tour: { points: Viewpoint[]; active: string | null } | null
+  markers: Map<string, HTMLElement>
+  flight: Flight | null
+}
+
+function walls(ctx: Ctx) {
+  return (ctx.content?.userData.walls as THREE.Object3D[] | undefined) ?? []
+}
+
+function applyLens(ctx: Ctx) {
+  ctx.camera.fov = verticalFov(ctx.lens, ctx.camera.aspect)
+  ctx.camera.updateProjectionMatrix()
+  // At a viewpoint the scene follows the pointer while dragging, like a panorama.
+  ctx.controls.rotateSpeed = ctx.tour ? -THREE.MathUtils.degToRad(ctx.camera.fov) / (2 * Math.PI) : 1
+  ctx.dirty = true
+}
+
+const _p = new THREE.Vector3()
+const _ray = new THREE.Raycaster()
+
+/** Put each viewpoint marker over its spot, hiding it when it's behind the camera or a wall. */
+function placeMarkers(ctx: Ctx) {
+  if (!ctx.tour) return
+  const { camera } = ctx
+  const { clientWidth: w, clientHeight: h } = ctx.renderer.domElement
+  const inside = camera.position.y < ctx.wallTop
+  const ws = walls(ctx)
+  for (const vp of ctx.tour.points) {
+    const el = ctx.markers.get(vp.id)
+    if (!el) continue
+    const dist = camera.position.distanceTo(vp.marker)
+    // Outside viewpoints float above the home, so they'd only confuse from inside a room.
+    let show = !ctx.flight && vp.id !== ctx.tour.active && dist > 0.3 && !(inside && vp.kind === 'outside')
+    if (show) {
+      _p.copy(vp.marker).project(camera)
+      show = _p.z < 1 && Math.abs(_p.x) < 1.05 && Math.abs(_p.y) < 1.05
+    }
+    if (show && inside && ws.length) {
+      _ray.set(camera.position, vp.marker.clone().sub(camera.position).normalize())
+      _ray.far = dist - 0.05
+      show = !_ray.intersectObjects(ws, false).length
+    }
+    el.style.visibility = show ? 'visible' : 'hidden'
+    if (show) el.style.transform = `translate(${((_p.x + 1) / 2) * w}px, ${((1 - _p.y) / 2) * h}px) translate(-50%, -20px)`
+  }
 }
 
 const mix = (a: string, b: string, t: number) => new THREE.Color(a).lerp(new THREE.Color(b), t)
@@ -208,9 +267,14 @@ export default function Viewer3D() {
   const showCeilings = useEditor((s) => s.settings.showCeilings)
   const daylight = useEditor((s) => s.settings.daylight)
   const lightStates = useEditor((s) => s.lightStates)
+  const lens = useEditor((s) => s.settings.lens3d)
   const setSettings = useEditor((s) => s.setSettings)
   const theme = usePlanTheme()
   const [built, setBuilt] = useState(0)
+  const [tour, setTour] = useState(false)
+  const [active, setActive] = useState<string | null>(null)
+  const [playing, setPlaying] = useState(false)
+  const viewpoints = useMemo(() => computeViewpoints(project, floorId), [project, floorId])
 
   // ---------- one-time setup ----------
   useEffect(() => {
@@ -253,17 +317,38 @@ export default function Viewer3D() {
     ground.receiveShadow = true
     scene.add(ground)
 
-    const ctx: Ctx = { renderer, scene, world, camera, controls, sun, hemi, ground, content: null, dirty: true, fitted: false, wallTop: -Infinity }
+    const ctx: Ctx = {
+      renderer,
+      scene,
+      world,
+      camera,
+      controls,
+      sun,
+      hemi,
+      ground,
+      content: null,
+      dirty: true,
+      fitted: false,
+      wallTop: -Infinity,
+      nav: null,
+      lens: useEditor.getState().settings.lens3d,
+      tour: null,
+      markers: new Map(),
+      flight: null,
+    }
     ctxRef.current = ctx
     controls.addEventListener('change', () => (ctx.dirty = true))
 
     // Walk with the keyboard; mouse orbiting keeps working alongside.
     const nav = new KeyboardNav(camera, controls, {
-      obstacles: () => (ctx.content?.userData.walls as THREE.Object3D[] | undefined) ?? [],
+      obstacles: () => walls(ctx),
       collideBelow: () => ctx.wallTop,
       // Allow looking up at ceilings while walking.
-      onStart: () => (controls.maxPolarAngle = Math.PI - 0.05),
+      onStart: () => {
+        if (!ctx.tour) controls.maxPolarAngle = Math.PI - 0.05
+      },
     })
+    ctx.nav = nav
     const detachKeys = nav.attach()
     if (import.meta.env.DEV) Object.assign(window, { __viewer: { ctx, nav } })
     const clock = new THREE.Clock()
@@ -273,8 +358,7 @@ export default function Viewer3D() {
       if (!w || !h) return
       renderer.setSize(w, h)
       camera.aspect = w / h
-      camera.updateProjectionMatrix()
-      ctx.dirty = true
+      applyLens(ctx)
     }
     const ro = new ResizeObserver(resize)
     ro.observe(host)
@@ -282,10 +366,18 @@ export default function Viewer3D() {
 
     renderer.setAnimationLoop(() => {
       if (nav.update(clock.getDelta())) ctx.dirty = true
+      if (ctx.flight) {
+        if (stepFlight(ctx.flight, camera, controls.target)) {
+          ctx.flight = null
+          controls.enabled = true
+        }
+        ctx.dirty = true
+      }
       controls.update()
       if (ctx.dirty) {
         ctx.dirty = false
         renderer.render(scene, camera)
+        placeMarkers(ctx)
       }
     })
 
@@ -360,6 +452,104 @@ export default function Viewer3D() {
     if (!st.settings.showCeilings) setSettings({ showCeilings: true })
   }, [setSettings])
 
+  // ---------- viewpoints ----------
+  const goTo = useCallback(
+    (id: string) => {
+      const ctx = ctxRef.current
+      const vp = viewpoints.find((v) => v.id === id)
+      if (!ctx || !vp) return
+      ctx.flight = planFlight(ctx.camera, walls(ctx), ctx.wallTop, vp.eye, vp.look)
+      ctx.controls.enabled = false
+      ctx.dirty = true
+      setActive(id)
+    },
+    [viewpoints],
+  )
+
+  const step = useCallback(
+    (dir: 1 | -1) => {
+      if (!viewpoints.length) return
+      const i = viewpoints.findIndex((v) => v.id === active)
+      const next = i < 0 ? (dir > 0 ? 0 : viewpoints.length - 1) : (i + dir + viewpoints.length) % viewpoints.length
+      goTo(viewpoints[next].id)
+    },
+    [viewpoints, active, goTo],
+  )
+
+  const startTour = () => {
+    setTour(true)
+    // Start outside, looking over the whole home with a marker in every room.
+    const first = viewpoints.find((v) => v.kind === 'outside') ?? viewpoints[0]
+    if (first) goTo(first.id)
+  }
+
+  /** Back to free orbiting, keeping the current view. */
+  const exitTour = useCallback(() => {
+    setTour(false)
+    setActive(null)
+    setPlaying(false)
+    const ctx = ctxRef.current
+    if (!ctx) return
+    ctx.flight = null
+    ctx.controls.enabled = true
+    const cam = ctx.camera.position
+    const dir = ctx.controls.target.clone().sub(cam).normalize()
+    // Orbit around what's in front: the floor when looking down from above, else a few meters ahead.
+    const reach = dir.y < -0.15 ? Math.min(30, (cam.y - 1) / -dir.y) : 3
+    ctx.controls.target.copy(cam).addScaledVector(dir, Math.max(1, reach))
+    ctx.controls.maxPolarAngle = Math.PI - 0.05
+    ctx.dirty = true
+  }, [])
+
+  useEffect(() => {
+    const ctx = ctxRef.current
+    if (!ctx) return
+    ctx.tour = tour ? { points: viewpoints, active } : null
+    ctx.nav?.setLookOnly(tour)
+    const c = ctx.controls
+    c.enableZoom = c.enablePan = !tour
+    c.minPolarAngle = tour ? 0.15 : 0
+    if (tour) c.maxPolarAngle = Math.PI - 0.15
+    applyLens(ctx)
+  }, [tour, viewpoints, active])
+
+  useEffect(() => {
+    const ctx = ctxRef.current
+    if (!ctx) return
+    ctx.lens = lens
+    applyLens(ctx)
+  }, [lens])
+
+  // Automatic tour: move on to the next viewpoint every few seconds.
+  useEffect(() => {
+    if (!playing) return
+    const t = setTimeout(() => step(1), active ? 6500 : 0)
+    return () => clearTimeout(t)
+  }, [playing, active, step])
+
+  // Page Up / Page Down (also what presentation clickers send) step through viewpoints; Esc leaves.
+  useEffect(() => {
+    if (!tour) return
+    const onKey = (e: KeyboardEvent) => {
+      if (e.target instanceof Element && e.target.closest('input, textarea, select, [role="dialog"]:not([data-slot="popover-content"]), [role="menu"], [role="listbox"]')) return
+      if (e.key === 'Escape') exitTour()
+      else if (e.key === 'PageDown' || e.key === 'PageUp') {
+        e.preventDefault()
+        step(e.key === 'PageDown' ? 1 : -1)
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [tour, step, exitTour])
+
+  const registerMarker = useCallback((id: string, el: HTMLElement | null) => {
+    const ctx = ctxRef.current
+    if (!ctx) return
+    if (el) ctx.markers.set(id, el)
+    else ctx.markers.delete(id)
+    ctx.dirty = true
+  }, [])
+
   // ---------- rebuild scene content ----------
   useEffect(() => {
     const ctx = ctxRef.current
@@ -425,6 +615,8 @@ export default function Viewer3D() {
   const down = useRef<{ x: number; y: number } | null>(null)
   const onPointerDown = (e: RPointerEvent) => {
     down.current = { x: e.clientX, y: e.clientY }
+    // Looking around by hand pauses the automatic tour.
+    if (playing) setPlaying(false)
   }
   const onPointerUp = (e: RPointerEvent) => {
     const start = down.current
@@ -460,7 +652,13 @@ export default function Viewer3D() {
   return (
     <div className="relative h-full w-full">
       <div ref={hostRef} className="absolute inset-0" onPointerDown={onPointerDown} onPointerUp={onPointerUp} />
-      <LightingPanel onInside={walkInside} />
+      {tour && <ViewpointMarkers points={viewpoints} onGo={goTo} register={registerMarker} />}
+      <LightingPanel
+        onInside={() => {
+          exitTour()
+          walkInside()
+        }}
+      />
       <div className="absolute top-3 right-3 flex items-center gap-1.5 rounded-lg border bg-background/90 p-1 shadow-sm backdrop-blur">
         <Select value={filter} onValueChange={(v) => setSettings({ floors3d: v as FloorFilter })}>
           <SelectTrigger size="sm" className="w-40 border-0 shadow-none max-sm:w-28">
@@ -474,7 +672,15 @@ export default function Viewer3D() {
         </Select>
         <Tooltip>
           <TooltipTrigger asChild>
-            <Button variant="ghost" size="icon-sm" onClick={() => frame('top')} aria-label="Top view">
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              onClick={() => {
+                exitTour()
+                frame('top')
+              }}
+              aria-label="Top view"
+            >
               <SquareDashed />
             </Button>
           </TooltipTrigger>
@@ -482,12 +688,46 @@ export default function Viewer3D() {
         </Tooltip>
         <Tooltip>
           <TooltipTrigger asChild>
-            <Button variant="ghost" size="icon-sm" onClick={() => frame('perspective')} aria-label="Reset camera">
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              onClick={() => {
+                exitTour()
+                frame('perspective')
+              }}
+              aria-label="Reset camera"
+            >
               <RotateCcw />
             </Button>
           </TooltipTrigger>
           <TooltipContent>Reset camera</TooltipContent>
         </Tooltip>
+        <DropdownMenu>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <DropdownMenuTrigger asChild>
+                <Button variant="ghost" size="sm" className="gap-1.5 px-2" aria-label={`Camera lens: ${LENSES[lens].label}`}>
+                  <Aperture />
+                  <span className="max-lg:hidden">{LENSES[lens].label}</span>
+                </Button>
+              </DropdownMenuTrigger>
+            </TooltipTrigger>
+            <TooltipContent>Camera lens: go wide to see more of a room</TooltipContent>
+          </Tooltip>
+          <DropdownMenuContent align="end" className="w-56">
+            <DropdownMenuLabel>Camera lens</DropdownMenuLabel>
+            <DropdownMenuRadioGroup value={lens} onValueChange={(v) => setSettings({ lens3d: v as Lens })}>
+              {(Object.keys(LENSES) as Lens[]).map((k) => (
+                <DropdownMenuRadioItem key={k} value={k}>
+                  <span className="flex flex-col">
+                    <span>{LENSES[k].label}</span>
+                    <span className="text-xs text-muted-foreground">{LENSES[k].hint}</span>
+                  </span>
+                </DropdownMenuRadioItem>
+              ))}
+            </DropdownMenuRadioGroup>
+          </DropdownMenuContent>
+        </DropdownMenu>
         <Popover>
           <Tooltip>
             <TooltipTrigger asChild>
@@ -531,13 +771,41 @@ export default function Viewer3D() {
               Walls stop you when you walk inside; go through doorways. Fly above the walls to move freely. Try{' '}
               <b>Walk inside</b> in the Lighting panel first.
             </p>
+            <p className="mt-2 text-xs text-muted-foreground">
+              In <b>Viewpoints</b>, the arrow keys and numpad look around, <Kbd>PgUp</Kbd> / <Kbd>PgDn</Kbd> go to the previous /
+              next spot and <Kbd>Esc</Kbd> leaves.
+            </p>
           </PopoverContent>
         </Popover>
       </div>
-      <div className="pointer-events-none absolute bottom-16 left-1/2 flex -translate-x-1/2 items-center gap-1.5 rounded-full bg-foreground/80 px-3 py-1.5 text-xs whitespace-nowrap text-background max-md:hidden">
-        <Keyboard className="size-3.5" />
-        WASD / arrows to walk · numpad to look around · Q / E down / up · Shift faster
-      </div>
+      {tour ? (
+        <>
+          <ViewpointBar
+            points={viewpoints}
+            active={active}
+            playing={playing}
+            onGo={goTo}
+            onStep={step}
+            onTogglePlay={() => setPlaying((p) => !p)}
+            onExit={exitTour}
+          />
+          <div className="pointer-events-none absolute bottom-30 left-1/2 -translate-x-1/2 rounded-full bg-foreground/80 px-3 py-1.5 text-xs whitespace-nowrap text-background max-md:hidden">
+            Drag to look around · tap a marker or a name to go there
+          </div>
+        </>
+      ) : (
+        <>
+          <div className="pointer-events-none absolute bottom-16 left-1/2 flex -translate-x-1/2 items-center gap-1.5 rounded-full bg-foreground/80 px-3 py-1.5 text-xs whitespace-nowrap text-background max-md:hidden">
+            <Keyboard className="size-3.5" />
+            WASD / arrows to walk · numpad to look around · Q / E down / up · Shift faster
+          </div>
+          {viewpoints.length > 0 && (
+            <Button size="lg" className="absolute right-3 bottom-3 rounded-full shadow-lg" onClick={startTour}>
+              <Camera /> Viewpoints
+            </Button>
+          )}
+        </>
+      )}
     </div>
   )
 }
