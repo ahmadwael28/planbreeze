@@ -2,6 +2,8 @@
 
 Get a floor plan in minutes: import a sketch or photo, start from a template, or draw it yourself. Then furnish it and see it in 3D.
 
+**Live app:** https://ahmadwael28.github.io/planbreeze/
+
 Built with React 19, TypeScript, Vite, Tailwind CSS v4, shadcn/ui (Radix), zustand + immer, and three.js.
 
 ## Features
@@ -57,11 +59,21 @@ npm run preview
 
 The preview server runs on port 4173 and is also reachable from the local network.
 
+## Deploy
+
+Every push to `main` builds the app and publishes it to GitHub Pages
+(`.github/workflows/deploy.yml`). The build uses relative asset paths (`base: './'` in
+`vite.config.ts`), so it works from the `/planbreeze/` sub-path or any other host.
+
+Projects are stored in each visitor's browser (localStorage); nothing is sent to a server.
+
 ## Keyboard shortcuts
 
 | Key | Action |
 | --- | --- |
 | `V` / `P` / `R` / `H` | Select / draw room / rectangle room / pan |
+| `D` | Dimension line |
+| `W` | Connect switches to lights |
 | `Ctrl+Z`, `Ctrl+Y` | Undo, redo |
 | `Del` | Delete selection |
 | `Ctrl+D` | Duplicate selection |
