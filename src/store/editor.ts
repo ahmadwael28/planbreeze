@@ -10,7 +10,7 @@ import {
   uid,
 } from '@/model/project'
 import { bbox, labelPoint, pointInPolygon } from '@/model/geometry'
-import { CEILING_STYLES, OTHER_LIGHTS, pruneControls } from '@/model/lighting'
+import { CEILING_STYLES, OTHER_LIGHTS, pruneControls, remapEdges } from '@/model/lighting'
 import { dimensionPoints, roomOuter } from '@/model/project'
 import { SYMBOL_MAP } from '@/model/symbols'
 import type {
@@ -399,7 +399,13 @@ export function splitWall(roomId: string, edge: number) {
 export function fixAttachments(d: Project, oldRoom: Room) {
   const f = draftFloor(d)
   const r = f.rooms.find((x) => x.id === oldRoom.id)
-  if (r) reattachSymbols(f, oldRoom, r)
+  if (!r) return
+  reattachSymbols(f, oldRoom, r)
+  // Per-wall settings follow the walls.
+  if (r.shadowGaps) r.shadowGaps = remapEdges(oldRoom.points, r.points, r.shadowGaps)
+  for (const s of f.symbols) {
+    if (s.room === r.id && s.cove?.off) s.cove = { ...s.cove, off: remapEdges(oldRoom.points, r.points, s.cove.off) }
+  }
 }
 
 export function duplicateSelection() {

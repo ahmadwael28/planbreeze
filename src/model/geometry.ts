@@ -122,6 +122,28 @@ export function offsetPolygon(pts: Point[], t: number): Point[] {
   })
 }
 
+/**
+ * Move each edge i along its outward normal by d[i] (negative moves it inward) and rebuild the
+ * corners where neighboring edges meet. Edges without an entry stay put.
+ */
+export function offsetEdges(pts: Point[], d: (number | undefined)[]): Point[] {
+  const n = pts.length
+  if (n < 3) return pts
+  const sa = signedArea(pts)
+  const lines = pts.map((a, i) => {
+    const b = pts[(i + 1) % n]
+    return { p: add(a, mul(inwardNormal(a, b, sa), -(d[i] ?? 0))), dir: sub(b, a) }
+  })
+  return pts.map((_, i) => {
+    const L1 = lines[(i - 1 + n) % n]
+    const L2 = lines[i]
+    const den = L1.dir.x * L2.dir.y - L1.dir.y * L2.dir.x
+    if (Math.abs(den) < 1e-9) return L2.p
+    const t = ((L2.p.x - L1.p.x) * L2.dir.y - (L2.p.y - L1.p.y) * L2.dir.x) / den
+    return add(L1.p, mul(L1.dir, t))
+  })
+}
+
 export interface BBox {
   minX: number
   minY: number

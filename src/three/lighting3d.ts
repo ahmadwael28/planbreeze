@@ -7,8 +7,8 @@
 import * as THREE from 'three'
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js'
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js'
-import { signedArea } from '@/model/geometry'
-import { ceilingHeightAt, ceilingZones, COVE_WIDTH, covePath, inset, LIGHT_COLORS } from '@/model/lighting'
+import { offsetEdges, signedArea } from '@/model/geometry'
+import { ceilingHeightAt, ceilingZones, COVE_WIDTH, coveRuns, inset, LIGHT_COLORS, SHADOW_GAP } from '@/model/lighting'
 import { symbolPose } from '@/model/project'
 import type { FixtureKind } from '@/model/symbols'
 import type { Floor, PlanSymbol, Point, Room } from '@/model/types'
@@ -70,12 +70,26 @@ function band(poly: Point[], y0: number, y1: number, facing: 'in' | 'out'): THRE
 export function buildCeilings(floor: Floor, base: number): THREE.Object3D[] {
   const H = base + floor.height
   const geos: THREE.BufferGeometry[] = []
+  const gapGeos: THREE.BufferGeometry[] = []
   for (const room of floor.rooms) {
     if (room.points.length < 3) continue
-    geos.push(ceilingPlane(room.points, undefined, H - 0.2))
     const c = room.ceiling
+    // Shadow gaps: the ceiling that meets the wall stops short of it, leaving a dark groove.
+    const gaps = room.shadowGaps?.filter((i) => i < room.points.length) ?? []
+    const cut = gaps.length ? offsetEdges(room.points, room.points.map((_, i) => (gaps.includes(i) ? -SHADOW_GAP.width : undefined))) : room.points
+    const wallCeiling = !c || c.style === 'floating' ? 'structure' : 'gypsum'
+    geos.push(ceilingPlane(wallCeiling === 'structure' ? cut : room.points, undefined, H - 0.2))
+    if (gaps.length) {
+      const surface = wallCeiling === 'structure' ? H - 0.2 : H - c!.drop
+      const top = Math.min(surface + SHADOW_GAP.depth, H - 0.1)
+      for (const i of gaps) {
+        const j = (i + 1) % room.points.length
+        gapGeos.push(ceilingPlane([room.points[i], room.points[j], cut[j], cut[i]], undefined, top))
+        if (top > surface + 0.5) geos.push(band([cut[i], cut[j]], surface, top, 'in'))
+      }
+    }
     if (!c) continue
-    for (const z of ceilingZones(room)) geos.push(ceilingPlane(z.outer, z.inner, H - z.drop))
+    ceilingZones(room).forEach((z, k) => geos.push(ceilingPlane(k === 0 && wallCeiling === 'gypsum' ? cut : z.outer, z.inner, H - z.drop)))
     switch (c.style) {
       case 'tray':
         geos.push(band(inset(room, c.band), H - c.drop, H, 'in'))
@@ -95,6 +109,11 @@ export function buildCeilings(floor: Floor, base: number): THREE.Object3D[] {
     }
   }
   const out: THREE.Object3D[] = []
+  if (gapGeos.length) {
+    const merged = mergeGeometries(gapGeos.map((g) => g.toNonIndexed()))
+    gapGeos.forEach((g) => g.dispose())
+    if (merged) out.push(new THREE.Mesh(merged, new THREE.MeshStandardMaterial({ color: '#1c1917', roughness: 1 })))
+  }
   if (geos.length) {
     const merged = mergeGeometries(geos.map((g) => g.toNonIndexed()))
     geos.forEach((g) => g.dispose())
@@ -210,13 +229,11 @@ function rod(a: THREE.Vector3, b: THREE.Vector3, r: number, mat: THREE.Material)
   return m
 }
 
-function coveFixture(ctx: Ctx, room: Room, floor: Floor, base: number): THREE.Group {
+function coveFixture(ctx: Ctx, room: Room, floor: Floor, base: number, sym: PlanSymbol): THREE.Group {
   const g = new THREE.Group()
-  const { path, up, drop } = covePath(room)
+  const { runs, up, drop } = coveRuns(room, sym)
   const y = base + floor.height - drop
-  for (let i = 0; i < path.length; i++) {
-    const a = path[i]
-    const b = path[(i + 1) % path.length]
+  for (const { a, b } of runs) {
     const len = Math.hypot(b.x - a.x, b.y - a.y)
     if (len < 5) continue
     const seg = new THREE.Group()
@@ -270,7 +287,7 @@ export function buildFixture(
   if (kind === 'cove') {
     const room = floor.rooms.find((r) => r.id === sym.room)
     if (!room) return null
-    const g = coveFixture(ctx, room, floor, base)
+    const g = coveFixture(ctx, room, floor, base, sym)
     g.traverse((o) => (o.userData.pick = pick))
     return g
   }

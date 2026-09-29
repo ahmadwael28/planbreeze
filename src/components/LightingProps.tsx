@@ -1,12 +1,15 @@
-import type { ReactNode } from 'react'
-import { Cable, Lightbulb, Plus, X } from 'lucide-react'
+import type { KeyboardEvent, ReactNode } from 'react'
+import { Cable, Lightbulb, Plus, SlidersHorizontal, Trash2, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Slider } from '@/components/ui/slider'
+import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
 import { cn } from '@/lib/utils'
-import { CEILING_STYLES, LIGHT_COLORS, switchesFor, WIRE_COLORS } from '@/model/lighting'
+import { bbox, dist, polygonPath } from '@/model/geometry'
+import { CEILING_STYLES, hasTrayEdge, LIGHT_COLORS, pruneControls, switchesFor, WIRE_COLORS } from '@/model/lighting'
 import { newSymbol, uid } from '@/model/project'
 import { SYMBOL_MAP } from '@/model/symbols'
+import { formatLength } from '@/model/units'
 import type { CeilingStyle, LightColor, PlanSymbol, Room, TrackModule, Units } from '@/model/types'
 import { applyCeiling, draftFloor, toggleWire, useEditor, useFloor } from '@/store/editor'
 import { LengthInput } from './LengthInput'
@@ -50,16 +53,166 @@ export function LightColorPicker({ value, onChange }: { value: LightColor; onCha
 }
 
 // ---------------------------------------------------------------------------
+// Picking walls
+
+/**
+ * The room's outline with each wall clickable, for per-wall settings (hidden light, shadow gaps).
+ * Walls in `on` are drawn in the accent color.
+ */
+export function WallPicker({
+  room,
+  on,
+  onChange,
+  units,
+  tone,
+  label,
+}: {
+  room: Room
+  on: number[]
+  onChange: (walls: number[]) => void
+  units: Units
+  tone: 'light' | 'dark'
+  label: string
+}) {
+  const pts = room.points
+  const b = bbox(pts)
+  const w = Math.max(1, b.maxX - b.minX)
+  const h = Math.max(1, b.maxY - b.minY)
+  const pad = Math.max(w, h) * 0.08
+  const color = tone === 'light' ? '#f59e0b' : 'var(--foreground)'
+  const set = new Set(on)
+  const toggle = (i: number) => onChange(set.has(i) ? on.filter((x) => x !== i) : [...on, i].sort((p, q) => p - q))
+  return (
+    <div className="space-y-1.5">
+      <svg
+        viewBox={`${b.minX - pad} ${b.minY - pad} ${w + pad * 2} ${h + pad * 2}`}
+        className="h-32 w-full rounded-md bg-muted/60"
+        preserveAspectRatio="xMidYMid meet"
+        role="group"
+        aria-label={label}
+      >
+        <path d={polygonPath(pts)} className="fill-background" />
+        {pts.map((a, i) => {
+          const p = pts[(i + 1) % pts.length]
+          const active = set.has(i)
+          const name = `Wall ${i + 1}, ${formatLength(dist(a, p), units)}`
+          return (
+            <g
+              key={i}
+              role="checkbox"
+              aria-checked={active}
+              aria-label={name}
+              tabIndex={0}
+              className="cursor-pointer outline-none [&:focus-visible>line:last-child]:stroke-ring"
+              onClick={() => toggle(i)}
+              onKeyDown={(e: KeyboardEvent) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault()
+                  toggle(i)
+                }
+              }}
+            >
+              <title>{`${name} · click to ${active ? 'remove' : 'add'}`}</title>
+              <line x1={a.x} y1={a.y} x2={p.x} y2={p.y} stroke="transparent" strokeWidth={18} vectorEffect="non-scaling-stroke" />
+              <line
+                x1={a.x}
+                y1={a.y}
+                x2={p.x}
+                y2={p.y}
+                stroke={active ? color : 'var(--muted-foreground)'}
+                strokeOpacity={active ? 1 : 0.35}
+                strokeWidth={active ? 5 : 3}
+                strokeDasharray={active ? undefined : '4 4'}
+                strokeLinecap="round"
+                vectorEffect="non-scaling-stroke"
+              />
+            </g>
+          )
+        })}
+      </svg>
+      <div className="flex items-center justify-between gap-2 text-xs text-muted-foreground">
+        <span>
+          {on.length === pts.length ? 'All walls' : on.length ? `${on.length} of ${pts.length} walls` : 'No walls'} · click a wall to switch it
+        </span>
+        <span className="flex gap-2">
+          <button className="underline-offset-2 hover:text-foreground hover:underline" onClick={() => onChange(pts.map((_, i) => i))}>
+            All
+          </button>
+          <button className="underline-offset-2 hover:text-foreground hover:underline" onClick={() => onChange([])}>
+            None
+          </button>
+        </span>
+      </div>
+    </div>
+  )
+}
+
+/** Where a room's hidden LED strip runs: in a tray, along the walls or inside; and which walls it's on. */
+export function HiddenLightControls({ room, sym, units }: { room: Room; sym: PlanSymbol; units: Units }) {
+  const off = new Set(sym.cove?.off ?? [])
+  const lit = room.points.map((_, i) => i).filter((i) => !off.has(i))
+  const style = room.ceiling?.style
+  return (
+    <div className="space-y-3">
+      {hasTrayEdge(room) && (
+        <div className="space-y-1.5">
+          <span className="text-sm text-muted-foreground">Where</span>
+          <ToggleGroup
+            type="single"
+            size="sm"
+            variant="outline"
+            value={sym.cove?.at ?? 'walls'}
+            onValueChange={(v) => v && updateSymbol(sym.id, (s) => void (s.cove = { ...s.cove, at: v as 'walls' | 'inner' }))}
+            className="w-full"
+          >
+            <ToggleGroupItem value="walls" className="flex-1">
+              Along the walls
+            </ToggleGroupItem>
+            <ToggleGroupItem value="inner" className="flex-1">
+              Inside the {style === 'stepped' ? 'steps' : 'tray'}
+            </ToggleGroupItem>
+          </ToggleGroup>
+          <p className="text-xs text-muted-foreground">
+            {sym.cove?.at === 'inner'
+              ? 'On top of the lowered band, hidden behind its edge, washing the raised middle with light.'
+              : 'Just below the ceiling along the walls, washing them with light.'}
+          </p>
+        </div>
+      )}
+      <WallPicker
+        room={room}
+        on={lit}
+        units={units}
+        tone="light"
+        label="Walls with light"
+        onChange={(walls) =>
+          updateSymbol(sym.id, (s) => {
+            const next = room.points.map((_, i) => i).filter((i) => !walls.includes(i))
+            s.cove = { ...s.cove, off: next.length ? next : undefined }
+          })
+        }
+      />
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
 // Room ceiling
 
 export function CeilingSection({ room, units }: { room: Room; units: Units }) {
   const floor = useFloor()
   const c = room.ceiling
-  const hasCove = floor.symbols.some((s) => s.room === room.id)
+  const cove = floor.symbols.find((s) => s.room === room.id)
   const set = (recipe: (r: Room) => void) =>
     useEditor.getState().commit((d) => {
       const r = draftFloor(d).rooms.find((x) => x.id === room.id)
       if (r) recipe(r)
+    })
+  const removeCove = () =>
+    useEditor.getState().commit((d) => {
+      const f = draftFloor(d)
+      f.symbols = f.symbols.filter((s) => s.room !== room.id)
+      pruneControls(f)
     })
   return (
     <div className="space-y-3">
@@ -91,21 +244,63 @@ export function CeilingSection({ room, units }: { room: Room; units: Units }) {
           )}
         </>
       )}
-      {!hasCove && (
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() =>
-            useEditor.getState().commit((d) => {
-              const f = draftFloor(d)
-              const r = f.rooms.find((x) => x.id === room.id)
-              if (r) f.symbols.push({ ...newSymbol('cove-light', 0, 0), room: r.id })
-            })
-          }
-        >
-          <Lightbulb /> Add hidden LED strip
-        </Button>
-      )}
+      <div className="space-y-3 rounded-lg border p-3">
+        <div className="flex items-center justify-between gap-2">
+          <span className="flex items-center gap-1.5 text-sm font-medium">
+            <Lightbulb className="size-4" /> Hidden LED strip
+          </span>
+          {cove ? (
+            <Button variant="ghost" size="xs" className="text-destructive hover:text-destructive" onClick={removeCove}>
+              <Trash2 /> Remove
+            </Button>
+          ) : (
+            <Button
+              variant="outline"
+              size="xs"
+              onClick={() =>
+                useEditor.getState().commit((d) => {
+                  const f = draftFloor(d)
+                  const r = f.rooms.find((x) => x.id === room.id)
+                  if (r) f.symbols.push({ ...newSymbol('cove-light', 0, 0), room: r.id })
+                })
+              }
+            >
+              <Plus /> Add
+            </Button>
+          )}
+        </div>
+        {cove ? (
+          <>
+            <HiddenLightControls room={room} sym={cove} units={units} />
+            <Button
+              variant="outline"
+              size="sm"
+              className="w-full"
+              onClick={() => {
+                const st = useEditor.getState()
+                if (st.layer !== 'lighting') st.setLayer('lighting')
+                st.select({ kind: 'symbol', id: cove.id })
+              }}
+            >
+              <SlidersHorizontal /> Color, brightness and switches
+            </Button>
+          </>
+        ) : (
+          <p className="text-xs text-muted-foreground">An LED strip hidden in the ceiling, lighting the walls or the ceiling itself.</p>
+        )}
+      </div>
+      <div className="space-y-2 rounded-lg border p-3">
+        <span className="text-sm font-medium">Shadow gap</span>
+        <p className="text-xs text-muted-foreground">A recessed groove where the wall meets the ceiling.</p>
+        <WallPicker
+          room={room}
+          on={room.shadowGaps ?? []}
+          units={units}
+          tone="dark"
+          label="Walls with a shadow gap"
+          onChange={(walls) => set((r) => void (r.shadowGaps = walls.length ? walls : undefined))}
+        />
+      </div>
     </div>
   )
 }

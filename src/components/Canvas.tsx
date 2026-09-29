@@ -810,7 +810,7 @@ export function Canvas() {
         )}
 
         {/* selected cove light: its path */}
-        {selCoveRoom && <path d={polygonPath(covePath(selCoveRoom).path)} className="sel-outline" />}
+        {selCoveRoom && <path d={polygonPath(covePath(selCoveRoom, selSym).path)} className="sel-outline" />}
 
         {/* selected symbol: bounds, rotate & resize handles */}
         {selSym && !selSym.room && (() => {

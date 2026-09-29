@@ -1,4 +1,4 @@
-import { offsetPolygon, pointInPolygon } from './geometry'
+import { offsetPolygon, pointInPolygon, projectOnSegment } from './geometry'
 import type { Ceiling, CeilingStyle, Floor, LightColor, PlanSymbol, Point, Room } from './types'
 
 export const LIGHT_COLORS: Record<LightColor, { label: string; kelvin: number; hex: string }> = {
@@ -17,6 +17,14 @@ export const CEILING_STYLES: Record<CeilingStyle, { name: string; description: s
 
 /** Width of the light trough in a cove ceiling. */
 export const COVE_WIDTH = 15
+
+/** Width and depth of a shadow gap between wall and ceiling. */
+export const SHADOW_GAP = { width: 5, depth: 5 }
+
+/** Ceilings with a band whose inner edge can carry a hidden LED strip. */
+export function hasTrayEdge(room: Room) {
+  return room.ceiling?.style === 'tray' || room.ceiling?.style === 'stepped'
+}
 
 /** Colors for switch wiring lines, one per switch. */
 export const WIRE_COLORS = ['#f97316', '#8b5cf6', '#10b981', '#ec4899', '#0ea5e9', '#eab308', '#ef4444', '#14b8a6']
@@ -66,12 +74,49 @@ export function ceilingHeightAt(floor: Floor, p: Point): number {
   return h
 }
 
-/** Where a cove / hidden light runs, and whether it shines up (into a cove) or down (a shadow gap). */
-export function covePath(room: Room): { path: Point[]; up: boolean; drop: number } {
+/**
+ * Where a room's hidden light runs (one point per wall, so edge i follows wall i), and whether it
+ * shines up (into a cove or tray) or down (along the walls).
+ */
+export function covePath(room: Room, sym?: PlanSymbol): { path: Point[]; up: boolean; drop: number } {
   const c = room.ceiling
   if (c?.style === 'cove') return { path: inset(room, c.band - COVE_WIDTH / 2), up: true, drop: c.drop - 4 }
   if (c?.style === 'floating') return { path: inset(room, c.band + 4), up: true, drop: c.drop - 6 }
+  if (c && sym?.cove?.at === 'inner' && hasTrayEdge(room)) {
+    // On top of the band, just behind its inner edge: hidden from below, washing the raised middle.
+    const band = c.style === 'stepped' ? c.band * 2 : c.band
+    const drop = c.style === 'stepped' ? c.drop / 2 : c.drop
+    return { path: inset(room, band - 6), up: true, drop: drop - 3 }
+  }
   return { path: inset(room, 6), up: false, drop: (c?.drop ?? 0) + 3 }
+}
+
+/** The lit runs of a room's hidden light: one per wall that isn't switched off. */
+export function coveRuns(room: Room, sym?: PlanSymbol): { runs: { a: Point; b: Point; edge: number }[]; up: boolean; drop: number } {
+  const { path, up, drop } = covePath(room, sym)
+  const off = new Set(sym?.cove?.off ?? [])
+  const runs = path.map((a, i) => ({ a, b: path[(i + 1) % path.length], edge: i })).filter((r) => !off.has(r.edge))
+  return { runs, up, drop }
+}
+
+/**
+ * After a room's outline changed (a wall split or a corner removed), carry per-wall settings over:
+ * a new wall keeps a setting when it lies along a wall that had it.
+ */
+export function remapEdges(oldPts: Point[], newPts: Point[], edges: number[] | undefined): number[] | undefined {
+  if (!edges?.length || oldPts.length === newPts.length) return edges
+  const out: number[] = []
+  newPts.forEach((a, i) => {
+    const b = newPts[(i + 1) % newPts.length]
+    const m = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 }
+    const on = edges.some((j) => {
+      const p = oldPts[j]
+      const q = oldPts[(j + 1) % oldPts.length]
+      return p && q && projectOnSegment(m, p, q).dist < 1
+    })
+    if (on) out.push(i)
+  })
+  return out
 }
 
 export const OTHER_LIGHTS = '__other'

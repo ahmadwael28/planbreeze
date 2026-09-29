@@ -32,7 +32,7 @@ import {
 } from '@/store/editor'
 import { useUi } from '@/store/ui'
 import { LengthInput, NumberInput, TextInput } from './LengthInput'
-import { CeilingSection, LightSection, SwitchSection } from './LightingProps'
+import { CeilingSection, HiddenLightControls, LightSection, SwitchSection } from './LightingProps'
 
 function Section({ title, children, className }: { title?: ReactNode; children: ReactNode; className?: string }) {
   return (
@@ -216,8 +216,11 @@ function CoveProps({ sym, units }: { sym: PlanSymbol; units: Units }) {
             ? ', inside the cove, washing the ceiling with light.'
             : room?.ceiling?.style === 'floating'
               ? ', on top of the floating panel, lighting the ceiling around it.'
-              : ', in a shadow gap along the walls.'}
+              : sym.cove?.at === 'inner' && room && (room.ceiling?.style === 'tray' || room.ceiling?.style === 'stepped')
+                ? ', inside the tray, lighting its raised middle.'
+                : ', along the walls just below the ceiling.'}
         </p>
+        {room && <HiddenLightControls room={room} sym={sym} units={units} />}
         <LightSection sym={sym} units={units} />
       </Section>
       <Separator />

@@ -206,6 +206,30 @@ export const SYMBOLS: SymbolDef[] = [
     },
   },
   {
+    type: 'door-barn',
+    name: 'Barn sliding door',
+    category: 'Doors & Windows',
+    width: 90,
+    depth: 10,
+    height: 210,
+    wall: true,
+    render: (w, d, t) => {
+      const k = kit(t)
+      // A panel hung on a rail on the room side of the wall, slid partly open.
+      const pw = w + 10
+      const x = -w * 0.6
+      const y = d / 2 + 2
+      return (
+        <>
+          {k.opening(w, d)}
+          <line x1={-w / 2 - pw - 5} y1={y - 1} x2={w / 2 + 10} y2={y - 1} {...k.thin} strokeDasharray="6 3" />
+          <rect x={x - pw / 2} y={y} width={pw} height={5} {...k.s()} strokeWidth={1.8} />
+          <path d={`M${x - 12},${y + 11} h24 m-4,-3 l4,3 l-4,3 m-16,-6 l-4,3 l4,3`} {...k.thin} />
+        </>
+      )
+    },
+  },
+  {
     type: 'opening',
     name: 'Opening',
     category: 'Doors & Windows',

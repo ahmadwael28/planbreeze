@@ -27,6 +27,16 @@ export interface Room {
   wallThickness: number
   color: string
   ceiling?: Ceiling
+  /** Walls (edge indices) with a shadow gap: a recessed groove where the wall meets the ceiling. */
+  shadowGaps?: number[]
+}
+
+/** Where a room's hidden LED strip runs. */
+export interface CoveSettings {
+  /** In a tray or stepped ceiling: along the walls (default) or on the inner edge of the band, lighting the raised middle. */
+  at?: 'walls' | 'inner'
+  /** Walls (edge indices) left without light. */
+  off?: number[]
 }
 
 export type LightColor = 'warm' | 'white' | 'cool'
@@ -66,6 +76,8 @@ export interface WallAttachment {
 export interface PlanSymbol {
   id: string
   type: string
+  /** For a room's hidden LED strip: where it runs. */
+  cove?: CoveSettings
   /** Center position (ignored while attached to a wall). */
   x: number
   y: number

@@ -11,7 +11,7 @@ import {
   signedArea,
   sub,
 } from '@/model/geometry'
-import { ceilingZones, covePath, WIRE_COLORS } from '@/model/lighting'
+import { ceilingZones, covePath, coveRuns, SHADOW_GAP, WIRE_COLORS } from '@/model/lighting'
 import { dimensionPoints, roomOuter, symbolPose } from '@/model/project'
 import { SYMBOL_MAP } from '@/model/symbols'
 import type { PlanTheme } from '@/model/theme'
@@ -74,15 +74,36 @@ const SymbolGraphic = memo(function SymbolGraphic({
   )
 })
 
-/** A hidden LED running around its room's ceiling. */
+/** A hidden LED running around its room's ceiling (only along the walls it's on for). */
 function CoveLight({ sym, room, scale, forPrint }: { sym: PlanSymbol; room: Room; scale: number; forPrint?: boolean }) {
-  const { path } = covePath(room)
+  const { runs } = coveRuns(room, sym)
   const color = sym.light?.color === 'cool' ? '#60a5fa' : sym.light?.color === 'white' ? '#eab308' : '#f59e0b'
-  const d = polygonPath(path)
+  const d = runs.map(({ a, b }) => `M${a.x},${a.y}L${b.x},${b.y}`).join('')
+  if (!d) return null
   return (
     <g data-kind="symbol" data-id={sym.id}>
       {!forPrint && <path d={d} fill="none" stroke="transparent" strokeWidth={14 / scale} />}
-      <path d={d} fill="none" stroke={color} strokeWidth={2.5} strokeDasharray="5 4" vectorEffect="non-scaling-stroke" />
+      <path d={d} fill="none" stroke={color} strokeWidth={2.5} strokeDasharray="5 4" strokeLinecap="round" vectorEffect="non-scaling-stroke" />
+    </g>
+  )
+}
+
+/** Shadow gaps: a dark groove along the walls where they meet the ceiling (ceiling plan). */
+function ShadowGaps({ room, theme }: { room: Room; theme: PlanTheme }) {
+  const gaps = room.shadowGaps
+  if (!gaps?.length) return null
+  const pts = room.points
+  const sa = signedArea(pts)
+  return (
+    <g pointerEvents="none">
+      {gaps.map((i) => {
+        const a = pts[i]
+        const b = pts[(i + 1) % pts.length]
+        if (!a || !b) return null
+        const n = mul(inwardNormal(a, b, sa), SHADOW_GAP.width)
+        const quad = [a, b, add(b, n), add(a, n)]
+        return <path key={i} d={polygonPath(quad)} fill={theme.ink} fillOpacity={0.75} />
+      })}
     </g>
   )
 }
@@ -172,7 +193,7 @@ function wireEnd(sym: PlanSymbol, floor: Floor, from: Point): Point {
   if (sym.room) {
     const room = floor.rooms.find((r) => r.id === sym.room)
     if (room) {
-      const { path } = covePath(room)
+      const { path } = covePath(room, sym)
       let best = path[0]
       for (const p of path) if (dist(p, from) < dist(best, from)) best = p
       return best
@@ -363,6 +384,9 @@ export function PlanLayers({
         <g>
           {floor.rooms.map((r) => (
             <CeilingZones key={r.id} room={r} theme={theme} />
+          ))}
+          {floor.rooms.map((r) => (
+            <ShadowGaps key={r.id} room={r} theme={theme} />
           ))}
         </g>
       )}

@@ -40,6 +40,8 @@ export const COLORS = {
   stone: '#d6d3d1',
   glass: '#bae6fd',
   door: '#d6c3a5',
+  barn: '#6f4e37',
+  barnDark: '#4a3222',
   frame: '#f5f5f4',
   mirror: '#d5dee8',
   light: '#fef9c3',
@@ -698,6 +700,68 @@ function doorLeaf(k: Kit, g: THREE.Group, hx: number, leaf: number, side: number
   }
 }
 
+/**
+ * A barn-style sliding door: a wooden panel hung from a steel rail on the room side of the wall,
+ * slid partly open.
+ */
+function barnDoor(k: Kit, w: number, h: number, wallT: number) {
+  const g = new THREE.Group()
+  const pw = w + 10
+  const ph = h + 4
+  const pt = 4
+  const z = wallT / 2 + 2.5 + pt / 2
+  const x = -w * 0.6
+  const wood = k.q(COLORS.barn, 'wood')
+  const groove = k.q(COLORS.barnDark, 'wood')
+  const steel = k.q(COLORS.metal, 'metal')
+  g.add(rbox(pw, ph, pt, 0.6, x, 1, z, wood))
+  // Boards: a few horizontal joints across both faces.
+  for (const f of [0.28, 0.52, 0.76]) {
+    for (const face of [-1, 1]) g.add(box(pw - 1, 0.7, 0.3, x, 1 + ph * f, z + face * (pt / 2 + 0.05), groove))
+  }
+  // Rail: long enough for the door to open fully to the left, on brackets from the wall.
+  const railY = 1 + ph + 12
+  const x0 = -w / 2 - pw - 5
+  const x1 = w / 2 + 12
+  const rail = cylinder(1.3, x1 - x0, 0, 0, 0, steel, 1, 1.3, 16)
+  rail.rotation.z = Math.PI / 2
+  rail.position.set((x0 + x1) / 2, railY, z)
+  g.add(rail)
+  for (const bx of [x0 + 4, (x0 + x1) / 2, x1 - 4]) {
+    const bracket = cylinder(1, z - wallT / 2, 0, 0, 0, steel, 1, 1, 10)
+    bracket.rotation.x = Math.PI / 2
+    bracket.position.set(bx, railY, wallT / 2 + (z - wallT / 2) / 2)
+    g.add(bracket)
+  }
+  for (const sx of [x0 + 1, x1 - 1]) {
+    const stop = cylinder(2.2, 3, 0, 0, 0, steel, 1, 2.2, 14)
+    stop.rotation.z = Math.PI / 2
+    stop.position.set(sx, railY, z)
+    g.add(stop)
+  }
+  // Hangers: straps bolted to the top of the panel, each with a wheel riding on the rail.
+  for (const s of [-1, 1]) {
+    const hx = x + s * pw * 0.3
+    for (const face of [-1, 1]) g.add(box(4, 20, 0.8, hx, 1 + ph - 8, z + face * (pt / 2 + 0.4), steel))
+    const wheel = cylinder(4.5, 2.2, 0, 0, 0, steel, 1, 4.5, 20)
+    wheel.rotation.x = Math.PI / 2
+    wheel.position.set(hx, railY + 3.2, z)
+    g.add(wheel)
+  }
+  // A bar handle on each face, at the edge that closes the opening.
+  const hx = x + pw / 2 - 9
+  for (const face of [-1, 1]) {
+    g.add(cylinder(1.1, 32, hx, 86, z + face * (pt / 2 + 3.2), steel, 1, 1.1, 12))
+    for (const y of [89, 113]) {
+      const post = cylinder(0.7, 3, 0, 0, 0, steel, 1, 0.7, 8)
+      post.rotation.x = Math.PI / 2
+      post.position.set(hx, y, z + face * (pt / 2 + 1.6))
+      g.add(post)
+    }
+  }
+  return g
+}
+
 function slidingDoor(k: Kit, w: number, h: number, wallT: number, glass: Mat) {
   const g = new THREE.Group()
   const alu = k.q(COLORS.dark, 'metal')
@@ -765,6 +829,9 @@ export function symbolModel(sym: PlanSymbol, mats: Materials, hl: boolean, wallT
       break
     case 'door-sliding':
       g = slidingDoor(k, w, h, wallT, k.glass())
+      break
+    case 'door-barn':
+      g = barnDoor(k, w, h, wallT)
       break
     case 'window':
     case 'window-wide':
