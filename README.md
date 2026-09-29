@@ -27,6 +27,13 @@ Built with React 19, TypeScript, Vite, Tailwind CSS v4, shadcn/ui (Radix), zusta
 - Dimension lines (`D`) that snap to wall corners, plus automatic overall dimensions
 - Print to scale: vector PDF at 1:N (or fit to page) on A4 / A3 / A2 / Letter / Tabloid, with title block and scale bar; floor plan or lighting plan, one page per floor
 
+**Accounts & autosave**
+- Every change is saved automatically in the browser; a status in the top bar shows the save state
+- Optional sign-in with Google, GitHub or an email link (Supabase): plans then also autosave to the
+  cloud and open on any device; changes made offline upload when you reconnect
+- Edits made to the same plan on two devices are detected and you choose which version to keep
+- Setup: see [docs/cloud-setup.md](docs/cloud-setup.md). Without it, the app runs offline-only.
+
 **Editing**
 - Rooms as polygons or rectangles with real wall thickness; edit corners and walls by dragging or by typing exact lengths
 - Type a length while drawing (`3.5` + Enter) for precise walls; snapping to grid, 45° angles and other rooms

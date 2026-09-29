@@ -36,6 +36,7 @@ import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { currentFloor, useEditor } from '@/store/editor'
 import { useUi } from '@/store/ui'
+import { AccountButton, SaveStatus } from './AccountControls'
 import { Logo } from './Logo'
 import type { ViewMode } from '@/store/editor'
 
@@ -130,6 +131,7 @@ export function TopBar({ onToggleSidebar, sidebarOpen }: Props) {
         <FolderOpen />
         <span className="truncate">{name}</span>
       </Button>
+      <SaveStatus />
 
       <div className="flex shrink-0 items-center">
         <Tip label="Undo (Ctrl+Z)">
@@ -267,6 +269,7 @@ export function TopBar({ onToggleSidebar, sidebarOpen }: Props) {
         />
 
         <ThemeMenu />
+        <AccountButton />
 
         <Separator orientation="vertical" className="mx-1 hidden h-5! sm:block" />
         <Tip label={sidebarOpen ? 'Hide panel' : 'Show panel'}>

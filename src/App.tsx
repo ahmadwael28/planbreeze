@@ -17,9 +17,15 @@ import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
 import { currentFloor, deleteSelection, draftFloor, duplicateSelection, useEditor } from '@/store/editor'
 import { lastProjectId, listProjects, loadProject, saveProject } from '@/store/storage'
 import { useUi } from '@/store/ui'
+import { useCloud } from '@/cloud/store'
+import { connectMemoryCloudForTesting, initCloud } from '@/cloud/sync'
+import { ConflictDialog } from '@/components/ConflictDialog'
+import { SignInDialog } from '@/components/SignInDialog'
 
 // Handy for debugging in the browser console during development.
-if (import.meta.env.DEV) Object.assign(window, { __editor: useEditor, __ui: useUi })
+if (import.meta.env.DEV) {
+  Object.assign(window, { __editor: useEditor, __ui: useUi, __cloud: { useCloud, connectMemoryCloudForTesting } })
+}
 
 // three.js is only downloaded when the 3D view is first opened.
 const Viewer3D = lazy(() => import('@/components/Viewer3D'))
@@ -162,8 +168,8 @@ function useAutosave() {
   useEffect(() => {
     let timer: ReturnType<typeof setTimeout> | undefined
     let warned = false
-    const save = () => {
-      if (saveProject(useEditor.getState().project)) {
+    const save = (p = useEditor.getState().project) => {
+      if (saveProject(p)) {
         warned = false
       } else if (!warned) {
         warned = true
@@ -175,7 +181,10 @@ function useAutosave() {
     const unsub = useEditor.subscribe((s, prev) => {
       if (s.project === prev.project) return
       clearTimeout(timer)
-      timer = setTimeout(save, 400)
+      // Switching projects: store the one being left right away so no edit is lost.
+      if (s.project.id !== prev.project.id) save(prev.project)
+      const p = s.project
+      timer = setTimeout(() => save(p), 400)
     })
     const flush = () => saveProject(useEditor.getState().project)
     window.addEventListener('beforeunload', flush)
@@ -204,6 +213,7 @@ export default function App() {
   const hint = useHint(tool)
 
   useEffect(loadInitialProject, [])
+  useEffect(() => void initCloud(), [])
   useKeyboardShortcuts()
   useAutosave()
 
@@ -243,6 +253,8 @@ export default function App() {
       <StartDialog />
       <ImportWizard />
       <PrintDialog />
+      <SignInDialog />
+      <ConflictDialog />
     </div>
   )
 }
