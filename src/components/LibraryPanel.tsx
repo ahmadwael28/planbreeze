@@ -1,6 +1,8 @@
 import { useState } from 'react'
-import { Search } from 'lucide-react'
+import { ChevronRight, ChevronsDownUp, ChevronsUpDown, Search } from 'lucide-react'
 import { toast } from 'sonner'
+import { Button } from '@/components/ui/button'
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 import { Input } from '@/components/ui/input'
 import { usePlanTheme } from '@/hooks/use-plan-theme'
 import { findWallSnap, newSymbol } from '@/model/project'
@@ -8,6 +10,7 @@ import { CATEGORIES, SYMBOLS } from '@/model/symbols'
 import type { SymbolDef } from '@/model/symbols'
 import type { PlanTheme } from '@/model/theme'
 import { addSymbol, currentFloor, useEditor, viewCenter } from '@/store/editor'
+import { useUi } from '@/store/ui'
 import { SYMBOL_DRAG_MIME } from './Canvas'
 
 function Preview({ def, theme }: { def: SymbolDef; theme: PlanTheme }) {
@@ -46,47 +49,76 @@ export function LibraryPanel() {
   const layer = useEditor((s) => s.layer)
   const order =
     layer === 'lighting'
-      ? [...CATEGORIES.filter((c) => c === 'Lighting' || c === 'Ceilings'), ...CATEGORIES.filter((c) => c !== 'Lighting' && c !== 'Ceilings')]
+      ? [
+          ...CATEGORIES.filter((c) => c === 'Lighting' || c === 'Ceilings'),
+          ...CATEGORIES.filter((c) => c !== 'Lighting' && c !== 'Ceilings'),
+        ]
       : CATEGORIES
   const [query, setQuery] = useState('')
   const q = query.trim().toLowerCase()
+  // Folded categories live in the UI store, so they survive switching sidebar tabs.
+  const collapsed = useUi((s) => s.libraryCollapsed)
+  const setCollapsed = useUi((s) => s.setLibraryCollapsed)
+  const searching = !!q
+  const toggle = (cat: string, open: boolean) => setCollapsed(open ? collapsed.filter((c) => c !== cat) : [...collapsed, cat])
   return (
-    <div className="space-y-4 p-4">
+    <div className="space-y-3 p-4">
       <div className="relative">
         <Search className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" />
         <Input placeholder="Search symbols…" value={query} onChange={(e) => setQuery(e.target.value)} className="pl-8" />
       </div>
       <p className="text-xs text-muted-foreground">Click to add at the center of the view, or drag onto the plan.</p>
+      {!searching && (
+        <div className="-mx-1.5 flex gap-1">
+          <Button variant="ghost" size="xs" onClick={() => setCollapsed([])} disabled={!collapsed.length}>
+            <ChevronsUpDown /> Expand all
+          </Button>
+          <Button variant="ghost" size="xs" onClick={() => setCollapsed([...CATEGORIES])} disabled={collapsed.length === CATEGORIES.length}>
+            <ChevronsDownUp /> Collapse all
+          </Button>
+        </div>
+      )}
       {order.map((cat) => {
         const items = SYMBOLS.filter((s) => s.category === cat && (!q || s.name.toLowerCase().includes(q)))
         if (!items.length) return null
+        // While searching, every category with a match is shown open.
+        const open = searching || !collapsed.includes(cat)
         return (
-          <section key={cat} className="space-y-2">
-            <h4 className="text-xs font-medium tracking-wide text-muted-foreground uppercase">
-              {cat === 'Ceilings' ? 'Gypsum ceilings' : cat}
-            </h4>
-            {cat === 'Ceilings' && (
-              <p className="text-xs text-muted-foreground">Tap a style to apply it to the selected room, or drag it onto a room.</p>
-            )}
-            <div className="grid grid-cols-3 gap-1.5">
-              {items.map((def) => (
-                <button
-                  key={def.type}
-                  className="flex flex-col items-center gap-1 rounded-lg border bg-card p-2 pb-1.5 text-[11px] text-card-foreground transition-colors hover:border-primary hover:bg-primary/5"
-                  draggable
-                  onDragStart={(e) => {
-                    e.dataTransfer.setData(SYMBOL_DRAG_MIME, def.type)
-                    e.dataTransfer.effectAllowed = 'copy'
-                  }}
-                  onClick={() => place(def)}
-                  title={def.name}
-                >
-                  <Preview def={def} theme={theme} />
-                  <span className="w-full truncate text-center">{def.name}</span>
-                </button>
-              ))}
-            </div>
-          </section>
+          <Collapsible key={cat} open={open} onOpenChange={(o) => toggle(cat, o)} asChild>
+            <section className="space-y-2">
+              <CollapsibleTrigger
+                disabled={searching}
+                className="group flex w-full items-center gap-1.5 rounded-md py-1 text-xs font-medium tracking-wide text-muted-foreground uppercase outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring disabled:hover:text-muted-foreground"
+              >
+                <ChevronRight className="size-3.5 transition-transform group-data-[state=open]:rotate-90" />
+                <span className="flex-1 text-left">{cat === 'Ceilings' ? 'Gypsum ceilings' : cat}</span>
+                <span className="font-normal tabular-nums normal-case">{items.length}</span>
+              </CollapsibleTrigger>
+              <CollapsibleContent className="space-y-2">
+                {cat === 'Ceilings' && (
+                  <p className="text-xs text-muted-foreground">Tap a style to apply it to the selected room, or drag it onto a room.</p>
+                )}
+                <div className="grid grid-cols-3 gap-1.5">
+                  {items.map((def) => (
+                    <button
+                      key={def.type}
+                      className="flex flex-col items-center gap-1 rounded-lg border bg-card p-2 pb-1.5 text-[11px] text-card-foreground transition-colors hover:border-primary hover:bg-primary/5"
+                      draggable
+                      onDragStart={(e) => {
+                        e.dataTransfer.setData(SYMBOL_DRAG_MIME, def.type)
+                        e.dataTransfer.effectAllowed = 'copy'
+                      }}
+                      onClick={() => place(def)}
+                      title={def.name}
+                    >
+                      <Preview def={def} theme={theme} />
+                      <span className="w-full truncate text-center">{def.name}</span>
+                    </button>
+                  ))}
+                </div>
+              </CollapsibleContent>
+            </section>
+          </Collapsible>
         )
       })}
     </div>

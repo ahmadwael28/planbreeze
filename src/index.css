@@ -193,6 +193,9 @@
   fill: color-mix(in oklch, var(--primary) 25%, var(--background));
   cursor: move;
 }
+.plan-canvas .plan-view {
+  cursor: move;
+}
 .plan-canvas .rotate-handle {
   cursor: alias;
 }

@@ -1,6 +1,6 @@
 import { useId } from 'react'
 import type { ReactNode } from 'react'
-import { Copy, FlipHorizontal2, FlipVertical2, ImageOff, Link2Off, Ruler, RotateCw, SplitSquareHorizontal, Trash2 } from 'lucide-react'
+import { Box, Copy, FlipHorizontal2, FlipVertical2, ImageOff, Link2Off, Ruler, RotateCw, SplitSquareHorizontal, Trash2, Video } from 'lucide-react'
 import { toast } from 'sonner'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -16,7 +16,7 @@ import { area, dist, perimeter } from '@/model/geometry'
 import { ROOM_COLORS, roomOuter, setWallLength, symbolPose } from '@/model/project'
 import { SYMBOL_MAP } from '@/model/symbols'
 import { formatArea, formatLength } from '@/model/units'
-import type { Dimension, PlanSymbol, Room, Units } from '@/model/types'
+import type { Dimension, PlanSymbol, Room, SavedView, Units } from '@/model/types'
 import {
   autoDimension,
   currentFloor,
@@ -30,6 +30,7 @@ import {
   useSelectedRoom,
   useSelectedSymbol,
 } from '@/store/editor'
+import { useUi } from '@/store/ui'
 import { LengthInput, NumberInput, TextInput } from './LengthInput'
 import { CeilingSection, LightSection, SwitchSection } from './LightingProps'
 
@@ -251,6 +252,70 @@ function DimensionProps({ dim, units }: { dim: Dimension; units: Units }) {
           )}
         </Field>
         <p className="text-xs text-muted-foreground">Drag the line to move it, or drag its end points onto other corners.</p>
+      </Section>
+      <Separator />
+      <Section>
+        <Button variant="destructive" size="sm" onClick={deleteSelection}>
+          <Trash2 /> Delete
+        </Button>
+      </Section>
+    </>
+  )
+}
+
+function ViewProps({ view, units }: { view: SavedView; units: Units }) {
+  const update = (recipe: (v: SavedView) => void) =>
+    useEditor.getState().commit((d) => {
+      const v = draftFloor(d).views?.find((x) => x.id === view.id)
+      if (v) recipe(v)
+    })
+  return (
+    <>
+      <Section
+        title={
+          <span className="flex items-center gap-2">
+            <Video className="size-4" /> Saved 3D view
+          </span>
+        }
+      >
+        <Field label="Name">
+          {(id) => (
+            <TextInput
+              id={id}
+              value={view.name}
+              onChange={(name) => {
+                if (name.trim()) update((v) => (v.name = name.trim()))
+              }}
+            />
+          )}
+        </Field>
+        <Field label="Eye height">
+          {(id) => (
+            <LengthInput
+              id={id}
+              value={view.eye.h}
+              units={units}
+              min={10}
+              onChange={(h) =>
+                update((v) => {
+                  // Keep the camera's tilt: move what it looks at up or down by the same amount.
+                  v.look = { ...v.look, h: v.look.h + h - v.eye.h }
+                  v.eye = { ...v.eye, h }
+                })
+              }
+            />
+          )}
+        </Field>
+        <Button
+          className="w-full"
+          onClick={() => {
+            useUi.getState().setPendingView(view.id)
+            useEditor.getState().setViewMode('3d')
+          }}
+        >
+          <Box /> Look from here in 3D
+        </Button>
+        <p className="text-xs text-muted-foreground">Drag the camera to move it, and its round handle to turn it. Arrow keys nudge it.</p>
       </Section>
       <Separator />
       <Section>
@@ -535,9 +600,14 @@ export function PropertiesPanel() {
     const sel = s.selection
     return sel?.kind === 'dimension' ? currentFloor(s).dimensions?.find((d) => d.id === sel.id) : undefined
   })
+  const view = useEditor((s) => {
+    const sel = s.selection
+    return sel?.kind === 'view' ? currentFloor(s).views?.find((v) => v.id === sel.id) : undefined
+  })
   if (room) return <RoomProps room={room} units={units} />
   if (sym?.room) return <CoveProps sym={sym} units={units} />
   if (sym) return <SymbolProps sym={sym} units={units} />
   if (dim) return <DimensionProps dim={dim} units={units} />
+  if (view) return <ViewProps view={view} units={units} />
   return <FloorAndProjectProps />
 }

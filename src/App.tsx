@@ -85,6 +85,12 @@ function nudge(dx: number, dy: number) {
     if (selection.kind === 'room') {
       const r = f.rooms.find((x) => x.id === selection.id)
       if (r) r.points = r.points.map((p) => ({ x: p.x + dx, y: p.y + dy }))
+    } else if (selection.kind === 'view') {
+      const v = f.views?.find((x) => x.id === selection.id)
+      if (v) {
+        v.eye = { ...v.eye, x: v.eye.x + dx, y: v.eye.y + dy }
+        v.look = { ...v.look, x: v.look.x + dx, y: v.look.y + dy }
+      }
     } else {
       const s = f.symbols.find((x) => x.id === selection.id)
       if (s && !s.wall) {

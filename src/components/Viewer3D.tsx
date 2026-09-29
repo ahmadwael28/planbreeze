@@ -29,6 +29,7 @@ import { uid } from '@/model/project'
 import { SYMBOL_MAP } from '@/model/symbols'
 import type { LightColor } from '@/model/types'
 import { currentFloor, draftFloor, useEditor, useFloor } from '@/store/editor'
+import { useUi } from '@/store/ui'
 import { buildProjectGroup, SLAB } from '@/three/buildScene'
 import type { FloorFilter, PickInfo } from '@/three/buildScene'
 import { KEY_HELP, KeyboardNav, NUMPAD_HELP } from '@/three/keyboardNav'
@@ -600,6 +601,20 @@ export default function Viewer3D() {
       if (active === `saved:${savedId}`) setActive(null)
     },
   }
+
+  // "Look from here in 3D" on a saved view in the 2D plan: go there once the scene is ready.
+  const pendingView = useUi((s) => s.pendingView)
+  useEffect(() => {
+    if (!pendingView || !built) return
+    const t = setTimeout(() => {
+      useUi.getState().setPendingView(null)
+      const id = `saved:${pendingView}`
+      if (!viewpoints.some((v) => v.id === id)) return
+      setTour(true)
+      goTo(id)
+    })
+    return () => clearTimeout(t)
+  }, [pendingView, built, viewpoints, goTo])
 
   const registerMarker = useCallback((id: string, el: HTMLElement | null) => {
     const ctx = ctxRef.current

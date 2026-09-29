@@ -145,6 +145,7 @@ export type Selection =
   | { kind: 'room'; id: string; vertex?: number }
   | { kind: 'symbol'; id: string }
   | { kind: 'dimension'; id: string }
+  | { kind: 'view'; id: string }
 
 export type Tool = 'select' | 'room' | 'rect' | 'pan' | 'dimension' | 'wire'
 

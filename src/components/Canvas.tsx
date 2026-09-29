@@ -20,7 +20,7 @@ import { covePath } from '@/model/lighting'
 import { dimensionPoints, findWallSnap, floorBounds, moveWall, roomOuter, symbolPose, wallMountPose } from '@/model/project'
 import { SYMBOL_MAP } from '@/model/symbols'
 import { formatLength, gridSpacing, parseLength, snapStep } from '@/model/units'
-import type { Dimension, Floor, PlanSymbol, Point, Pose, Room } from '@/model/types'
+import type { Dimension, Floor, PlanSymbol, Point, Pose, Room, SavedView } from '@/model/types'
 import {
   addDimension,
   addRoom,
@@ -33,6 +33,7 @@ import {
 } from '@/store/editor'
 import { usePlanTheme } from '@/hooks/use-plan-theme'
 import { DimensionGraphic, PlanLayers } from './PlanLayers'
+import { PlanViews } from './PlanViews'
 
 const MIN_ZOOM = 0.05
 const MAX_ZOOM = 8
@@ -56,6 +57,8 @@ type Drag = DragBase &
     | { type: 'rect'; start: Point; current: Point }
     | { type: 'dim-end'; id: string; end: 'a' | 'b' }
     | { type: 'dim-offset'; id: string; orig: Dimension; start: Point }
+    | { type: 'view'; id: string; orig: SavedView; start: Point }
+    | { type: 'view-rotate'; id: string; orig: SavedView }
   )
 
 /** Vertices (interior + wall outline) of all rooms except `excludeId`, for alignment snapping. */
@@ -373,6 +376,17 @@ export function Canvas() {
       if (orig) drag.current = { ...base, type: 'dim-offset', id, orig, start: w }
       return
     }
+    if (kind === 'view-rotate' && sel?.kind === 'view') {
+      const orig = fl.views?.find((x) => x.id === sel.id)
+      if (orig) drag.current = { ...base, type: 'view-rotate', id: sel.id, orig }
+      return
+    }
+    if (kind === 'view' && id) {
+      const orig = fl.views?.find((x) => x.id === id)
+      st.select({ kind: 'view', id })
+      if (orig) drag.current = { ...base, type: 'view', id, orig, start: w }
+      return
+    }
 
     if (kind === 'vertex' && sel?.kind === 'room') {
       const orig = fl.rooms.find((r) => r.id === sel.id)!
@@ -493,6 +507,34 @@ export function Canvas() {
         st.mutate((pd) => {
           const x = draftFloor(pd).dimensions?.find((y) => y.id === d.id)
           if (x) x.offset = offset
+        })
+        break
+      }
+      case 'view': {
+        const { eye, look } = d.orig
+        let x = eye.x + w.x - d.start.x
+        let y = eye.y + w.y - d.start.y
+        if (snap) {
+          x = snapTo(x, step)
+          y = snapTo(y, step)
+        }
+        st.mutate((pd) => {
+          const v = draftFloor(pd).views?.find((z) => z.id === d.id)
+          if (!v) return
+          v.eye = { ...eye, x, y }
+          v.look = { ...look, x: look.x + x - eye.x, y: look.y + y - eye.y }
+        })
+        break
+      }
+      case 'view-rotate': {
+        const { eye, look } = d.orig
+        let ang = (Math.atan2(w.y - eye.y, w.x - eye.x) * 180) / Math.PI
+        if (!e.shiftKey) ang = snapTo(ang, 15)
+        const r = Math.hypot(look.x - eye.x, look.y - eye.y) || 100
+        const rad = (ang * Math.PI) / 180
+        st.mutate((pd) => {
+          const v = draftFloor(pd).views?.find((z) => z.id === d.id)
+          if (v) v.look = { ...look, x: eye.x + Math.cos(rad) * r, y: eye.y + Math.sin(rad) * r }
         })
         break
       }
@@ -691,6 +733,11 @@ export function Canvas() {
           showWallLengths={settings.showWallLengths}
           showAreas={settings.showAreas}
         />
+
+        {/* saved 3D views */}
+        {!!floor.views?.length && (
+          <PlanViews views={floor.views} scale={zoom} theme={theme} selectedId={selection?.kind === 'view' ? selection.id : null} />
+        )}
 
         {/* selected room: outline, vertex & wall handles */}
         {selRoom && (

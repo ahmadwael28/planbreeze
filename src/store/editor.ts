@@ -127,6 +127,7 @@ function validSelection(p: Project, floorId: string, sel: Selection | null): Sel
     return sel.vertex !== undefined && sel.vertex >= room.points.length ? { kind: 'room', id: sel.id } : sel
   }
   if (sel.kind === 'dimension') return floor.dimensions?.some((d) => d.id === sel.id) ? sel : null
+  if (sel.kind === 'view') return floor.views?.some((v) => v.id === sel.id) ? sel : null
   return floor.symbols.some((s) => s.id === sel.id) ? sel : null
 }
 
@@ -358,6 +359,8 @@ export function deleteSelection() {
       f.symbols = f.symbols.filter((s) => s.wall?.roomId !== selection.id && s.room !== selection.id)
     } else if (selection.kind === 'dimension') {
       f.dimensions = (f.dimensions ?? []).filter((x) => x.id !== selection.id)
+    } else if (selection.kind === 'view') {
+      f.views = (f.views ?? []).filter((x) => x.id !== selection.id)
     } else {
       f.symbols = f.symbols.filter((s) => s.id !== selection.id)
     }
@@ -405,7 +408,7 @@ export function duplicateSelection() {
   if (!sel) return
   const floor = currentFloor(st)
   const OFFSET = 50
-  if (sel.kind === 'dimension') return
+  if (sel.kind === 'dimension' || sel.kind === 'view') return
   if (sel.kind === 'room') {
     const room = floor.rooms.find((r) => r.id === sel.id)
     if (!room) return
