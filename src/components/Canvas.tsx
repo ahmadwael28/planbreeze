@@ -717,6 +717,11 @@ export function Canvas() {
             opacity={floor.underlay.opacity}
             preserveAspectRatio="none"
             pointerEvents="none"
+            transform={
+              floor.underlay.rotation
+                ? `rotate(${floor.underlay.rotation},${floor.underlay.x + floor.underlay.width / 2},${floor.underlay.y + floor.underlay.height / 2})`
+                : undefined
+            }
           />
         )}
         {settings.showFloorBelow && floorBelow && (

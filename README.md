@@ -11,7 +11,7 @@ Built with React 19, TypeScript, Vite, Tailwind CSS v4, shadcn/ui (Radix), zusta
 **Quick start**
 - Start screen: import a drawing, pick a furnished template (studio, 1-bed, 2-bed, family house), or start blank
 - Import a photo, scan or hand sketch of a plan:
-  - **Detect** (on-device, nothing uploaded): finds rooms and doorways and straightens walls; set the scale by dragging a line along a wall of known length
+  - **Detect** (on-device, in a background worker, nothing uploaded): reads printed and digital plans (CAD exports, estate-agent plans with colored floors, scans and photos, including outlined or hatched walls) by telling walls apart from furniture, text and dimensions by their thickness, and hand sketches by their lines; finds rooms, doors and windows and the wall thickness, and squares up photos taken at a slight angle. Set the scale by dragging a line along a wall of known length. Illustrated tips show what makes a drawing easy to read
   - **AI** (optional, your own Anthropic API key): Claude reads handwritten room names and dimensions and places doors and windows, so sketches that aren't to scale come out right
   - **Trace**: puts the drawing behind the plan at the right scale so you can draw over it
 - Empty floors show a prompt with the quickest next steps

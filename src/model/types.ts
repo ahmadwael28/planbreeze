@@ -101,6 +101,8 @@ export interface Underlay {
   height: number
   opacity: number
   visible: boolean
+  /** Degrees, clockwise about the image's center (squares up a photo taken at a slight angle). */
+  rotation?: number
 }
 
 export interface Floor {

@@ -18,10 +18,10 @@ export interface DetectParams {
 export const DEFAULT_DETECT: DetectParams = { gap: 0.12, sensitivity: 0.5 }
 
 // 8-neighborhood, clockwise starting West (y points down).
-const DX = [-1, -1, 0, 1, 1, 1, 0, -1]
-const DY = [0, -1, -1, -1, 0, 1, 1, 1]
+export const DX = [-1, -1, 0, 1, 1, 1, 0, -1]
+export const DY = [0, -1, -1, -1, 0, 1, 1, 1]
 
-function grayscale(img: ImageData): Uint8Array {
+export function grayscale(img: ImageData): Uint8Array {
   const { data, width, height } = img
   const g = new Uint8Array(width * height)
   for (let i = 0, j = 0; i < g.length; i++, j += 4) {
@@ -62,7 +62,7 @@ function threshold(g: Uint8Array, W: number, H: number, sensitivity: number): Ui
   return mask
 }
 
-interface Components {
+export interface Components {
   labels: Int32Array
   sizes: number[]
   boxes: { minX: number; minY: number; maxX: number; maxY: number }[]
@@ -71,7 +71,7 @@ interface Components {
 }
 
 /** Connected components of pixels where mask === value. */
-function components(mask: Uint8Array, W: number, H: number, value: number, eight: boolean): Components {
+export function components(mask: Uint8Array, W: number, H: number, value: number, eight: boolean): Components {
   const labels = new Int32Array(W * H).fill(-1)
   const sizes: number[] = []
   const boxes: Components['boxes'] = []
@@ -272,7 +272,7 @@ function bridgeGaps(ink: Uint8Array, W: number, H: number, maxGap: number): [Poi
 }
 
 /** Moore-neighbor tracing of the outer boundary of region `id`, starting at its raster-first pixel. */
-function trace(labels: Int32Array, W: number, H: number, id: number, start: number): Point[] {
+export function trace(labels: Int32Array, W: number, H: number, id: number, start: number): Point[] {
   const inside = (x: number, y: number) => x >= 0 && y >= 0 && x < W && y < H && labels[y * W + x] === id
   const sx = start % W
   const sy = (start - sx) / W
@@ -328,7 +328,7 @@ function douglasPeucker(pts: Point[], eps: number): Point[] {
   return [...left.slice(0, -1), ...douglasPeucker(pts.slice(idx), eps)]
 }
 
-function simplifyClosed(pts: Point[], eps: number): Point[] {
+export function simplifyClosed(pts: Point[], eps: number): Point[] {
   if (pts.length < 4) return pts
   let far = 0
   let max = 0

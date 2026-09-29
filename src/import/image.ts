@@ -11,7 +11,7 @@ export interface LoadedImage {
 }
 
 const STORE_MAX = 1600
-const WORK_MAX = 900
+const WORK_MAX = 1400
 const AI_MAX = 1568
 
 function canvasFor(src: CanvasImageSource, w: number, h: number, maxSide: number) {
