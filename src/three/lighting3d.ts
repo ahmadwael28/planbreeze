@@ -72,7 +72,8 @@ export function buildCeilings(floor: Floor, base: number): THREE.Object3D[] {
   const geos: THREE.BufferGeometry[] = []
   const gapGeos: THREE.BufferGeometry[] = []
   for (const room of floor.rooms) {
-    if (room.points.length < 3) continue
+    // Balconies are open to the sky.
+    if (room.points.length < 3 || room.kind === 'balcony') continue
     const c = room.ceiling
     // Shadow gaps: the ceiling that meets the wall stops short of it, leaving a dark groove.
     const gaps = room.shadowGaps?.filter((i) => i < room.points.length) ?? []

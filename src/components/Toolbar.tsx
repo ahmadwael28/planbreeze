@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react'
 import type { LucideIcon } from 'lucide-react'
-import { Cable, Hand, Maximize, MousePointer2, Pentagon, Plus, RectangleHorizontal, Ruler, ScanLine, SquareDashedBottom, ZoomIn, ZoomOut } from 'lucide-react'
+import { Cable, Fence, Hand, Maximize, MousePointer2, Pentagon, Plus, RectangleHorizontal, Ruler, ScanLine, SquareDashedBottom, ZoomIn, ZoomOut } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Separator } from '@/components/ui/separator'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
@@ -13,6 +13,7 @@ const TOOLS: { tool: Tool; icon: LucideIcon; label: string; key: string }[] = [
   { tool: 'select', icon: MousePointer2, label: 'Select & move', key: 'V' },
   { tool: 'room', icon: Pentagon, label: 'Draw room (click corners)', key: 'P' },
   { tool: 'rect', icon: RectangleHorizontal, label: 'Draw rectangular room (drag)', key: 'R' },
+  { tool: 'balcony', icon: Fence, label: 'Draw balcony (drag)', key: 'B' },
   { tool: 'dimension', icon: Ruler, label: 'Dimension line', key: 'D' },
   { tool: 'pan', icon: Hand, label: 'Pan', key: 'H' },
 ]

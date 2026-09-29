@@ -1,11 +1,11 @@
 import * as THREE from 'three'
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js'
 import { add, dist, dot, inwardNormal, mul, normalize, offsetPolygon, signedArea, sub } from '@/model/geometry'
-import { roomOuter, symbolPose } from '@/model/project'
+import { isBalcony, railingRuns, roomOuter, symbolPose } from '@/model/project'
 import { SYMBOL_MAP } from '@/model/symbols'
 import type { PlanTheme } from '@/model/theme'
 import type { Floor, Point, Project, Room, Selection } from '@/model/types'
-import { COLORS, Materials, symbolModel } from './furniture'
+import { COLORS, Materials, railingModel, symbolModel } from './furniture'
 import { buildCeilings, buildFixture } from './lighting3d'
 import type { LightHandle, SwitchHandle } from './lighting3d'
 
@@ -211,7 +211,7 @@ export function buildProjectGroup(project: Project, opts: BuildOptions): THREE.G
 
     // Walls (merged per room so each room stays pickable), with skirting boards.
     const openings = wallOpenings(floor)
-    const skirts = floor.rooms.filter((r) => r.points.length >= 3).flatMap((r) => skirting(r, openings, floorBase))
+    const skirts = floor.rooms.filter((r) => r.points.length >= 3 && !isBalcony(r)).flatMap((r) => skirting(r, openings, floorBase))
     if (skirts.length) {
       const merged = mergeGeometries(skirts)
       skirts.forEach((g) => g.dispose())
@@ -219,6 +219,18 @@ export function buildProjectGroup(project: Project, opts: BuildOptions): THREE.G
     }
     for (const room of floor.rooms) {
       if (room.points.length < 3) continue
+      if (isBalcony(room)) {
+        // A railing instead of walls, left off where the balcony meets the building.
+        const hl = sel?.kind === 'room' && sel.id === room.id
+        const railing = railingModel(room, railingRuns(room, floor.rooms), mats, hl, floorBase)
+        const pick: PickInfo = { floorId: floor.id, kind: 'room', id: room.id }
+        railing.traverse((o) => {
+          o.userData.pick = pick
+          if (o instanceof THREE.Mesh) walls.push(o)
+        })
+        group.add(railing)
+        continue
+      }
       const geos = roomWalls(room, openings, floor.height, floorBase)
       if (!geos.length) continue
       const merged = mergeGeometries(geos)

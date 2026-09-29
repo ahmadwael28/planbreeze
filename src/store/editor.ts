@@ -1,6 +1,7 @@
 import { produce } from 'immer'
 import { create } from 'zustand'
 import {
+  newBalcony,
   newFloor,
   newProject,
   newRoom,
@@ -269,6 +270,15 @@ export function addRoom(points: Point[]) {
   const st = useEditor.getState()
   const floor = currentFloor(st)
   const room = newRoom(floor, points, st.project.defaultWallThickness)
+  st.commit((d) => {
+    draftFloor(d).rooms.push(room)
+  })
+  useEditor.setState({ selection: { kind: 'room', id: room.id }, tool: 'select' })
+}
+
+export function addBalcony(points: Point[]) {
+  const st = useEditor.getState()
+  const room = newBalcony(currentFloor(st), points)
   st.commit((d) => {
     draftFloor(d).rooms.push(room)
   })

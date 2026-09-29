@@ -150,8 +150,10 @@
 }
 .plan-canvas.tool-room,
 .plan-canvas.tool-rect,
+.plan-canvas.tool-balcony,
 .plan-canvas.tool-room [data-kind],
-.plan-canvas.tool-rect [data-kind] {
+.plan-canvas.tool-rect [data-kind],
+.plan-canvas.tool-balcony [data-kind] {
   cursor: crosshair;
 }
 .plan-canvas.tool-pan {

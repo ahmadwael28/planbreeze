@@ -11,7 +11,8 @@
 import * as THREE from 'three'
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js'
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js'
-import type { PlanSymbol } from '@/model/types'
+import { inwardNormal, signedArea } from '@/model/geometry'
+import type { PlanSymbol, Point, Room } from '@/model/types'
 
 export const COLORS = {
   wall: '#f4f4f5',
@@ -805,6 +806,47 @@ function windowUnit(k: Kit, w: number, h: number, wallT: number, glass: Mat, wid
   g.add(rbox(w + 8, 3, wallT / 2 + 4, 0.8, 0, -3, wallT / 4 + 2, k.q(COLORS.white, 'satin'))) // inside sill
   g.add(box(w + 4, 3, wallT / 2 + 4, 0, -4, -(wallT / 4 + 2), k.q(COLORS.stone, 'satin'))) // outside sill
   return g
+}
+
+// ---------- balconies ----------
+
+/**
+ * A balcony's railing along the given runs (its open edges), in world position. Glass panels on a
+ * metal shoe, metal balusters, or a solid parapet with a coping stone.
+ */
+export function railingModel(room: Room, runs: { a: Point; b: Point }[], mats: Materials, hl: boolean, base: number): THREE.Group {
+  const g = new THREE.Group()
+  const style = room.railing?.style ?? 'glass'
+  const h = room.railing?.height ?? 105
+  const t = room.wallThickness
+  const sa = signedArea(room.points)
+  const q = (color: string, finish?: Finish) => mats.get(color, hl, finish)
+  for (const { a, b } of runs) {
+    const L = Math.hypot(b.x - a.x, b.y - a.y)
+    if (L < 2) continue
+    // Centered on the railing band, which lies just outside the balcony's edge.
+    const n = inwardNormal(a, b, sa)
+    const seg = new THREE.Group()
+    seg.position.set((a.x + b.x) / 2 - (n.x * t) / 2, base, (a.y + b.y) / 2 - (n.y * t) / 2)
+    seg.rotation.y = -Math.atan2(b.y - a.y, b.x - a.x)
+    if (style === 'glass') {
+      seg.add(box(L, 8, t, 0, 0, 0, q(COLORS.dark, 'metal')))
+      seg.add(box(L - 0.5, h - 13, 1.2, 0, 8, 0, mats.glass()))
+      seg.add(rbox(L, 4.5, t + 1, 1.8, 0, h - 5, 0, q(COLORS.chrome, 'chrome')))
+    } else if (style === 'metal') {
+      const metal = q(COLORS.dark, 'metal')
+      seg.add(rbox(L, 4, t + 1, 1.5, 0, h - 4, 0, metal))
+      seg.add(box(L, 3, 3, 0, 8, 0, metal))
+      for (const e of [-1, 1]) seg.add(box(4, h - 4, 4, e * (L / 2 - 2), 0, 0, metal))
+      const count = Math.max(1, Math.round(L / 12))
+      for (let i = 1; i < count; i++) seg.add(box(1.6, h - 15, 1.6, -L / 2 + (i * L) / count, 11, 0, metal))
+    } else {
+      seg.add(box(L, h - 5, t, 0, 0, 0, q(COLORS.wall)))
+      seg.add(rbox(L + 1, 5, t + 5, 1, 0, h - 5, 0, q(COLORS.stone, 'satin')))
+    }
+    g.add(seg)
+  }
+  return g.children.length ? compact(g) : g
 }
 
 // ---------------------------------------------------------------------------

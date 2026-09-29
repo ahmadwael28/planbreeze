@@ -22,6 +22,7 @@ import { SYMBOL_MAP } from '@/model/symbols'
 import { formatLength, gridSpacing, parseLength, snapStep } from '@/model/units'
 import type { Dimension, Floor, PlanSymbol, Point, Pose, Room, SavedView } from '@/model/types'
 import {
+  addBalcony,
   addDimension,
   addRoom,
   addSymbol,
@@ -325,7 +326,7 @@ export function Canvas() {
       setTyped('')
       return
     }
-    if (st.tool === 'rect') {
+    if (st.tool === 'rect' || st.tool === 'balcony') {
       const p = snapFree(w)
       drag.current = { ...base, type: 'rect', start: p, current: p }
       return
@@ -609,12 +610,14 @@ export function Canvas() {
       if (w >= 20 && h >= 20) {
         const x = Math.min(d.start.x, d.current.x)
         const y = Math.min(d.start.y, d.current.y)
-        addRoom([
+        const pts = [
           { x, y },
           { x: x + w, y },
           { x: x + w, y: y + h },
           { x, y: y + h },
-        ])
+        ]
+        if (useEditor.getState().tool === 'balcony') addBalcony(pts)
+        else addRoom(pts)
       }
     }
   }

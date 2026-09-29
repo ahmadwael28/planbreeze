@@ -12,7 +12,7 @@ import {
   sub,
 } from '@/model/geometry'
 import { ceilingZones, covePath, coveRuns, SHADOW_GAP, WIRE_COLORS } from '@/model/lighting'
-import { dimensionPoints, roomOuter, symbolPose } from '@/model/project'
+import { dimensionPoints, isBalcony, railingRuns, roomOuter, symbolPose } from '@/model/project'
 import { SYMBOL_MAP } from '@/model/symbols'
 import type { PlanTheme } from '@/model/theme'
 import { formatArea, formatLength } from '@/model/units'
@@ -73,6 +73,29 @@ const SymbolGraphic = memo(function SymbolGraphic({
     </g>
   )
 })
+
+/** A balcony's railing: a thin band along its open edges (a filled one for a solid parapet). */
+function Railings({ room, rooms, theme }: { room: Room; rooms: Room[]; theme: PlanTheme }) {
+  const sa = signedArea(room.points)
+  const solid = room.railing?.style === 'solid'
+  return (
+    <g data-kind="room" data-id={room.id}>
+      {railingRuns(room, rooms).map(({ a, b }, i) => {
+        const out = mul(inwardNormal(a, b, sa), -room.wallThickness)
+        return (
+          <path
+            key={i}
+            d={polygonPath([a, b, add(b, out), add(a, out)])}
+            fill={solid ? theme.wall : theme.paper}
+            stroke={theme.ink}
+            strokeWidth={solid ? 0 : 0.9}
+            vectorEffect="non-scaling-stroke"
+          />
+        )
+      })}
+    </g>
+  )
+}
 
 /** A hidden LED running around its room's ceiling (only along the walls it's on for). */
 function CoveLight({ sym, room, scale, forPrint }: { sym: PlanSymbol; room: Room; scale: number; forPrint?: boolean }) {
@@ -391,9 +414,14 @@ export function PlanLayers({
         </g>
       )}
       <g>
-        {floor.rooms.map((r) => (
-          <path key={r.id} data-kind="room" data-id={r.id} d={wallPath(r)} fill={theme.wall} fillRule="evenodd" />
+        {floor.rooms.filter(isBalcony).map((r) => (
+          <Railings key={r.id} room={r} rooms={floor.rooms} theme={theme} />
         ))}
+        {floor.rooms
+          .filter((r) => !isBalcony(r))
+          .map((r) => (
+            <path key={r.id} data-kind="room" data-id={r.id} d={wallPath(r)} fill={theme.wall} fillRule="evenodd" />
+          ))}
       </g>
       <g opacity={lighting ? 0.22 : 1} pointerEvents={lighting ? 'none' : undefined}>
         {furniture.map((s) => (

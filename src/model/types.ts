@@ -29,6 +29,17 @@ export interface Room {
   ceiling?: Ceiling
   /** Walls (edge indices) with a shadow gap: a recessed groove where the wall meets the ceiling. */
   shadowGaps?: number[]
+  /** An outdoor space: a railing instead of walls (none where it meets the building), no ceiling. */
+  kind?: 'balcony'
+  railing?: Railing
+}
+
+export type RailingStyle = 'glass' | 'metal' | 'solid'
+
+export interface Railing {
+  style: RailingStyle
+  /** Height above the balcony floor. */
+  height: number
 }
 
 /** Where a room's hidden LED strip runs. */
@@ -161,7 +172,7 @@ export type Selection =
   | { kind: 'dimension'; id: string }
   | { kind: 'view'; id: string }
 
-export type Tool = 'select' | 'room' | 'rect' | 'pan' | 'dimension' | 'wire'
+export type Tool = 'select' | 'room' | 'rect' | 'balcony' | 'pan' | 'dimension' | 'wire'
 
 /** What the 2D plan emphasizes: furniture layout, or the ceiling & lighting plan. */
 export type PlanLayer = 'plan' | 'lighting'

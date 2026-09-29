@@ -9,14 +9,15 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Separator } from '@/components/ui/separator'
 import { Slider } from '@/components/ui/slider'
 import { Switch } from '@/components/ui/switch'
+import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { usePlanTheme } from '@/hooks/use-plan-theme'
 import { cn } from '@/lib/utils'
 import { area, dist, perimeter } from '@/model/geometry'
-import { ROOM_COLORS, roomOuter, setWallLength, symbolPose } from '@/model/project'
+import { DEFAULT_RAILING, isBalcony, RAILING_THICKNESS, ROOM_COLORS, roomOuter, setWallLength, symbolPose } from '@/model/project'
 import { SYMBOL_MAP } from '@/model/symbols'
 import { formatArea, formatLength } from '@/model/units'
-import type { Dimension, PlanSymbol, Room, SavedView, Units } from '@/model/types'
+import type { Dimension, PlanSymbol, RailingStyle, Room, SavedView, Units } from '@/model/types'
 import {
   autoDimension,
   currentFloor,
@@ -97,12 +98,93 @@ function RoomProps({ room, units }: { room: Room; units: Units }) {
   const selection = useEditor((s) => s.selection)
   const vertex = selection?.kind === 'room' ? selection.vertex : undefined
   const a = area(room.points)
+  const balcony = isBalcony(room)
+  const defaultWall = useEditor((s) => s.project.defaultWallThickness)
+  const setKind = (toBalcony: boolean) =>
+    useEditor.getState().commit((d) => {
+      const f = draftFloor(d)
+      const r = f.rooms.find((x) => x.id === room.id)
+      if (!r) return
+      if (toBalcony) {
+        r.kind = 'balcony'
+        r.railing ??= { ...DEFAULT_RAILING }
+        r.wallThickness = RAILING_THICKNESS
+        // Open to the sky: no gypsum ceiling or ceiling lights.
+        r.ceiling = undefined
+        r.shadowGaps = undefined
+        f.symbols = f.symbols.filter((s) => s.room !== r.id)
+      } else {
+        r.kind = undefined
+        r.wallThickness = defaultWall
+      }
+    })
   return (
     <>
-      <Section title="Room">
+      <Section title={balcony ? 'Balcony' : 'Room'}>
         <Field label="Name">
           {(id) => <TextInput id={id} value={room.name} onChange={(v) => updateRoom(room.id, (r) => void (r.name = v))} />}
         </Field>
+        <Field label="Type">
+          {() => (
+            <ToggleGroup
+              type="single"
+              size="sm"
+              variant="outline"
+              value={balcony ? 'balcony' : 'room'}
+              onValueChange={(v) => v && setKind(v === 'balcony')}
+              className="w-full"
+            >
+              <ToggleGroupItem value="room" className="flex-1">
+                Room
+              </ToggleGroupItem>
+              <ToggleGroupItem value="balcony" className="flex-1">
+                Balcony
+              </ToggleGroupItem>
+            </ToggleGroup>
+          )}
+        </Field>
+        {balcony && (
+          <>
+            <Field label="Railing">
+              {() => (
+                <Select
+                  value={room.railing?.style ?? DEFAULT_RAILING.style}
+                  onValueChange={(v) =>
+                    updateRoom(room.id, (r) => {
+                      r.railing = { ...(r.railing ?? DEFAULT_RAILING), style: v as RailingStyle }
+                      // A parapet is a wall; railings are slim.
+                      if (v === 'solid' && r.wallThickness < 10) r.wallThickness = 15
+                      if (v !== 'solid' && r.wallThickness >= 10) r.wallThickness = RAILING_THICKNESS
+                    })
+                  }
+                >
+                  <SelectTrigger size="sm" className="w-full">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="glass">Glass panels</SelectItem>
+                    <SelectItem value="metal">Metal balusters</SelectItem>
+                    <SelectItem value="solid">Solid wall (parapet)</SelectItem>
+                  </SelectContent>
+                </Select>
+              )}
+            </Field>
+            <Field label="Railing height">
+              {(id) => (
+                <LengthInput
+                  id={id}
+                  value={room.railing?.height ?? DEFAULT_RAILING.height}
+                  units={units}
+                  min={30}
+                  onChange={(v) => updateRoom(room.id, (r) => void (r.railing = { ...(r.railing ?? DEFAULT_RAILING), height: v }))}
+                />
+              )}
+            </Field>
+            <p className="text-xs text-muted-foreground">
+              There's no railing where the balcony meets the house. Put a door in the house wall to step out onto it.
+            </p>
+          </>
+        )}
         <Field label="Floor color">
           {() => (
             <div className="flex flex-wrap gap-1.5">
@@ -121,7 +203,7 @@ function RoomProps({ room, units }: { room: Room; units: Units }) {
             </div>
           )}
         </Field>
-        <Field label="Wall thickness">
+        <Field label={balcony ? 'Railing thickness' : 'Wall thickness'}>
           {(id) => (
             <LengthInput
               id={id}
@@ -136,15 +218,19 @@ function RoomProps({ room, units }: { room: Room; units: Units }) {
           rows={[
             ['Area', formatArea(a, units)],
             ['Perimeter', formatLength(perimeter(room.points), units)],
-            ['Wall area', formatArea(area(roomOuter(room)) - a, units)],
+            ...(balcony ? [] : [['Wall area', formatArea(area(roomOuter(room)) - a, units)] as [string, string]]),
           ]}
         />
       </Section>
       <Separator />
-      <Section title="Gypsum ceiling">
-        <CeilingSection room={room} units={units} />
-      </Section>
-      <Separator />
+      {!balcony && (
+        <>
+          <Section title="Gypsum ceiling">
+            <CeilingSection room={room} units={units} />
+          </Section>
+          <Separator />
+        </>
+      )}
       <Section title="Walls">
         <ol className="space-y-1">
           {room.points.map((p, i) => {

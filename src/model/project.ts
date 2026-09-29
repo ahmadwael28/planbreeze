@@ -3,6 +3,7 @@ import {
   add,
   area,
   dist,
+  dot,
   inwardNormal,
   labelPoint,
   mul,
@@ -14,7 +15,7 @@ import {
   sub,
 } from './geometry'
 import { SYMBOL_MAP } from './symbols'
-import type { Dimension, Floor, PlanSymbol, Point, Pose, Project, Room, WallAttachment } from './types'
+import type { Dimension, Floor, PlanSymbol, Point, Pose, Project, Railing, Room, WallAttachment } from './types'
 
 export const uid = () => Math.random().toString(36).slice(2, 10) + Date.now().toString(36).slice(-4)
 
@@ -55,6 +56,70 @@ export function newRoom(floor: Floor, points: Point[], wallThickness: number): R
     wallThickness,
     color: ROOM_COLORS[n % ROOM_COLORS.length],
   }
+}
+
+export const DEFAULT_RAILING: Railing = { style: 'glass', height: 105 }
+/** How thick a balcony's railing is drawn. */
+export const RAILING_THICKNESS = 5
+
+export function isBalcony(room: Room) {
+  return room.kind === 'balcony'
+}
+
+export function newBalcony(floor: Floor, points: Point[]): Room {
+  const n = floor.rooms.filter(isBalcony).length
+  return {
+    id: uid(),
+    name: n ? `Balcony ${n + 1}` : 'Balcony',
+    points,
+    wallThickness: RAILING_THICKNESS,
+    color: '#f1f5f9',
+    kind: 'balcony',
+    railing: { ...DEFAULT_RAILING },
+  }
+}
+
+/**
+ * The parts of a balcony's edges that get a railing: everything except where it runs along a
+ * wall of the building (another room that isn't a balcony).
+ */
+export function railingRuns(room: Room, rooms: Room[]): { a: Point; b: Point; edge: number }[] {
+  const out: { a: Point; b: Point; edge: number }[] = []
+  const others = rooms.filter((r) => r.id !== room.id && !isBalcony(r) && r.points.length >= 3)
+  const pts = room.points
+  for (let i = 0; i < pts.length; i++) {
+    const a = pts[i]
+    const b = pts[(i + 1) % pts.length]
+    const L = dist(a, b)
+    if (L < 1) continue
+    const dir = normalize(sub(b, a))
+    const covered: [number, number][] = []
+    for (const o of others) {
+      const tol = o.wallThickness + room.wallThickness + 3
+      for (let j = 0; j < o.points.length; j++) {
+        const c = o.points[j]
+        const d = o.points[(j + 1) % o.points.length]
+        const od = sub(d, c)
+        const ol = Math.hypot(od.x, od.y)
+        if (ol < 1 || Math.abs(dir.x * od.y - dir.y * od.x) / ol > 0.02) continue
+        if (Math.abs(dir.x * (c.y - a.y) - dir.y * (c.x - a.x)) > tol) continue
+        const s1 = dot(sub(c, a), dir)
+        const s2 = dot(sub(d, a), dir)
+        const lo = Math.max(0, Math.min(s1, s2))
+        const hi = Math.min(L, Math.max(s1, s2))
+        if (hi - lo > 1) covered.push([lo, hi])
+      }
+    }
+    covered.sort((p, q) => p[0] - q[0])
+    const at = (s: number) => add(a, mul(dir, s))
+    let cur = 0
+    for (const [lo, hi] of covered) {
+      if (lo > cur + 1) out.push({ a: at(cur), b: at(lo), edge: i })
+      cur = Math.max(cur, hi)
+    }
+    if (L > cur + 1) out.push({ a: at(cur), b: b, edge: i })
+  }
+  return out
 }
 
 export function rectPoints(x: number, y: number, w: number, h: number): Point[] {
@@ -239,8 +304,10 @@ function multiPolygonArea(mp: Ring[][]) {
 }
 
 export interface FloorStats {
-  rooms: { id: string; name: string; area: number; perimeter: number }[]
+  rooms: { id: string; name: string; area: number; perimeter: number; balcony: boolean }[]
+  /** Indoor rooms only. */
   interiorArea: number
+  balconyArea: number
   levelArea: number
   wallArea: number
   symbolCounts: { type: string; count: number }[]
@@ -252,18 +319,22 @@ export function floorStats(floor: Floor): FloorStats {
     name: r.name,
     area: area(r.points),
     perimeter: perimeter(r.points),
+    balcony: isBalcony(r),
   }))
-  const interiorArea = rooms.reduce((s, r) => s + r.area, 0)
+  const interiorArea = rooms.reduce((s, r) => s + (r.balcony ? 0 : r.area), 0)
+  const balconyArea = rooms.reduce((s, r) => s + (r.balcony ? r.area : 0), 0)
   let levelArea = 0
-  if (floor.rooms.length) {
-    const polys = floor.rooms
+  // The level's footprint is the building: balconies are outside it.
+  const indoor = floor.rooms.filter((r) => !isBalcony(r))
+  if (indoor.length) {
+    const polys = indoor
       .filter((r) => r.points.length >= 3)
       .map((r) => [roomOuter(r).map((p) => [p.x, p.y] as [number, number])])
     try {
       const [first, ...rest] = polys
       levelArea = first ? multiPolygonArea(polygonClipping.union(first, ...rest) as Ring[][]) : 0
     } catch {
-      levelArea = floor.rooms.reduce((s, r) => s + area(roomOuter(r)), 0)
+      levelArea = indoor.reduce((s, r) => s + area(roomOuter(r)), 0)
     }
   }
   const counts = new Map<string, number>()
@@ -271,6 +342,7 @@ export function floorStats(floor: Floor): FloorStats {
   return {
     rooms,
     interiorArea,
+    balconyArea,
     levelArea,
     wallArea: Math.max(0, levelArea - interiorArea),
     symbolCounts: [...counts].map(([type, count]) => ({ type, count })),
