@@ -12,17 +12,21 @@ const ACTIONS = {
   back: ['KeyS', 'ArrowDown'],
   left: ['KeyA'],
   right: ['KeyD'],
-  turnLeft: ['ArrowLeft'],
-  turnRight: ['ArrowRight'],
   up: ['KeyE'],
   down: ['KeyQ'],
-  lookUp: ['PageUp'],
-  lookDown: ['PageDown'],
+  // The numpad looks in all eight directions; R / F look up / down on keyboards without one.
+  turnLeft: ['ArrowLeft', 'Numpad4', 'Numpad7', 'Numpad1'],
+  turnRight: ['ArrowRight', 'Numpad6', 'Numpad9', 'Numpad3'],
+  lookUp: ['Numpad8', 'Numpad7', 'Numpad9', 'KeyR'],
+  lookDown: ['Numpad2', 'Numpad1', 'Numpad3', 'KeyF'],
+  level: ['Numpad5'],
 } as const
 type Action = keyof typeof ACTIONS
-const CODE_TO_ACTION = new Map<string, Action>(
-  (Object.keys(ACTIONS) as Action[]).flatMap((a) => ACTIONS[a].map((c) => [c, a] as const)),
-)
+/** A key can do several things at once (Numpad 7 looks up and to the left). */
+const CODE_ACTIONS = new Map<string, Action[]>()
+for (const a of Object.keys(ACTIONS) as Action[]) {
+  for (const c of ACTIONS[a]) CODE_ACTIONS.set(c, [...(CODE_ACTIONS.get(c) ?? []), a])
+}
 
 const UP = new THREE.Vector3(0, 1, 0)
 const WALK = 1.6 // m/s
@@ -34,7 +38,7 @@ const TAP = 0.12 // s of movement for a quick tap released before the next frame
 
 /** Ignore keys while the user is typing or adjusting a control. */
 function isEditing(target: EventTarget | null) {
-  return target instanceof Element && !!target.closest('input, textarea, select, [contenteditable="true"], [role="slider"], [role="tablist"], [role="radiogroup"], [role="combobox"], [role="dialog"], [role="menu"], [role="listbox"]')
+  return target instanceof Element && !!target.closest('input, textarea, select, [contenteditable="true"], [role="slider"], [role="tablist"], [role="radiogroup"], [role="combobox"], [role="dialog"]:not([data-slot="popover-content"]), [role="menu"], [role="listbox"]')
 }
 
 export interface KeyboardNavOptions {
@@ -47,9 +51,10 @@ export interface KeyboardNavOptions {
 }
 
 export class KeyboardNav {
-  private held = new Set<Action>()
+  /** Key codes held down. */
+  private held = new Set<string>()
   /** Pressed since the last frame, so a quick tap still moves a little. */
-  private pressed = new Set<Action>()
+  private pressed = new Set<string>()
   private fast = false
   private ray = new THREE.Raycaster()
   private camera: THREE.PerspectiveCamera
@@ -66,17 +71,15 @@ export class KeyboardNav {
   attach() {
     const down = (e: KeyboardEvent) => {
       this.fast = e.shiftKey
-      const action = CODE_TO_ACTION.get(e.code)
-      if (!action || e.ctrlKey || e.metaKey || e.altKey || isEditing(e.target)) return
-      e.preventDefault() // no page scrolling on arrows / Page Up / Page Down
+      if (!CODE_ACTIONS.has(e.code) || e.ctrlKey || e.metaKey || e.altKey || isEditing(e.target)) return
+      e.preventDefault() // no page scrolling on arrow keys
       if (!this.held.size) this.opts.onStart?.()
-      this.held.add(action)
-      this.pressed.add(action)
+      this.held.add(e.code)
+      this.pressed.add(e.code)
     }
     const up = (e: KeyboardEvent) => {
       this.fast = e.shiftKey
-      const action = CODE_TO_ACTION.get(e.code)
-      if (action) this.held.delete(action)
+      this.held.delete(e.code)
     }
     const release = () => {
       this.held.clear()
@@ -118,10 +121,11 @@ export class KeyboardNav {
 
   /** Advance by `dt` seconds. Returns true if the camera moved. */
   update(dt: number): boolean {
-    const h = new Set([...this.held, ...this.pressed])
-    const tapped = [...this.pressed].some((a) => !this.held.has(a))
+    const codes = new Set([...this.held, ...this.pressed])
+    const tapped = [...this.pressed].some((c) => !this.held.has(c))
     this.pressed.clear()
-    if (!h.size) return false
+    if (!codes.size) return false
+    const h = new Set([...codes].flatMap((c) => CODE_ACTIONS.get(c) ?? []))
     dt = tapped ? Math.max(dt, TAP) : Math.min(dt, 0.1) // don't jump after a stall
     const cam = this.camera.position
     const target = this.controls.target
@@ -150,6 +154,8 @@ export class KeyboardNav {
     target.add(step)
 
     // Turning and looking swing the target around the camera.
+    const level = h.has('level')
+    if (level) offset.copy(forward).multiplyScalar(offset.length()) // look straight ahead
     const turn = (h.has('turnLeft') ? 1 : 0) - (h.has('turnRight') ? 1 : 0)
     if (turn) offset.applyAxisAngle(UP, turn * TURN * dt)
     const look = (h.has('lookUp') ? 1 : 0) - (h.has('lookDown') ? 1 : 0)
@@ -158,7 +164,7 @@ export class KeyboardNav {
       const next = THREE.MathUtils.clamp(pitch + look * LOOK * dt, -1.4, 1.4)
       offset.applyAxisAngle(new THREE.Vector3().crossVectors(offset, UP).normalize(), next - pitch)
     }
-    if (turn || look) target.copy(cam).add(offset)
+    if (turn || look || level) target.copy(cam).add(offset)
     return true
   }
 }
@@ -170,6 +176,19 @@ export const KEY_HELP: [string, string][] = [
   ['A / D', 'Step left / right'],
   ['← / →', 'Turn left / right'],
   ['Q / E', 'Move down / up'],
-  ['PgUp / PgDn', 'Look up / down'],
+  ['R / F', 'Look up / down'],
   ['Shift', 'Move faster'],
+]
+
+/** Numpad keys in their physical layout, with the direction each one looks. */
+export const NUMPAD_HELP: [string, string][] = [
+  ['7', '↖'],
+  ['8', '↑'],
+  ['9', '↗'],
+  ['4', '←'],
+  ['5', '•'],
+  ['6', '→'],
+  ['1', '↙'],
+  ['2', '↓'],
+  ['3', '↘'],
 ]

@@ -20,7 +20,7 @@ import type { LightColor } from '@/model/types'
 import { currentFloor, draftFloor, useEditor, useFloor } from '@/store/editor'
 import { buildProjectGroup, SLAB } from '@/three/buildScene'
 import type { FloorFilter, PickInfo } from '@/three/buildScene'
-import { KEY_HELP, KeyboardNav } from '@/three/keyboardNav'
+import { KEY_HELP, KeyboardNav, NUMPAD_HELP } from '@/three/keyboardNav'
 import { applyLightState } from '@/three/lighting3d'
 
 /** The scene is modeled in cm and shown in meters, so light falloff is physically plausible. */
@@ -513,6 +513,20 @@ export default function Viewer3D() {
                 </div>
               ))}
             </dl>
+            <div className="mt-3 flex items-center gap-3 border-t pt-3">
+              <div className="grid shrink-0 grid-cols-3 gap-1" aria-hidden>
+                {NUMPAD_HELP.map(([key, dir]) => (
+                  <Kbd key={key} className="h-7 w-10">
+                    {key}
+                    <span className="text-foreground/70">{dir}</span>
+                  </Kbd>
+                ))}
+              </div>
+              <p className="text-sm text-muted-foreground">
+                <span className="font-medium text-foreground">Numpad</span> looks in any direction. <Kbd>5</Kbd> looks
+                straight ahead.
+              </p>
+            </div>
             <p className="mt-3 text-xs text-muted-foreground">
               Walls stop you when you walk inside; go through doorways. Fly above the walls to move freely. Try{' '}
               <b>Walk inside</b> in the Lighting panel first.
@@ -522,7 +536,7 @@ export default function Viewer3D() {
       </div>
       <div className="pointer-events-none absolute bottom-16 left-1/2 flex -translate-x-1/2 items-center gap-1.5 rounded-full bg-foreground/80 px-3 py-1.5 text-xs whitespace-nowrap text-background max-md:hidden">
         <Keyboard className="size-3.5" />
-        WASD / arrows to walk · Q / E down / up · Shift faster · drag to look around
+        WASD / arrows to walk · numpad to look around · Q / E down / up · Shift faster
       </div>
     </div>
   )
