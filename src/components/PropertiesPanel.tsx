@@ -25,7 +25,8 @@ import { usePlanTheme } from '@/hooks/use-plan-theme'
 import { cn } from '@/lib/utils'
 import { area, dist, perimeter } from '@/model/geometry'
 import { DEFAULT_RAILING, isOutdoor, OUTDOOR, RAILING_THICKNESS, ROOM_COLORS, roomOuter, setWallLength, symbolPose } from '@/model/project'
-import { SYMBOL_MAP } from '@/model/symbols'
+import { frameOf, SYMBOL_MAP } from '@/model/symbols'
+import type { FrameColor } from '@/model/symbols'
 import { formatArea, formatLength } from '@/model/units'
 import type { Dimension, ItemRef, OutdoorKind, PlanSymbol, RailingStyle, Room, SavedView, Units } from '@/model/types'
 import {
@@ -378,6 +379,57 @@ function DimensionProps({ dim, units }: { dim: Dimension; units: Units }) {
 }
 
 /** Several items selected: what they are, and what can be done with all of them. */
+/** Swatches for the frame finishes an item comes in, plus any custom color. */
+function FramePicker({ sym, frames }: { sym: PlanSymbol; frames: FrameColor[] }) {
+  const current = frameOf(sym) ?? frames[0]
+  const custom = !frames.some((f) => f.hex === current.hex)
+  const set = (hex: string) => updateSymbol(sym.id, (s) => void (s.frame = hex))
+  const swatch = (f: FrameColor) => (f.metal ? `linear-gradient(135deg, ${f.hex} 20%, #ffffff 50%, ${f.hex} 80%)` : f.hex)
+  const ring = 'ring-2 ring-primary ring-offset-2 ring-offset-background'
+  return (
+    <Field label="Frame">
+      {(id) => (
+        <div id={id} className="flex flex-wrap items-center gap-2 py-1">
+          {frames.map((f) => (
+            <button
+              key={f.hex}
+              type="button"
+              title={f.name}
+              aria-label={`${f.name} frame`}
+              aria-pressed={f.hex === current.hex}
+              onClick={() => set(f.hex)}
+              className={cn('size-6 rounded-full border shadow-sm outline-none focus-visible:ring-2 focus-visible:ring-ring', f.hex === current.hex && ring)}
+              style={{ background: swatch(f) }}
+            />
+          ))}
+          <label
+            title="Custom color"
+            className={cn('relative size-6 cursor-pointer overflow-hidden rounded-full border shadow-sm', custom && ring)}
+            style={{ background: custom ? current.hex : 'conic-gradient(#ef4444, #eab308, #22c55e, #06b6d4, #3b82f6, #a855f7, #ef4444)' }}
+          >
+            <input
+              type="color"
+              aria-label="Custom frame color"
+              className="absolute inset-0 cursor-pointer opacity-0"
+              value={current.hex}
+              // One undo step for the whole pick, updated live while choosing.
+              onPointerDown={() => useEditor.getState().checkpoint()}
+              onChange={(e) => {
+                const hex = e.target.value
+                useEditor.getState().mutate((d) => {
+                  const s = draftFloor(d).symbols.find((x) => x.id === sym.id)
+                  if (s) s.frame = hex
+                })
+              }}
+            />
+          </label>
+          <span className="text-xs text-muted-foreground">{current.name}</span>
+        </div>
+      )}
+    </Field>
+  )
+}
+
 /** Lining several pieces up in rows and spacing them evenly, e.g. spotlights down a corridor. */
 function ArrangeBlock({ syms }: { syms: Unit[] }) {
   const floor = useFloor()
@@ -712,6 +764,7 @@ function SymbolProps({ sym, units }: { sym: PlanSymbol; units: Units }) {
             </Field>
           )
         })}
+        {def?.frames && <FramePicker sym={sym} frames={def.frames} />}
         {def?.sill !== undefined && (
           <Field label="Sill height">
             {(id) => (

@@ -94,6 +94,8 @@ interface EditorState {
   wireSwitch: string | null
   /** On/off per switch id (and OTHER_LIGHTS for lights without a switch). Missing = on. */
   lightStates: Record<string, boolean>
+  /** Doors shut in 3D, by id (the others stand open). Like the lights, not saved with the plan. */
+  doorsClosed: Record<string, boolean>
   view: View
   viewport: { w: number; h: number }
   settings: Settings
@@ -117,6 +119,7 @@ interface EditorState {
   setWireSwitch: (id: string | null) => void
   setLightState: (id: string, on: boolean) => void
   setAllLights: (on: boolean) => void
+  setDoorsClosed: (ids: string[], closed: boolean) => void
   setView: (v: View | ((v: View) => View)) => void
   setViewport: (w: number, h: number) => void
   setSettings: (s: Partial<Settings>) => void
@@ -156,6 +159,7 @@ export const useEditor = create<EditorState>((set, get) => ({
   layer: 'plan',
   wireSwitch: null,
   lightStates: {},
+  doorsClosed: {},
   view: { panX: 200, panY: 150, zoom: 0.8 },
   viewport: { w: 800, h: 600 },
   settings: loadSettings(),
@@ -231,6 +235,7 @@ export const useEditor = create<EditorState>((set, get) => ({
     for (const f of get().project.floors) for (const s of f.symbols) if (s.type === 'switch') states[s.id] = on
     set({ lightStates: states })
   },
+  setDoorsClosed: (ids, closed) => set({ doorsClosed: { ...get().doorsClosed, ...Object.fromEntries(ids.map((id) => [id, closed])) } }),
   setView: (v) => set({ view: typeof v === 'function' ? v(get().view) : v }),
   setViewport: (w, h) => set({ viewport: { w, h } }),
   setSettings: (s) => {

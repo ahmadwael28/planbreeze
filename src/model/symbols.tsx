@@ -46,8 +46,51 @@ export interface SymbolDef {
   wallMount?: boolean
   /** Library items that apply a gypsum ceiling style to a room instead of placing a symbol. */
   ceilingStyle?: CeilingStyle
+  /** Doors whose leaves or panels can be opened and closed in 3D. */
+  opens?: boolean
+  /** Finishes the frame comes in (the first is the default). */
+  frames?: FrameColor[]
+  /** Other words it's found by in the library search. */
+  keywords?: string
   /** Draw the symbol centered at the origin: x ∈ [-w/2, w/2], y ∈ [-d/2, d/2]. */
   render: (w: number, d: number, t: PlanTheme, sym?: PlanSymbol) => ReactNode
+}
+
+export interface FrameColor {
+  name: string
+  hex: string
+  /** Shiny metal (anodised aluminium, brushed brass…) rather than a painted finish. */
+  metal?: boolean
+}
+
+export const SPOT_FRAMES: FrameColor[] = [
+  { name: 'White', hex: '#fafafa' },
+  { name: 'Black', hex: '#1c1c1f' },
+  { name: 'Silver', hex: '#c4c7cc', metal: true },
+  { name: 'Gold', hex: '#c9a45c', metal: true },
+  { name: 'Bronze', hex: '#7a5a3a', metal: true },
+]
+
+export const TRACK_FRAMES: FrameColor[] = [
+  { name: 'Black', hex: '#232326' },
+  { name: 'White', hex: '#f4f4f5' },
+]
+
+export const ALU_FRAMES: FrameColor[] = [
+  { name: 'Silver', hex: '#b8bcc2', metal: true },
+  { name: 'White', hex: '#f1f1ef' },
+  { name: 'Black', hex: '#232326' },
+  { name: 'Anthracite', hex: '#4a4d52' },
+  { name: 'Bronze', hex: '#5b4633', metal: true },
+  { name: 'Champagne', hex: '#c8b28e', metal: true },
+]
+
+/** The frame finish an item has: one of its type's, or a custom color. Null for items without a frame choice. */
+export function frameOf(sym: PlanSymbol): FrameColor | null {
+  const frames = SYMBOL_MAP.get(sym.type)?.frames
+  if (!frames) return null
+  if (!sym.frame) return frames[0]
+  return frames.find((f) => f.hex.toLowerCase() === sym.frame!.toLowerCase()) ?? { name: 'Custom', hex: sym.frame }
 }
 
 const glow = (sym?: PlanSymbol) => LIGHT_COLORS[sym?.light?.color ?? 'warm'].hex
@@ -136,6 +179,30 @@ function kit(t: PlanTheme) {
     )
   }
 
+  /** A slim glazed aluminium leaf (frame with glass along it) and its swing arc, like `swing`. */
+  const glazedSwing = (hx: number, y0: number, leaf: number, dir: 1 | -1) => {
+    const tip = hx + dir * leaf
+    return (
+      <>
+        <rect x={dir === 1 ? hx : hx - 4} y={y0} width={4} height={leaf} {...s()} />
+        <line x1={hx + dir * 2} y1={y0 + 4} x2={hx + dir * 2} y2={y0 + leaf - 4} {...thin} />
+        <path
+          d={`M${tip},${y0} A${leaf},${leaf} 0 0 ${dir === 1 ? 1 : 0} ${hx},${y0 + leaf}`}
+          {...thin}
+          strokeDasharray="4 3"
+        />
+      </>
+    )
+  }
+
+  /** An aluminium frame's posts at both ends of an opening. */
+  const aluPosts = (w: number, d: number) => (
+    <>
+      <rect x={-w / 2} y={-d / 2} width={4} height={d} {...s()} />
+      <rect x={w / 2 - 4} y={-d / 2} width={4} height={d} {...s()} />
+    </>
+  )
+
   const opening = (w: number, d: number) => (
     <>
       <rect x={-w / 2} y={-d / 2 - 0.5} width={w} height={d + 1} fill={t.opening} stroke="none" />
@@ -151,13 +218,14 @@ function kit(t: PlanTheme) {
     </g>
   )
 
-  return { s, line, thin, box, swing, opening, chair }
+  return { s, line, thin, box, swing, glazedSwing, aluPosts, opening, chair }
 }
 
 export const SYMBOLS: SymbolDef[] = [
   // ---------- Doors & Windows ----------
   {
     type: 'door',
+    opens: true,
     name: 'Door',
     category: 'Doors & Windows',
     width: 90,
@@ -176,6 +244,7 @@ export const SYMBOLS: SymbolDef[] = [
   },
   {
     type: 'door-double',
+    opens: true,
     name: 'Double door',
     category: 'Doors & Windows',
     width: 160,
@@ -195,6 +264,7 @@ export const SYMBOLS: SymbolDef[] = [
   },
   {
     type: 'door-sliding',
+    opens: true,
     name: 'Sliding door',
     category: 'Doors & Windows',
     width: 180,
@@ -214,6 +284,7 @@ export const SYMBOLS: SymbolDef[] = [
   },
   {
     type: 'door-barn',
+    opens: true,
     name: 'Barn sliding door',
     category: 'Doors & Windows',
     width: 90,
@@ -232,6 +303,84 @@ export const SYMBOLS: SymbolDef[] = [
           <line x1={-w / 2 - pw - 5} y1={y - 1} x2={w / 2 + 10} y2={y - 1} {...k.thin} strokeDasharray="6 3" />
           <rect x={x - pw / 2} y={y} width={pw} height={5} {...k.s()} strokeWidth={1.8} />
           <path d={`M${x - 12},${y + 11} h24 m-4,-3 l4,3 l-4,3 m-16,-6 l-4,3 l4,3`} {...k.thin} />
+        </>
+      )
+    },
+  },
+  {
+    type: 'door-alu',
+    opens: true,
+    name: 'Aluminium door',
+    keywords: 'alumetal aluminum glass glazed',
+    category: 'Doors & Windows',
+    width: 90,
+    depth: 10,
+    height: 210,
+    wall: true,
+    frames: ALU_FRAMES,
+    render: (w, d, t) => {
+      const k = kit(t)
+      return (
+        <>
+          {k.opening(w, d)}
+          {k.aluPosts(w, d)}
+          {k.glazedSwing(-w / 2 + 4, d / 2, w - 8, 1)}
+        </>
+      )
+    },
+  },
+  {
+    type: 'door-alu-double',
+    opens: true,
+    name: 'Aluminium double door',
+    keywords: 'alumetal aluminum glass glazed',
+    category: 'Doors & Windows',
+    width: 160,
+    depth: 10,
+    height: 210,
+    wall: true,
+    frames: ALU_FRAMES,
+    render: (w, d, t) => {
+      const k = kit(t)
+      return (
+        <>
+          {k.opening(w, d)}
+          {k.aluPosts(w, d)}
+          {k.glazedSwing(-w / 2 + 4, d / 2, w / 2 - 4, 1)}
+          {k.glazedSwing(w / 2 - 4, d / 2, w / 2 - 4, -1)}
+        </>
+      )
+    },
+  },
+  {
+    type: 'door-alu-sliding',
+    opens: true,
+    name: 'Aluminium sliding door',
+    keywords: 'alumetal aluminum glass glazed slider',
+    category: 'Doors & Windows',
+    width: 180,
+    depth: 10,
+    height: 210,
+    wall: true,
+    frames: ALU_FRAMES,
+    render: (w, d, t) => {
+      const k = kit(t)
+      // Two glazed panels on two tracks, overlapping in the middle.
+      const pw = (w - 8) / 2 + 4
+      const ph = d / 5
+      const panel = (x: number, y: number) => (
+        <>
+          <rect x={x} y={y} width={pw} height={ph} {...k.s()} />
+          <line x1={x + 4} y1={y + ph / 2} x2={x + pw - 4} y2={y + ph / 2} {...k.thin} />
+        </>
+      )
+      return (
+        <>
+          {k.opening(w, d)}
+          {k.aluPosts(w, d)}
+          {panel(-w / 2 + 4, -ph - 0.5)}
+          {panel(w / 2 - 4 - pw, 0.5)}
+          <path d={`M${w / 4 - 12},${d / 2 + 8} h24 m-20,-3 l-4,3 l4,3`} {...k.thin} />
         </>
       )
     },
@@ -855,7 +1004,9 @@ export const SYMBOLS: SymbolDef[] = [
   {
     type: 'spot',
     name: 'Recessed spot',
+    keywords: 'downlight',
     category: 'Lighting',
+    frames: SPOT_FRAMES,
     width: 16,
     depth: 16,
     height: 8,
@@ -894,6 +1045,7 @@ export const SYMBOLS: SymbolDef[] = [
     type: 'track',
     name: 'Magnetic track',
     category: 'Lighting',
+    frames: TRACK_FRAMES,
     width: 200,
     depth: 5,
     height: 5,

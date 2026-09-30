@@ -10,6 +10,7 @@ import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js'
 import { offsetEdges, signedArea } from '@/model/geometry'
 import { ceilingHeightAt, ceilingZones, COVE_WIDTH, coveRuns, inset, LIGHT_COLORS, SHADOW_GAP } from '@/model/lighting'
 import { symbolPose } from '@/model/project'
+import { frameOf } from '@/model/symbols'
 import type { FixtureKind } from '@/model/symbols'
 import type { Floor, PlanSymbol, Point, Room } from '@/model/types'
 
@@ -207,6 +208,12 @@ function areaLight(ctx: Ctx, g: THREE.Group, w: number, h: number, x: number, y:
 
 const dark = () => new THREE.MeshStandardMaterial({ color: '#27272a', roughness: 0.5, metalness: 0.3 })
 const white = () => new THREE.MeshStandardMaterial({ color: '#fafafa', roughness: 0.6 })
+/** The fixture's chosen frame finish (painted, or shiny metal), or `fallback` for fixtures without a choice. */
+function frameMat(sym: PlanSymbol, fallback: () => THREE.MeshStandardMaterial) {
+  const f = frameOf(sym)
+  if (!f) return fallback()
+  return new THREE.MeshStandardMaterial({ color: f.hex, roughness: f.metal ? 0.3 : 0.55, metalness: f.metal ? 0.85 : 0 })
+}
 
 function mesh(geo: THREE.BufferGeometry, mat: THREE.Material, x = 0, y = 0, z = 0) {
   const m = new THREE.Mesh(geo, mat)
@@ -303,11 +310,14 @@ export function buildFixture(
 
   switch (kind) {
     case 'spot': {
-      g.add(mesh(new THREE.CylinderGeometry(5, 5, 1.2, 24), white(), 0, top - 0.6, 0))
-      g.add(ring(4.6, 0.45, white(), 0, top - 1.2, 0)) // trim
-      g.add(mesh(new THREE.CylinderGeometry(3.6, 2.8, 2.2, 24, 1, true), dark(), 0, top - 1.6, 0)) // recessed reflector
-      g.add(lens(ctx, new THREE.CylinderGeometry(3.4, 3.4, 0.4, 24)).translateY(top - 1.3))
-      g.add(glow(ctx, 22, 0, top - 3, 0))
+      // Sized by its diameter (16 cm by default), in the chosen frame finish.
+      const s = (w || 16) / 16
+      const trim = frameMat(sym, white)
+      g.add(mesh(new THREE.CylinderGeometry(5 * s, 5 * s, 1.2, 24), trim, 0, top - 0.6, 0))
+      g.add(ring(4.6 * s, 0.45, trim, 0, top - 1.2, 0)) // trim
+      g.add(mesh(new THREE.CylinderGeometry(3.6 * s, 2.8 * s, 2.2, 24, 1, true), dark(), 0, top - 1.6, 0)) // recessed reflector
+      g.add(lens(ctx, new THREE.CylinderGeometry(3.4 * s, 3.4 * s, 0.4, 24)).translateY(top - 1.3))
+      g.add(glow(ctx, 22 * s, 0, top - 3, 0))
       spotLight(ctx, g, 0, top - 2, 0, 12, 0.5)
       break
     }
@@ -318,20 +328,22 @@ export function buildFixture(
       break
     }
     case 'track': {
-      g.add(mesh(new THREE.BoxGeometry(w, 3, d), dark(), 0, top - 1.5, 0))
+      // Track and module housings in the track's color.
+      const body = frameMat(sym, dark)
+      g.add(mesh(new THREE.BoxGeometry(w, 3, d), body, 0, top - 1.5, 0))
       for (const m of sym.modules ?? []) {
         const x = m.offset - w / 2
         if (m.kind === 'spot') {
-          g.add(mesh(new THREE.CylinderGeometry(3, 3, 11, 20), dark(), x, top - 9, 0))
+          g.add(mesh(new THREE.CylinderGeometry(3, 3, 11, 20), body, x, top - 9, 0))
           g.add(lens(ctx, new THREE.CylinderGeometry(2.4, 2.4, 0.4, 20)).translateX(x).translateY(top - 14.7))
           g.add(glow(ctx, 16, x, top - 16, 0))
           spotLight(ctx, g, x, top - 15, 0, 14, 0.38)
         } else if (m.kind === 'linear') {
-          g.add(mesh(new THREE.BoxGeometry(36, 4, 5), dark(), x, top - 5, 0))
+          g.add(mesh(new THREE.BoxGeometry(36, 4, 5), body, x, top - 5, 0))
           g.add(lens(ctx, new THREE.BoxGeometry(34, 0.4, 3.6)).translateX(x).translateY(top - 7.2))
           areaLight(ctx, g, 34, 3.6, x, top - 7.5, 0, 45)
         } else {
-          g.add(mesh(new THREE.BoxGeometry(28, 6, 8), dark(), x, top - 6, 0))
+          g.add(mesh(new THREE.BoxGeometry(28, 6, 8), body, x, top - 6, 0))
           for (const o of [-8, 0, 8]) g.add(lens(ctx, new THREE.CylinderGeometry(2, 2, 0.4, 16)).translateX(x + o).translateY(top - 9.2))
           spotLight(ctx, g, x, top - 10, 0, 16, 0.6)
         }

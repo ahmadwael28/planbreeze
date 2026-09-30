@@ -12,7 +12,7 @@ import * as THREE from 'three'
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js'
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js'
 import { inwardNormal, signedArea } from '@/model/geometry'
-import { chairsAlong, seatsAlong, SOFA } from '@/model/symbols'
+import { chairsAlong, frameOf, seatsAlong, SOFA } from '@/model/symbols'
 import type { PlanSymbol, Point, Room } from '@/model/types'
 
 export const COLORS = {
@@ -208,6 +208,60 @@ export function compact(g: THREE.Group): THREE.Group {
     out.add(m)
   }
   return out
+}
+
+/** Like `compact`, but moving door parts (see `DoorPart`) stay separate pieces, so they can still open and close. */
+function compactModel(g: THREE.Group): THREE.Group {
+  const parts = g.children.filter((c) => c.userData.door)
+  if (!parts.length) return compact(g)
+  parts.forEach((p) => g.remove(p))
+  const out = compact(g)
+  for (const p of parts) {
+    const wrap = new THREE.Group()
+    wrap.add(...p.children)
+    const piece = new THREE.Group()
+    piece.position.copy(p.position)
+    piece.rotation.copy(p.rotation)
+    piece.userData.door = p.userData.door
+    const merged = compact(wrap).children
+    if (merged.length) piece.add(...merged)
+    out.add(piece)
+  }
+  return out
+}
+
+/** A moving part of a door: a leaf turning about its hinge (`angle` to close it), or a panel sliding (`slide` along x to open it). */
+export interface DoorPart {
+  angle?: number
+  slide?: number
+}
+
+/** Put a door part in place, from closed (0) to open (1). */
+export function poseDoor(o: THREE.Object3D, open: number) {
+  const d = o.userData.door as DoorPart
+  if (d.angle !== undefined) o.rotation.y = (1 - open) * d.angle
+  if (d.slide !== undefined) o.position.x = open * d.slide
+  o.userData.open = open
+}
+
+/** A leaf built in its open position that turns about a hinge at (hx, z0) to close. */
+function hinged(hx: number, z0: number, closeAngle: number, build: (g: THREE.Group) => void) {
+  const pivot = new THREE.Group()
+  pivot.position.set(hx, 0, z0)
+  const inner = new THREE.Group()
+  inner.position.set(-hx, 0, -z0)
+  build(inner)
+  pivot.add(inner)
+  pivot.userData.door = { angle: closeAngle } satisfies DoorPart
+  return pivot
+}
+
+/** A panel built in its closed position that slides `slide` along x to open. */
+function sliding(slide: number, build: (g: THREE.Group) => void) {
+  const g = new THREE.Group()
+  build(g)
+  g.userData.door = { slide } satisfies DoorPart
+  return g
 }
 
 // ---------------------------------------------------------------------------
@@ -757,8 +811,15 @@ function doorFrame(k: Kit, g: THREE.Group, w: number, h: number, wallT: number) 
   for (const face of [-1, 1]) g.add(box(w + 2 * arch - 2, arch, 1.5, 0, h - 1, face * (wallT / 2 + 0.75), frame))
 }
 
-/** A leaf opened 90° into the room, hinged at `hx`; `side` = +1 when it extends toward +X from the hinge. */
+/**
+ * A leaf opened 90° into the room, hinged at `hx`; `side` = +1 when it extends toward +X from the hinge.
+ * It turns shut into the frame at the room-side face of the wall.
+ */
 function doorLeaf(k: Kit, g: THREE.Group, hx: number, leaf: number, side: number, h: number, wallT: number) {
+  g.add(hinged(hx, wallT / 2, (side * Math.PI) / 2, (p) => woodLeaf(k, p, hx, leaf, side, h, wallT)))
+}
+
+function woodLeaf(k: Kit, g: THREE.Group, hx: number, leaf: number, side: number, h: number, wallT: number) {
   const x = hx + side * 2
   const z0 = wallT / 2
   g.add(rbox(4, h - 4, leaf, 0.6, x, 1, z0 + leaf / 2, k.q(COLORS.door, 'satin')))
@@ -782,7 +843,7 @@ function doorLeaf(k: Kit, g: THREE.Group, hx: number, leaf: number, side: number
 
 /**
  * A barn-style sliding door: a wooden panel hung from a steel rail on the room side of the wall,
- * slid partly open.
+ * sliding to the left to open.
  */
 function barnDoor(k: Kit, w: number, h: number, wallT: number) {
   const g = new THREE.Group()
@@ -790,14 +851,17 @@ function barnDoor(k: Kit, w: number, h: number, wallT: number) {
   const ph = h + 4
   const pt = 4
   const z = wallT / 2 + 2.5 + pt / 2
-  const x = -w * 0.6
+  const x = 0
   const wood = k.q(COLORS.barn, 'wood')
   const groove = k.q(COLORS.barnDark, 'wood')
   const steel = k.q(COLORS.metal, 'metal')
-  g.add(rbox(pw, ph, pt, 0.6, x, 1, z, wood))
+  // The panel with its hangers and handles moves; the rail stays.
+  const panel = sliding(-(w / 2 + pw / 2 + 2), () => {})
+  g.add(panel)
+  panel.add(rbox(pw, ph, pt, 0.6, x, 1, z, wood))
   // Boards: a few horizontal joints across both faces.
   for (const f of [0.28, 0.52, 0.76]) {
-    for (const face of [-1, 1]) g.add(box(pw - 1, 0.7, 0.3, x, 1 + ph * f, z + face * (pt / 2 + 0.05), groove))
+    for (const face of [-1, 1]) panel.add(box(pw - 1, 0.7, 0.3, x, 1 + ph * f, z + face * (pt / 2 + 0.05), groove))
   }
   // Rail: long enough for the door to open fully to the left, on brackets from the wall.
   const railY = 1 + ph + 12
@@ -822,21 +886,21 @@ function barnDoor(k: Kit, w: number, h: number, wallT: number) {
   // Hangers: straps bolted to the top of the panel, each with a wheel riding on the rail.
   for (const s of [-1, 1]) {
     const hx = x + s * pw * 0.3
-    for (const face of [-1, 1]) g.add(box(4, 20, 0.8, hx, 1 + ph - 8, z + face * (pt / 2 + 0.4), steel))
+    for (const face of [-1, 1]) panel.add(box(4, 20, 0.8, hx, 1 + ph - 8, z + face * (pt / 2 + 0.4), steel))
     const wheel = cylinder(4.5, 2.2, 0, 0, 0, steel, 1, 4.5, 20)
     wheel.rotation.x = Math.PI / 2
     wheel.position.set(hx, railY + 3.2, z)
-    g.add(wheel)
+    panel.add(wheel)
   }
   // A bar handle on each face, at the edge that closes the opening.
   const hx = x + pw / 2 - 9
   for (const face of [-1, 1]) {
-    g.add(cylinder(1.1, 32, hx, 86, z + face * (pt / 2 + 3.2), steel, 1, 1.1, 12))
+    panel.add(cylinder(1.1, 32, hx, 86, z + face * (pt / 2 + 3.2), steel, 1, 1.1, 12))
     for (const y of [89, 113]) {
       const post = cylinder(0.7, 3, 0, 0, 0, steel, 1, 0.7, 8)
       post.rotation.x = Math.PI / 2
       post.position.set(hx, y, z + face * (pt / 2 + 1.6))
-      g.add(post)
+      panel.add(post)
     }
   }
   return g
@@ -853,11 +917,75 @@ function slidingDoor(k: Kit, w: number, h: number, wallT: number, glass: Mat) {
     [1, 2.2],
   ]) {
     const x = s * (w / 2 - pw / 2)
-    g.add(box(pw - 8, h - 15, 1, x, 7, z, glass))
-    for (const e of [-1, 1]) g.add(box(4, h - 7, 3, x + e * (pw / 2 - 2), 2, z, alu))
-    for (const y of [2, h - 9]) g.add(box(pw, 4, 3, x, y, z, alu))
-    g.add(box(1.4, 40, 2, x - s * (pw / 2 - 8), 85, z + s * 2.5, k.q(COLORS.chrome, 'chrome')))
+    // The room-side panel slides over the other one to open.
+    const p = s === 1 ? sliding(-(w - pw), () => {}) : g
+    if (p !== g) g.add(p)
+    p.add(box(pw - 8, h - 15, 1, x, 7, z, glass))
+    for (const e of [-1, 1]) p.add(box(4, h - 7, 3, x + e * (pw / 2 - 2), 2, z, alu))
+    for (const y of [2, h - 9]) p.add(box(pw, 4, 3, x, y, z, alu))
+    p.add(box(1.4, 40, 2, x - s * (pw / 2 - 8), 85, z + s * 2.5, k.q(COLORS.chrome, 'chrome')))
   }
+  return g
+}
+
+/** An aluminium door frame set in the middle of the wall. */
+function aluFrame(g: THREE.Group, w: number, h: number, wallT: number, alu: Mat) {
+  const fd = Math.min(wallT, 8)
+  for (const s of [-1, 1]) g.add(box(5, h, fd, s * (w / 2 - 2.5), 0, 0, alu))
+  g.add(box(w, 5, fd, 0, h - 5, 0, alu))
+}
+
+/** A glazed aluminium leaf, hinged at `hx` like `doorLeaf`: slim frame, kick rail, a middle rail, glass above and below. */
+function aluLeaf(k: Kit, g: THREE.Group, hx: number, leaf: number, side: number, h: number, wallT: number, alu: Mat, glass: Mat) {
+  const z0 = wallT / 2
+  g.add(
+    hinged(hx, z0, (side * Math.PI) / 2, (p) => {
+      const x = hx + side * 2.25
+      const t = 4.5
+      const st = 6
+      const zc = z0 + leaf / 2
+      const inner = leaf - 2 * st
+      for (const z of [z0 + st / 2, z0 + leaf - st / 2]) p.add(box(t, h, st, x, 0, z, alu))
+      p.add(box(t, 14, inner, x, 0, zc, alu))
+      p.add(box(t, 6, inner, x, 95, zc, alu))
+      p.add(box(t, 6, inner, x, h - 6, zc, alu))
+      p.add(box(0.8, 95 - 14, inner, x, 14, zc, glass))
+      p.add(box(0.8, h - 6 - 101, inner, x, 101, zc, glass))
+      // Lever handles near the free edge.
+      const chrome = k.q(COLORS.chrome, 'chrome')
+      const hz = z0 + leaf - 3
+      for (const face of [-1, 1]) {
+        p.add(box(1.2, 16, 3, x + face * 2.8, 92, hz, alu))
+        p.add(box(1.6, 1.8, 12, x + face * 4.4, 99, hz - 6, chrome))
+      }
+    }),
+  )
+}
+
+/** Two glazed aluminium panels on two tracks; the room-side one slides over the other to open. */
+function aluSliding(k: Kit, w: number, h: number, wallT: number, alu: Mat, glass: Mat) {
+  const g = new THREE.Group()
+  const fd = Math.min(wallT, 9)
+  for (const s of [-1, 1]) g.add(box(4, h, fd, s * (w / 2 - 2), 0, 0, alu))
+  g.add(box(w, 6, fd, 0, h - 6, 0, alu))
+  g.add(box(w, 2.5, fd, 0, 0, 0, alu))
+  const span = w - 8
+  const pw = span / 2 + 4
+  const y0 = 2.5
+  const ph = h - 6 - y0 - 0.5
+  const panel = (p: THREE.Group, x: number, z: number, handleSide: number) => {
+    const t = 3.2
+    for (const e of [-1, 1]) p.add(box(6, ph, t, x + e * (pw / 2 - 3), y0, z, alu))
+    p.add(box(pw - 12, 9, t, x, y0, z, alu))
+    p.add(box(pw - 12, 6, t, x, y0 + ph - 6, z, alu))
+    p.add(box(pw - 12, ph - 15, 0.8, x, y0 + 9, z, glass))
+    // A slim pull on the outer stile.
+    p.add(box(1.2, 30, 2, x + handleSide * (pw / 2 - 3), 85, z + Math.sign(z) * 2.4, k.q(COLORS.chrome, 'chrome')))
+  }
+  const xL = -span / 2 + pw / 2
+  const xR = span / 2 - pw / 2
+  panel(g, xL, -2, -1)
+  g.add(sliding(xL - xR, (p) => panel(p, xR, 2, 1)))
   return g
 }
 
@@ -955,6 +1083,23 @@ export function symbolModel(sym: PlanSymbol, mats: Materials, hl: boolean, wallT
     case 'door-barn':
       g = barnDoor(k, w, h, wallT)
       break
+    case 'door-alu':
+    case 'door-alu-double':
+    case 'door-alu-sliding': {
+      const fr = frameOf(sym)!
+      const alu = k.q(fr.hex, fr.metal ? 'metal' : 'satin')
+      if (sym.type === 'door-alu-sliding') {
+        g = aluSliding(k, w, h, wallT, alu, k.glass())
+        break
+      }
+      aluFrame(g, w, h, wallT, alu)
+      if (sym.type === 'door-alu') aluLeaf(k, g, -w / 2 + 5, w - 10, 1, h - 5, wallT, alu, k.glass())
+      else {
+        aluLeaf(k, g, -w / 2 + 5, w / 2 - 5, 1, h - 5, wallT, alu, k.glass())
+        aluLeaf(k, g, w / 2 - 5, w / 2 - 5, -1, h - 5, wallT, alu, k.glass())
+      }
+      break
+    }
     case 'window':
     case 'window-wide':
       g = windowUnit(k, w, h, wallT, k.glass(), sym.type === 'window-wide')
@@ -1069,5 +1214,5 @@ export function symbolModel(sym: PlanSymbol, mats: Materials, hl: boolean, wallT
     default:
       if (hasDef) g.add(rbox(w, h || 50, d, 2, 0, 0, 0, k.q(COLORS.fabric2)))
   }
-  return g.children.length ? compact(g) : g
+  return g.children.length ? compactModel(g) : g
 }

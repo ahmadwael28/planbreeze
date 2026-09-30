@@ -4,7 +4,7 @@ import * as THREE from 'three'
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
 import { RectAreaLightUniformsLib } from 'three/addons/lights/RectAreaLightUniformsLib.js'
 import { toast } from 'sonner'
-import { Aperture, BookmarkPlus, Camera, DoorOpen, Keyboard, Lightbulb, LightbulbOff, Moon, RotateCcw, SquareDashed, Sun, X } from 'lucide-react'
+import { Aperture, BookmarkPlus, Camera, DoorClosed, DoorOpen, Keyboard, Lightbulb, LightbulbOff, Moon, RotateCcw, SquareDashed, Sun, X } from 'lucide-react'
 import { ViewpointBar, ViewpointMarkers } from '@/components/Viewpoints'
 import {
   DropdownMenu,
@@ -33,6 +33,7 @@ import { useUi } from '@/store/ui'
 import { buildProjectGroup, SLAB } from '@/three/buildScene'
 import type { FloorFilter, PickInfo } from '@/three/buildScene'
 import { KEY_HELP, KeyboardNav, NUMPAD_HELP } from '@/three/keyboardNav'
+import { poseDoor } from '@/three/furniture'
 import { applyLightState } from '@/three/lighting3d'
 import { computeViewpoints, floorBase, LENSES, planFlight, stepFlight, verticalFov } from '@/three/viewpoints'
 import type { Flight, Lens, Viewpoint } from '@/three/viewpoints'
@@ -60,7 +61,14 @@ interface Ctx {
   tour: { points: Viewpoint[]; active: string | null } | null
   markers: Map<string, HTMLElement>
   flight: Flight | null
+  /** Doors swinging or sliding open or shut: the part, from and to (0 shut … 1 open), and when it started (ms). */
+  doorAnims: { part: THREE.Object3D; from: number; to: number; t0: number }[]
 }
+
+const DOOR_MS = 650
+
+/** The symbol a 3D object belongs to. */
+const pickedId = (o: THREE.Object3D) => (o.userData.pick as PickInfo | undefined)?.id ?? ''
 
 /** The camera's current spot as a saved view (plan cm, heights above the floor's level). */
 function captureView(ctx: Ctx, base: number) {
@@ -265,7 +273,7 @@ function LightingPanel({ onInside }: { onInside: () => void }) {
           <DoorOpen /> Walk inside
         </Button>
       </div>
-      <p className="border-t px-3 py-1.5 text-[11px] text-muted-foreground">Tip: click a switch on a wall to flip it.</p>
+      <p className="border-t px-3 py-1.5 text-[11px] text-muted-foreground">Tip: click a switch on a wall to flip it, or a door to open or close it.</p>
     </div>
   )
 }
@@ -348,6 +356,7 @@ export default function Viewer3D() {
       tour: null,
       markers: new Map(),
       flight: null,
+      doorAnims: [],
     }
     ctxRef.current = ctx
     controls.addEventListener('change', () => (ctx.dirty = true))
@@ -384,6 +393,16 @@ export default function Viewer3D() {
           ctx.flight = null
           controls.enabled = true
         }
+        ctx.dirty = true
+      }
+      if (ctx.doorAnims.length) {
+        const now = performance.now()
+        ctx.doorAnims = ctx.doorAnims.filter((a) => {
+          const u = Math.min(1, (now - a.t0) / DOOR_MS)
+          const eased = u < 0.5 ? 2 * u * u : 1 - (-2 * u + 2) ** 2 / 2
+          poseDoor(a.part, a.from + (a.to - a.from) * eased)
+          return u < 1
+        })
         ctx.dirty = true
       }
       controls.update()
@@ -685,7 +704,40 @@ export default function Viewer3D() {
     ctx.dirty = true
   }, [built, project, lightStates, daylight, theme])
 
-  // ---------- click to select / flip switches ----------
+  // ---------- doors open or shut, kept as they were across rebuilds ----------
+  useEffect(() => {
+    const ctx = ctxRef.current
+    if (!ctx?.content) return
+    const closed = useEditor.getState().doorsClosed
+    ctx.doorAnims = []
+    ctx.content.traverse((o) => {
+      if (o.userData.door) poseDoor(o, closed[pickedId(o)] ? 0 : 1)
+    })
+    ctx.dirty = true
+  }, [built])
+
+  /** Swing or slide these doors open or shut. */
+  const moveDoors = (ids: string[], closed: boolean) => {
+    const ctx = ctxRef.current
+    useEditor.getState().setDoorsClosed(ids, closed)
+    if (!ctx?.content) return
+    const which = new Set(ids)
+    const t0 = performance.now()
+    ctx.content.traverse((o) => {
+      if (!o.userData.door || !which.has(pickedId(o))) return
+      ctx.doorAnims = ctx.doorAnims.filter((a) => a.part !== o)
+      ctx.doorAnims.push({ part: o, from: (o.userData.open as number | undefined) ?? 1, to: closed ? 0 : 1, t0 })
+    })
+    ctx.dirty = true
+  }
+  const doorsClosed = useEditor((s) => s.doorsClosed)
+  const doorIds = useMemo(
+    () => project.floors.flatMap((f) => f.symbols.filter((s) => SYMBOL_MAP.get(s.type)?.opens).map((s) => s.id)),
+    [project],
+  )
+  const anyOpen = doorIds.some((id) => !doorsClosed[id])
+
+  // ---------- click to select / flip switches / open and shut doors ----------
   const down = useRef<{ x: number; y: number } | null>(null)
   const onPointerDown = (e: RPointerEvent) => {
     down.current = { x: e.clientX, y: e.clientY }
@@ -718,6 +770,11 @@ export default function Viewer3D() {
     const sym = pick.kind === 'symbol' ? floor?.symbols.find((s) => s.id === pick.id) : undefined
     if (sym?.type === 'switch') {
       st.setLightState(sym.id, !(st.lightStates[sym.id] ?? true))
+      return
+    }
+    // A door opens or shuts (Alt + click selects it instead).
+    if (sym && SYMBOL_MAP.get(sym.type)?.opens && !e.altKey) {
+      moveDoors([sym.id], !st.doorsClosed[sym.id])
       return
     }
     st.select({ kind: pick.kind, id: pick.id })
@@ -776,6 +833,21 @@ export default function Viewer3D() {
           </TooltipTrigger>
           <TooltipContent>Reset camera</TooltipContent>
         </Tooltip>
+        {doorIds.length > 0 && (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                onClick={() => moveDoors(doorIds, anyOpen)}
+                aria-label={anyOpen ? 'Close all doors' : 'Open all doors'}
+              >
+                {anyOpen ? <DoorClosed /> : <DoorOpen />}
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>{anyOpen ? 'Close all doors' : 'Open all doors'} (or click a door)</TooltipContent>
+          </Tooltip>
+        )}
         <DropdownMenu>
           <Tooltip>
             <TooltipTrigger asChild>
