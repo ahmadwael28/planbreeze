@@ -459,16 +459,19 @@ export function centerSelection(axis: 'across' | 'depth' | 'both') {
   if (s.x || s.y) st.commit((d) => moveItems(draftFloor(d), clip, s.x, s.y))
 }
 
-/** Lay the selected pieces out in rows (see model/arrange). False if it can't be done. */
+/** Lay the selected pieces (or groups) out in rows (see model/arrange). False if it can't be done. */
 export function arrangeSelection(how: Arrangement) {
   const st = useEditor.getState()
   const fl = currentFloor(st)
-  const moves = arrange(arrangeable(fl, refsOf(st.selection)), fl.rooms, how)
+  const units = arrangeable(fl, refsOf(st.selection))
+  const moves = arrange(units, fl.rooms, how)
   if (!moves) return false
+  const round = (v: number) => Math.round(v * 10) / 10
   st.commit((d) => {
-    for (const s of draftFloor(d).symbols) {
-      const p = moves.get(s.id)
-      if (p) Object.assign(s, p)
+    const df = draftFloor(d)
+    for (const u of units) {
+      const p = moves.get(u.id)
+      if (p) moveItems(df, copyItems(fl, u.refs), round(p.x - u.x), round(p.y - u.y))
     }
   })
   return true

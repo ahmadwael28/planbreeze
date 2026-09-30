@@ -11,6 +11,7 @@ import {
   Box, ClipboardCopy, Copy, FlipHorizontal2, Group, Ungroup, FlipVertical2, ImageOff, Link2Off, Ruler, RotateCw, SplitSquareHorizontal, Trash2, Video } from 'lucide-react'
 import { toast } from 'sonner'
 import { arrange, arrangeable, layoutOf, spacingOf, wouldMove } from '@/model/arrange'
+import type { Unit } from '@/model/arrange'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
@@ -376,7 +377,7 @@ function DimensionProps({ dim, units }: { dim: Dimension; units: Units }) {
 
 /** Several items selected: what they are, and what can be done with all of them. */
 /** Lining several pieces up in rows and spacing them evenly, e.g. spotlights down a corridor. */
-function ArrangeBlock({ syms }: { syms: PlanSymbol[] }) {
+function ArrangeBlock({ syms }: { syms: Unit[] }) {
   const floor = useFloor()
   const units = useEditor((s) => s.project.units)
   const layout = layoutOf(syms)
@@ -384,11 +385,13 @@ function ArrangeBlock({ syms }: { syms: PlanSymbol[] }) {
   const sideways = Math.abs(dir.x) >= Math.abs(dir.y)
   const way = dir.y === 0 ? 'left to right' : dir.x === 0 ? 'top to bottom' : 'at an angle'
   const counts = rows.map((r) => r.length)
+  const groups = syms.some((u) => u.group)
+  const of = syms.every((u) => u.group) ? ' groups' : ''
   const rowsText =
     counts.length === 1
-      ? `1 row of ${counts[0]}`
+      ? `1 row of ${counts[0]}${of}`
       : counts.every((c) => c === counts[0])
-        ? `${counts.length} rows of ${counts[0]}`
+        ? `${counts.length} rows of ${counts[0]}${of}`
         : `${counts.length} rows (${counts.join(' + ')})`
   const spacing = spacingOf(layout)
   const uneven = spacing && spacing.max - spacing.min > 0.5
@@ -444,8 +447,8 @@ function ArrangeBlock({ syms }: { syms: PlanSymbol[] }) {
             Now {formatLength(spacing.min, units)} to {formatLength(spacing.max, units)} apart.{' '}
           </>
         )}
-        Spacing is center to center. Spreading over the room leaves half a space at the walls, the usual layout for ceiling
-        lights.
+        {groups && 'Each group moves as one piece. '}Spacing is center to center. Spreading over the room leaves half a space at
+        the walls, the usual layout for ceiling lights.
       </p>
     </div>
   )

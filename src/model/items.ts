@@ -44,6 +44,11 @@ function find(floor: Floor, ref: ItemRef): { groupId?: string } | undefined {
   }
 }
 
+/** The group an item is in, if any. */
+export function groupOf(floor: Floor, ref: ItemRef): string | undefined {
+  return find(floor, ref)?.groupId
+}
+
 export function exists(floor: Floor, ref: ItemRef) {
   return !!find(floor, ref)
 }
