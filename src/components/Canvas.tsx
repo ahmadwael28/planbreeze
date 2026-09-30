@@ -741,7 +741,7 @@ export function Canvas() {
         if (!d.additive) st.select(null)
         return
       }
-      const found = refsInRect(currentFloor(st), d.start, d.current)
+      const found = refsInRect(currentFloor(st), d.start, d.current, st.settings.faded)
       st.select(selectionOf(d.additive ? [...refsOf(st.selection), ...found] : found))
       // Ready to move what was picked.
       if (st.tool === 'area' && found.length) useEditor.setState({ tool: 'select' })

@@ -1,7 +1,16 @@
 import { useId } from 'react'
 import type { ReactNode } from 'react'
-import { AlignHorizontalJustifyCenter, Box, ClipboardCopy, Copy, FlipHorizontal2, Group, Ungroup, FlipVertical2, ImageOff, Link2Off, Ruler, RotateCw, SplitSquareHorizontal, Trash2, Video } from 'lucide-react'
+import {
+  AlignCenterHorizontal,
+  AlignCenterVertical,
+  AlignHorizontalDistributeCenter,
+  AlignHorizontalJustifyCenter,
+  AlignHorizontalSpaceAround,
+  AlignVerticalDistributeCenter,
+  AlignVerticalSpaceAround,
+  Box, ClipboardCopy, Copy, FlipHorizontal2, Group, Ungroup, FlipVertical2, ImageOff, Link2Off, Ruler, RotateCw, SplitSquareHorizontal, Trash2, Video } from 'lucide-react'
 import { toast } from 'sonner'
+import { arrange, arrangeable, layoutOf, spacingOf, wouldMove } from '@/model/arrange'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
@@ -19,6 +28,7 @@ import { SYMBOL_MAP } from '@/model/symbols'
 import { formatArea, formatLength } from '@/model/units'
 import type { Dimension, ItemRef, OutdoorKind, PlanSymbol, RailingStyle, Room, SavedView, Units } from '@/model/types'
 import {
+  arrangeSelection,
   autoDimension,
   centerSelection,
   copySelection,
@@ -365,6 +375,82 @@ function DimensionProps({ dim, units }: { dim: Dimension; units: Units }) {
 }
 
 /** Several items selected: what they are, and what can be done with all of them. */
+/** Lining several pieces up in rows and spacing them evenly, e.g. spotlights down a corridor. */
+function ArrangeBlock({ syms }: { syms: PlanSymbol[] }) {
+  const floor = useFloor()
+  const units = useEditor((s) => s.project.units)
+  const layout = layoutOf(syms)
+  const { dir, rows } = layout
+  const sideways = Math.abs(dir.x) >= Math.abs(dir.y)
+  const way = dir.y === 0 ? 'left to right' : dir.x === 0 ? 'top to bottom' : 'at an angle'
+  const counts = rows.map((r) => r.length)
+  const rowsText =
+    counts.length === 1
+      ? `1 row of ${counts[0]}`
+      : counts.every((c) => c === counts[0])
+        ? `${counts.length} rows of ${counts[0]}`
+        : `${counts.length} rows (${counts.join(' + ')})`
+  const spacing = spacingOf(layout)
+  const uneven = spacing && spacing.max - spacing.min > 0.5
+  const canLine = wouldMove(syms, floor.rooms, 'line')
+  const canEven = wouldMove(syms, floor.rooms, 'even')
+  const inRoom = !!arrange(syms, floor.rooms, 'fill')
+  const canFill = inRoom && wouldMove(syms, floor.rooms, 'fill')
+  const LineIcon = sideways ? AlignCenterHorizontal : AlignCenterVertical
+  const EvenIcon = sideways ? AlignHorizontalDistributeCenter : AlignVerticalDistributeCenter
+  const FillIcon = sideways ? AlignHorizontalSpaceAround : AlignVerticalSpaceAround
+  return (
+    <div className="space-y-2 rounded-lg bg-muted/60 p-3">
+      <div className="flex items-baseline justify-between gap-2">
+        <p className="text-sm font-medium">Arrange</p>
+        <span className="truncate text-xs text-muted-foreground">
+          {rowsText}, {way}
+        </span>
+      </div>
+      <div className="grid grid-cols-2 gap-2">
+        <Button variant="outline" size="sm" disabled={!canLine} onClick={() => arrangeSelection('line')}>
+          <LineIcon /> {canLine ? 'Line up' : 'Lined up'}
+        </Button>
+        <Button variant="outline" size="sm" disabled={!canEven} onClick={() => arrangeSelection('even')}>
+          <EvenIcon /> {canEven ? 'Space evenly' : 'Even'}
+        </Button>
+      </div>
+      <Button
+        variant="outline"
+        size="sm"
+        className="w-full"
+        disabled={!canFill}
+        title={inRoom ? undefined : 'They need to be inside a room'}
+        onClick={() => arrangeSelection('fill')}
+      >
+        <FillIcon /> Spread over the room
+      </Button>
+      {spacing && (
+        <Field label="Spacing">
+          {(id) => (
+            <LengthInput
+              id={id}
+              value={Math.round(spacing.avg * 10) / 10}
+              units={units}
+              min={1}
+              onChange={(v) => arrangeSelection({ spacing: v })}
+            />
+          )}
+        </Field>
+      )}
+      <p className="text-xs leading-relaxed text-muted-foreground">
+        {uneven && (
+          <>
+            Now {formatLength(spacing.min, units)} to {formatLength(spacing.max, units)} apart.{' '}
+          </>
+        )}
+        Spacing is center to center. Spreading over the room leaves half a space at the walls, the usual layout for ceiling
+        lights.
+      </p>
+    </div>
+  )
+}
+
 function MultiProps({ items }: { items: ItemRef[] }) {
   const floor = useFloor()
   const count = (k: ItemRef['kind']) => items.filter((r) => r.kind === k).length
@@ -397,6 +483,7 @@ function MultiProps({ items }: { items: ItemRef[] }) {
   const across = gaps.left !== undefined && gaps.right !== undefined
   const depthwise = gaps.front !== undefined && gaps.back !== undefined
   const fmt = (v?: number) => (v === undefined ? '–' : formatLength(v, units))
+  const free = arrangeable(floor, items)
   return (
     <>
       <Section title={`${items.length} selected`}>
@@ -410,6 +497,7 @@ function MultiProps({ items }: { items: ItemRef[] }) {
           </Button>
           <span className="self-center text-xs text-muted-foreground">or drag the handle above them</span>
         </div>
+        {free.length >= 2 && <ArrangeBlock syms={free} />}
         {(across || depthwise) && (
           <div className="space-y-2 rounded-lg bg-muted/60 p-3">
             <p className="text-sm font-medium">Position in the room</p>

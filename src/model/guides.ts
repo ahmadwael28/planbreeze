@@ -22,7 +22,7 @@ export type Side = 'right' | 'left' | 'front' | 'back'
 const cross = (a: Point, b: Point) => a.x * b.y - a.y * b.x
 
 /** Distance along a ray to the nearest wall face (room edge), or null if nothing is hit. */
-function castToWall(o: Point, d: Point, rooms: Room[], max = 3000): number | null {
+export function castToWall(o: Point, d: Point, rooms: Room[], max = 3000): number | null {
   let best = Infinity
   for (const room of rooms) {
     const pts = room.points

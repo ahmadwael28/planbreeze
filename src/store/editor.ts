@@ -12,6 +12,8 @@ import {
 } from '@/model/project'
 import { bbox, labelPoint, pointInPolygon } from '@/model/geometry'
 import { allRefs, clipFootprint, copyItems, deleteItems, exists, moveItems, pasteItems, refsOf, rotateItems, selectionOf, setGroup } from '@/model/items'
+import { arrange, arrangeable } from '@/model/arrange'
+import type { Arrangement } from '@/model/arrange'
 import { boxCenterShift } from '@/model/guides'
 import type { Clip } from '@/model/items'
 import { CEILING_STYLES, OTHER_LIGHTS, pruneControls, remapEdges } from '@/model/lighting'
@@ -457,6 +459,21 @@ export function centerSelection(axis: 'across' | 'depth' | 'both') {
   if (s.x || s.y) st.commit((d) => moveItems(draftFloor(d), clip, s.x, s.y))
 }
 
+/** Lay the selected pieces out in rows (see model/arrange). False if it can't be done. */
+export function arrangeSelection(how: Arrangement) {
+  const st = useEditor.getState()
+  const fl = currentFloor(st)
+  const moves = arrange(arrangeable(fl, refsOf(st.selection)), fl.rooms, how)
+  if (!moves) return false
+  st.commit((d) => {
+    for (const s of draftFloor(d).symbols) {
+      const p = moves.get(s.id)
+      if (p) Object.assign(s, p)
+    }
+  })
+  return true
+}
+
 /** Fade a category on the plan, or show it again. */
 export function toggleFaded(key: string) {
   const { settings, setSettings } = useEditor.getState()
@@ -465,7 +482,7 @@ export function toggleFaded(key: string) {
 
 export function selectAll() {
   const st = useEditor.getState()
-  st.select(selectionOf(allRefs(currentFloor(st))))
+  st.select(selectionOf(allRefs(currentFloor(st), st.settings.faded)))
 }
 
 export function removeVertex(roomId: string, index: number) {

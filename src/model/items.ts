@@ -4,6 +4,7 @@
  */
 import { bbox } from './geometry'
 import { uid } from './project'
+import { SYMBOL_MAP } from './symbols'
 import type { Dimension, Floor, ItemKind, ItemRef, PlanSymbol, Point, Room, SavedView, Selection } from './types'
 
 export const refKey = (r: ItemRef) => `${r.kind}:${r.id}`
@@ -47,13 +48,19 @@ export function exists(floor: Floor, ref: ItemRef) {
   return !!find(floor, ref)
 }
 
-/** Everything on the floor, as refs (cove lights come with their rooms, so they're left out). */
-export function allRefs(floor: Floor): ItemRef[] {
+/**
+ * Everything on the floor, as refs (cove lights come with their rooms, so they're left out). Categories faded on the
+ * plan (library categories, 'Dimensions', 'Saved views') are left out too: they can't be picked.
+ */
+export function allRefs(floor: Floor, faded: string[] = []): ItemRef[] {
+  const hidden = new Set(faded)
   return [
     ...floor.rooms.map((r) => ({ kind: 'room' as const, id: r.id })),
-    ...floor.symbols.filter((s) => !s.room && !s.wall).map((s) => ({ kind: 'symbol' as const, id: s.id })),
-    ...(floor.dimensions ?? []).map((d) => ({ kind: 'dimension' as const, id: d.id })),
-    ...(floor.views ?? []).map((v) => ({ kind: 'view' as const, id: v.id })),
+    ...floor.symbols
+      .filter((s) => !s.room && !s.wall && !hidden.has(SYMBOL_MAP.get(s.type)?.category ?? ''))
+      .map((s) => ({ kind: 'symbol' as const, id: s.id })),
+    ...(hidden.has('Dimensions') ? [] : (floor.dimensions ?? [])).map((d) => ({ kind: 'dimension' as const, id: d.id })),
+    ...(hidden.has('Saved views') ? [] : (floor.views ?? [])).map((v) => ({ kind: 'view' as const, id: v.id })),
   ]
 }
 
@@ -69,20 +76,21 @@ export function withGroup(floor: Floor, ref: ItemRef): ItemRef[] {
   ]
 }
 
-/** Items lying fully inside a rectangle (symbols: their center). */
-export function refsInRect(floor: Floor, a: Point, b: Point): ItemRef[] {
+/** Items lying fully inside a rectangle (symbols: their center), leaving out faded categories. */
+export function refsInRect(floor: Floor, a: Point, b: Point, faded: string[] = []): ItemRef[] {
   const x0 = Math.min(a.x, b.x)
   const x1 = Math.max(a.x, b.x)
   const y0 = Math.min(a.y, b.y)
   const y1 = Math.max(a.y, b.y)
   const inside = (p: Point) => p.x >= x0 && p.x <= x1 && p.y >= y0 && p.y <= y1
+  const ok = new Set(allRefs(floor, faded).map(refKey))
   const out: ItemRef[] = []
   for (const r of floor.rooms) if (r.points.length && r.points.every(inside)) out.push({ kind: 'room', id: r.id })
-  for (const s of floor.symbols) if (!s.room && !s.wall && inside(s)) out.push({ kind: 'symbol', id: s.id })
+  for (const s of floor.symbols) if (inside(s)) out.push({ kind: 'symbol', id: s.id })
   for (const d of floor.dimensions ?? []) if (inside(d.a) && inside(d.b)) out.push({ kind: 'dimension', id: d.id })
   for (const v of floor.views ?? []) if (inside(v.eye)) out.push({ kind: 'view', id: v.id })
   // A room's doors and windows travel with it, so they needn't be listed.
-  return out
+  return out.filter((r) => ok.has(refKey(r)))
 }
 
 /** Copies of the selected items, detached from the floor. Rooms bring their doors, windows and cove lights. */
