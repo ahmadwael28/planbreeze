@@ -15,6 +15,7 @@ import { allRefs, clipFootprint, copyItems, deleteItems, exists, moveItems, past
 import { arrange, arrangeable } from '@/model/arrange'
 import type { Arrangement } from '@/model/arrange'
 import { boxCenterShift } from '@/model/guides'
+import { fixSizes } from '@/model/sizes'
 import type { Clip } from '@/model/items'
 import { CEILING_STYLES, OTHER_LIGHTS, pruneControls, remapEdges } from '@/model/lighting'
 import { dimensionPoints, roomOuter } from '@/model/project'
@@ -162,7 +163,7 @@ export const useEditor = create<EditorState>((set, get) => ({
 
   loadProject: (p) =>
     set((s) => ({
-      project: p,
+      project: fixSizes(p),
       past: [],
       future: [],
       floorId: p.floors[0].id,

@@ -8,7 +8,7 @@ import {
   AlignHorizontalSpaceAround,
   AlignVerticalDistributeCenter,
   AlignVerticalSpaceAround,
-  Box, ClipboardCopy, Copy, FlipHorizontal2, Group, Ungroup, FlipVertical2, ImageOff, Link2Off, Ruler, RotateCw, SplitSquareHorizontal, Trash2, Video } from 'lucide-react'
+  Box, ClipboardCopy, Copy, FlipHorizontal2, Group, Ungroup, FlipVertical2, ImageOff, Link2Off, Lock, Ruler, RotateCw, SplitSquareHorizontal, Trash2, Video } from 'lucide-react'
 import { toast } from 'sonner'
 import { arrange, arrangeable, layoutOf, spacingOf, wouldMove } from '@/model/arrange'
 import type { Unit } from '@/model/arrange'
@@ -48,6 +48,8 @@ import {
   useSelectedSymbol,
 } from '@/store/editor'
 import { boxGaps, centeredPosition, wallGaps } from '@/model/guides'
+import { isRound, resized, sizeRule } from '@/model/sizes'
+import type { Dim } from '@/model/sizes'
 import { useUi } from '@/store/ui'
 import { LengthInput, NumberInput, TextInput } from './LengthInput'
 import { CeilingSection, HiddenLightControls, LightSection, SwitchSection } from './LightingProps'
@@ -672,25 +674,44 @@ function SymbolProps({ sym, units }: { sym: PlanSymbol; units: Units }) {
             )}
           </Field>
         )}
-        <Field label="Width">
-          {(id) => (
-            <LengthInput id={id} value={sym.width} units={units} onChange={(v) => updateSymbol(sym.id, (s) => void (s.width = v))} />
-          )}
-        </Field>
-        {!sym.wall && (
-          <Field label={isLabel ? 'Text size' : 'Depth'}>
-            {(id) => (
-              <LengthInput id={id} value={sym.depth} units={units} onChange={(v) => updateSymbol(sym.id, (s) => void (s.depth = v))} />
-            )}
-          </Field>
-        )}
-        {!isLabel && (
-          <Field label={sym.type === 'gypsum-box' ? 'Drop' : def?.fixture === 'switch' ? 'Mount height' : 'Height'}>
-            {(id) => (
-              <LengthInput id={id} value={sym.height} units={units} onChange={(v) => updateSymbol(sym.id, (s) => void (s.height = v))} />
-            )}
-          </Field>
-        )}
+        {(
+          [
+            ['width', isRound(sym.type) ? 'Diameter' : 'Width', true],
+            ['depth', isLabel ? 'Text size' : 'Depth', !sym.wall && !isRound(sym.type)],
+            ['height', sym.type === 'gypsum-box' ? 'Drop' : def?.fixture === 'switch' ? 'Mount height' : 'Height', !isLabel],
+          ] as [Dim, string, boolean][]
+        ).map(([dim, label, shown]) => {
+          if (!shown) return null
+          const rule = sizeRule(sym.type, dim)
+          return (
+            <Field key={dim} label={label}>
+              {(id) =>
+                rule?.fixed ? (
+                  <div id={id} className="flex h-8 items-center gap-1.5 text-sm tabular-nums">
+                    {formatLength(rule.min, units)}
+                    <span className="flex items-center gap-1 text-xs text-muted-foreground">
+                      <Lock className="size-3" /> standard size
+                    </span>
+                  </div>
+                ) : (
+                  <LengthInput
+                    id={id}
+                    value={sym[dim]}
+                    units={units}
+                    onChange={(v) => {
+                      if (rule && (v < rule.min || v > rule.max)) {
+                        toast(`${def?.name ?? 'This item'}: ${label.toLowerCase()} ${formatLength(rule.min, units)} to ${formatLength(rule.max, units)}`, {
+                          description: 'Kept to a size it comes in.',
+                        })
+                      }
+                      updateSymbol(sym.id, (s) => void Object.assign(s, resized(s, { [dim]: v })))
+                    }}
+                  />
+                )
+              }
+            </Field>
+          )
+        })}
         {def?.sill !== undefined && (
           <Field label="Sill height">
             {(id) => (

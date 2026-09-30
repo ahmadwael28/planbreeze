@@ -41,6 +41,7 @@ import type { Guide } from '@/model/guides'
 import type { BBox } from '@/model/geometry'
 import { clipFootprint, copyItems, moveItems, refsInRect, refsOf, rotateItems, selectionOf, withGroup } from '@/model/items'
 import type { Clip } from '@/model/items'
+import { canResize, resized } from '@/model/sizes'
 import type { ItemRef } from '@/model/types'
 
 const MIN_ZOOM = 0.05
@@ -61,7 +62,7 @@ type Drag = DragBase &
     | { type: 'edge'; id: string; index: number; orig: Room; start: Point }
     | { type: 'symbol'; id: string; start: Point; orig: PlanSymbol; pose: Pose }
     | { type: 'rotate'; id: string; pose: Pose }
-    | { type: 'resize'; id: string; pose: Pose; isWall: boolean; handle: string; w0: number; d0: number; offset0?: number }
+    | { type: 'resize'; id: string; orig: PlanSymbol; pose: Pose; isWall: boolean; handle: string; w0: number; d0: number; offset0?: number }
     | { type: 'rect'; start: Point; current: Point }
     | { type: 'dim-end'; id: string; end: 'a' | 'b' }
     | { type: 'dim-offset'; id: string; orig: Dimension; start: Point }
@@ -460,6 +461,7 @@ export function Canvas() {
               ...base,
               type: 'resize',
               id: sym.id,
+              orig: sym,
               pose,
               isWall: !!sym.wall,
               handle: target?.dataset.handle ?? 'se',
@@ -705,8 +707,9 @@ export function Canvas() {
         const fromCenter = e.altKey
         const size = (s: number, v: number, orig: number) =>
           s === 0 ? orig : fromCenter ? r1(Math.abs(v) * 2) : r1(s * v + orig / 2)
-        const width = size(sx, local.x, d.w0)
-        const depth = size(sy, local.y, d.d0)
+        // Kept to realistic sizes (and round things round); a track gets modules to fill its new length.
+        const next = resized(d.orig, d.isWall ? { width: size(sx, local.x, d.w0) } : { width: size(sx, local.x, d.w0), depth: size(sy, local.y, d.d0) })
+        const { width, depth } = next
         // The center moves by half the growth, toward the dragged side.
         const shift = fromCenter ? { x: 0, y: 0 } : { x: (sx * (width - d.w0)) / 2, y: (sy * (depth - d.d0)) / 2 }
         const moved = rotate(shift, d.pose.rotation)
@@ -714,6 +717,7 @@ export function Canvas() {
           const sym = draftFloor(pd).symbols.find((x) => x.id === d.id)
           if (!sym) return
           sym.width = width
+          if (next.modules) sym.modules = next.modules
           if (d.isWall) {
             if (sym.wall && d.offset0 !== undefined) sym.wall = { ...sym.wall, offset: d.offset0 + shift.x }
           } else {
@@ -1021,10 +1025,18 @@ export function Canvas() {
                   </circle>
                 </>
               )}
-              {(selSym.wall
-                ? (['w', 'e'] as const)
-                : (['nw', 'n', 'ne', 'e', 'se', 's', 'sw', 'w'] as const)
-              ).map((h) => {
+              {(() => {
+                // Only the sides that can change: a magnetic track only gets longer, a switch doesn't resize at all.
+                const wide = canResize(selSym.type, 'width')
+                const deep = !selSym.wall && canResize(selSym.type, 'depth')
+                return wide && deep
+                  ? (['nw', 'n', 'ne', 'e', 'se', 's', 'sw', 'w'] as const)
+                  : wide
+                    ? (['w', 'e'] as const)
+                    : deep
+                      ? (['n', 's'] as const)
+                      : []
+              })().map((h) => {
                 const cx = h.includes('e') ? hw : h.includes('w') ? -hw : 0
                 const cy = h.includes('s') ? hd : h.includes('n') ? -hd : 0
                 const side = h.length === 1

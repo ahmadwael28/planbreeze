@@ -368,7 +368,10 @@ function TrackModules({ sym, units }: { sym: PlanSymbol; units: Units }) {
           </Button>
         ))}
       </div>
-      <p className="text-xs text-muted-foreground">Positions are measured from the left end of the track.</p>
+      <p className="text-xs text-muted-foreground">
+        Positions are measured from the left end of the track. Making the track longer or shorter adds or removes modules to fill
+        it.
+      </p>
     </div>
   )
 }
