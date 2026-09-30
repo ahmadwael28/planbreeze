@@ -24,6 +24,7 @@ import {
   groupSelection,
   hasClipboard,
   pasteClipboard,
+  rotateSelection,
   selectAll,
   useEditor,
 } from '@/store/editor'
@@ -34,6 +35,7 @@ import { useCloud } from '@/cloud/store'
 import { connectMemoryCloudForTesting, initCloud } from '@/cloud/sync'
 import { ConflictDialog } from '@/components/ConflictDialog'
 import { SignInDialog } from '@/components/SignInDialog'
+import { VisibilityMenu } from '@/components/VisibilityMenu'
 
 // Handy for debugging in the browser console during development.
 if (import.meta.env.DEV) {
@@ -73,7 +75,7 @@ function LayerToggle() {
   const layer = useEditor((s) => s.layer)
   const setLayer = useEditor((s) => s.setLayer)
   return (
-    <div className="absolute top-3 left-3 z-10">
+    <div className="absolute top-3 left-3 z-10 flex items-center gap-2">
       <ToggleGroup
         type="single"
         size="sm"
@@ -89,6 +91,7 @@ function LayerToggle() {
           <Lightbulb /> Lighting
         </ToggleGroupItem>
       </ToggleGroup>
+      <VisibilityMenu />
     </div>
   )
 }
@@ -182,6 +185,8 @@ function useKeyboardShortcuts() {
         zoomBy(1.25)
       } else if (is2d && !mod && k === '-') {
         zoomBy(0.8)
+      } else if (is2d && !mod && k === 'e' && st.selection?.kind === 'multi') {
+        rotateSelection(90)
       } else if (is2d && !mod && k === 'e' && st.selection?.kind === 'symbol') {
         const id = st.selection.id
         st.commit((d) => {

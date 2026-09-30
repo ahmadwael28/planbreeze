@@ -25,6 +25,7 @@ import {
   addDimension,
   addOutdoor,
   addRoom,
+  selectionBox,
   addSymbol,
   currentFloor,
   draftFloor,
@@ -35,8 +36,10 @@ import {
 import { usePlanTheme } from '@/hooks/use-plan-theme'
 import { DimensionGraphic, PlanLayers } from './PlanLayers'
 import { PlanViews } from './PlanViews'
-import { clearanceGuides } from '@/model/guides'
-import { copyItems, moveItems, refsInRect, refsOf, selectionOf, withGroup } from '@/model/items'
+import { boxGaps, boxGuides, clearanceGuides, wallGaps } from '@/model/guides'
+import type { Guide } from '@/model/guides'
+import type { BBox } from '@/model/geometry'
+import { clipFootprint, copyItems, moveItems, refsInRect, refsOf, rotateItems, selectionOf, withGroup } from '@/model/items'
 import type { Clip } from '@/model/items'
 import type { ItemRef } from '@/model/types'
 
@@ -63,7 +66,8 @@ type Drag = DragBase &
     | { type: 'dim-end'; id: string; end: 'a' | 'b' }
     | { type: 'dim-offset'; id: string; orig: Dimension; start: Point }
     | { type: 'view'; id: string; orig: SavedView; start: Point }
-    | { type: 'multi'; orig: Clip; start: Point }
+    | { type: 'multi'; orig: Clip; start: Point; box: BBox | null; rooms: Room[] }
+    | { type: 'multi-rotate'; orig: Clip; center: Point; a0: number }
     | { type: 'marquee'; start: Point; current: Point; additive: boolean }
     | { type: 'view-rotate'; id: string; orig: SavedView }
   )
@@ -123,6 +127,8 @@ export function Canvas() {
   const [marquee, setMarquee] = useState<{ a: Point; b: Point } | null>(null)
   /** The symbol being moved or resized, for the distance guides. */
   const [movingId, setMovingId] = useState<string | null>(null)
+  /** Several items being moved together, for the distance guides around them. */
+  const [movingMulti, setMovingMulti] = useState(false)
   const [drawPts, setDrawPts] = useState<Point[]>([])
   const [cursor, setCursor] = useState<Point | null>(null)
   const [typed, setTyped] = useState('')
@@ -375,6 +381,16 @@ export function Canvas() {
       return
     }
 
+    // Turning several selected items (or a group) with the handle above them.
+    if (kind === 'multi-rotate' && sel?.kind === 'multi') {
+      const { clip, box } = selectionBox(fl, sel)
+      if (box) {
+        const center = { x: (box.minX + box.maxX) / 2, y: (box.minY + box.maxY) / 2 }
+        drag.current = { ...base, type: 'multi-rotate', orig: clip, center, a0: Math.atan2(w.y - center.y, w.x - center.x) }
+      }
+      return
+    }
+
     // Selecting several things: drag a box (the area tool, or Shift + drag on empty space).
     const itemKind = kind === 'room' || kind === 'symbol' || kind === 'dimension' || kind === 'view' ? kind : null
     if (st.tool === 'area' || (e.shiftKey && !itemKind && kind !== 'vertex' && kind !== 'edge')) {
@@ -396,7 +412,10 @@ export function Canvas() {
       if (inMulti || group.length > 1) {
         const refs = inMulti ? current : group
         if (!inMulti) st.select(selectionOf(refs))
-        drag.current = { ...base, type: 'multi', orig: copyItems(fl, refs), start: w }
+        const orig = copyItems(fl, refs)
+        const pts = clipFootprint(orig)
+        const inSel = new Set(orig.rooms.map((r) => r.id))
+        drag.current = { ...base, type: 'multi', orig, start: w, box: pts.length ? bbox(pts) : null, rooms: fl.rooms.filter((r) => !inSel.has(r.id)) }
         return
       }
     }
@@ -485,6 +504,7 @@ export function Canvas() {
       d.moved = true
       if (d.type !== 'pan' && d.type !== 'rect' && d.type !== 'marquee') st.checkpoint()
       if (d.type === 'symbol' || d.type === 'resize') setMovingId(d.id)
+      if (d.type === 'multi') setMovingMulti(true)
     }
     const fl = currentFloor(st)
     const step = snapStep(st.project.units)
@@ -564,7 +584,20 @@ export function Canvas() {
           dx = snapTo(dx, step)
           dy = snapTo(dy, step)
         }
+        // Close to the middle between the walls around them: stick to it, like a single piece.
+        if (d.box) {
+          const g = boxGaps({ minX: d.box.minX + dx, maxX: d.box.maxX + dx, minY: d.box.minY + dy, maxY: d.box.maxY + dy }, d.rooms)
+          const thr = Math.max(4, 10 / st.view.zoom)
+          if (g.left !== undefined && g.right !== undefined && Math.abs(g.right - g.left) / 2 < thr) dx += (g.right - g.left) / 2
+          if (g.front !== undefined && g.back !== undefined && Math.abs(g.front - g.back) / 2 < thr) dy += (g.front - g.back) / 2
+        }
         st.mutate((pd) => moveItems(draftFloor(pd), d.orig, dx, dy))
+        break
+      }
+      case 'multi-rotate': {
+        let deg = ((Math.atan2(w.y - d.center.y, w.x - d.center.x) - d.a0) * 180) / Math.PI
+        if (!e.shiftKey) deg = snapTo(deg, 15)
+        st.mutate((pd) => rotateItems(draftFloor(pd), d.orig, d.center, deg))
         break
       }
       case 'marquee': {
@@ -619,6 +652,20 @@ export function Canvas() {
         const isWall = !!symDef?.wall
         const att = isWall ? findWallSnap(pos, fl.rooms, Math.max(30, 25 / st.view.zoom)) : null
         if (!att && snap) pos = { x: snapTo(pos.x, step), y: snapTo(pos.y, step) }
+        if (!att) {
+          // Close to the middle between two walls (side to side, or front to back): stick to it.
+          const g = wallGaps({ ...d.orig, x: pos.x, y: pos.y, rotation: d.pose.rotation, wall: undefined }, fl.rooms)
+          const r = (d.pose.rotation * Math.PI) / 180
+          const thr = Math.max(4, 10 / st.view.zoom)
+          if (g.left !== undefined && g.right !== undefined && Math.abs(g.right - g.left) / 2 < thr) {
+            const s = (g.right - g.left) / 2
+            pos = { x: pos.x + Math.cos(r) * s, y: pos.y + Math.sin(r) * s }
+          }
+          if (g.front !== undefined && g.back !== undefined && Math.abs(g.front - g.back) / 2 < thr) {
+            const s = (g.front - g.back) / 2
+            pos = { x: pos.x - Math.sin(r) * s, y: pos.y + Math.cos(r) * s }
+          }
+        }
         st.mutate((pd) => {
           const sym = draftFloor(pd).symbols.find((x) => x.id === d.id)
           if (!sym) return
@@ -686,6 +733,7 @@ export function Canvas() {
     const d = drag.current
     drag.current = null
     setMovingId(null)
+    setMovingMulti(false)
     if (d?.type === 'marquee') {
       setMarquee(null)
       const st = useEditor.getState()
@@ -774,6 +822,47 @@ export function Canvas() {
   const dimCursor = tool === 'dimension' && cursor && !dimDraft ? pointSnap(cursor) : null
 
   const drawCursor = tool === 'room' && cursor ? drawSnap(cursor, drawPts) : null
+
+  /** Dashed distance lines with their lengths; equal gaps on both sides (centered) show in green. */
+  const drawGuides = (guides: Guide[], alongWall: boolean) => (
+    <g pointerEvents="none" className="guides">
+      {guides.map((gd, i, all) => {
+        const pair = alongWall ? all : all.filter((o) => (o.side === 'left' || o.side === 'right') === (gd.side === 'left' || gd.side === 'right'))
+        const color = pair.length === 2 && Math.abs(pair[0].length - pair[1].length) < 0.5 ? '#16a34a' : '#e11d48'
+        const sh = gd.shift ? { x: gd.shift.x * px(14), y: gd.shift.y * px(14) } : { x: 0, y: 0 }
+        const a = { x: gd.a.x + sh.x, y: gd.a.y + sh.y }
+        const b = { x: gd.b.x + sh.x, y: gd.b.y + sh.y }
+        const m = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 }
+        const n = normalize({ x: -(b.y - a.y), y: b.x - a.x })
+        const tick = (p: Point) => <line x1={p.x - n.x * px(5)} y1={p.y - n.y * px(5)} x2={p.x + n.x * px(5)} y2={p.y + n.y * px(5)} />
+        return (
+          <g key={i}>
+            <g stroke={color} strokeWidth={1.3} vectorEffect="non-scaling-stroke">
+              <line x1={a.x} y1={a.y} x2={b.x} y2={b.y} strokeDasharray="5 3" />
+              {tick(a)}
+              {tick(b)}
+            </g>
+            <text
+              x={m.x}
+              y={m.y}
+              fontSize={px(11)}
+              fontWeight={700}
+              fontFamily="system-ui, sans-serif"
+              textAnchor="middle"
+              dominantBaseline="central"
+              fill={color}
+              stroke={theme.paper}
+              strokeWidth={3}
+              paintOrder="stroke"
+              vectorEffect="non-scaling-stroke"
+            >
+              {formatLength(gd.length, units)}
+            </text>
+          </g>
+        )
+      })}
+    </g>
+  )
   const closing = drawCursor ? isClosing(drawPts, drawCursor) : false
 
   return (
@@ -837,11 +926,14 @@ export function Canvas() {
           scale={zoom}
           showWallLengths={settings.showWallLengths}
           showAreas={settings.showAreas}
+          faded={settings.faded}
         />
 
         {/* saved 3D views */}
         {!!floor.views?.length && (
-          <PlanViews views={floor.views} scale={zoom} theme={theme} selectedId={selection?.kind === 'view' ? selection.id : null} />
+          <g opacity={settings.faded.includes('Saved views') ? 0.15 : 1} pointerEvents={settings.faded.includes('Saved views') ? 'none' : undefined}>
+            <PlanViews views={floor.views} scale={zoom} theme={theme} selectedId={selection?.kind === 'view' ? selection.id : null} />
+          </g>
         )}
 
         {/* selected room: outline, vertex & wall handles */}
@@ -994,50 +1086,42 @@ export function Canvas() {
           </g>
         )}
 
-        {/* distances to the walls around the symbol being moved */}
+        {/* distances to the walls around what's being moved */}
         {movingId &&
           (() => {
             const s = floor.symbols.find((x) => x.id === movingId)
-            if (!s || s.room) return null
+            return s && !s.room ? drawGuides(clearanceGuides(s, floor.rooms), !!s.wall) : null
+          })()}
+        {movingMulti &&
+          selection?.kind === 'multi' &&
+          (() => {
+            const { box, rooms } = selectionBox(floor, selection)
+            return box ? drawGuides(boxGuides(box, rooms), false) : null
+          })()}
+
+        {/* several selected: their extent, with a handle to turn them */}
+        {selection?.kind === 'multi' &&
+          !movingMulti &&
+          (() => {
+            const { box } = selectionBox(floor, selection)
+            if (!box) return null
+            const cx = (box.minX + box.maxX) / 2
+            const top = box.minY - px(8)
             return (
-              <g pointerEvents="none" className="guides">
-                {clearanceGuides(s, floor.rooms).map((gd, i, all) => {
-                  // A door or window with equal gaps on both sides is centered: show it in green.
-                  const color = s.wall && all.length === 2 && Math.abs(all[0].length - all[1].length) < 0.5 ? '#16a34a' : '#e11d48'
-                  const sh = gd.shift ? { x: gd.shift.x * px(14), y: gd.shift.y * px(14) } : { x: 0, y: 0 }
-                  const a = { x: gd.a.x + sh.x, y: gd.a.y + sh.y }
-                  const b = { x: gd.b.x + sh.x, y: gd.b.y + sh.y }
-                  const m = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 }
-                  const n = normalize({ x: -(b.y - a.y), y: b.x - a.x })
-                  const tick = (p: Point) => (
-                    <line x1={p.x - n.x * px(5)} y1={p.y - n.y * px(5)} x2={p.x + n.x * px(5)} y2={p.y + n.y * px(5)} />
-                  )
-                  return (
-                    <g key={i}>
-                      <g stroke={color} strokeWidth={1.3} vectorEffect="non-scaling-stroke">
-                        <line x1={a.x} y1={a.y} x2={b.x} y2={b.y} strokeDasharray="5 3" />
-                        {tick(a)}
-                        {tick(b)}
-                      </g>
-                      <text
-                        x={m.x}
-                        y={m.y}
-                        fontSize={px(11)}
-                        fontWeight={700}
-                        fontFamily="system-ui, sans-serif"
-                        textAnchor="middle"
-                        dominantBaseline="central"
-                        fill={color}
-                        stroke={theme.paper}
-                        strokeWidth={3}
-                        paintOrder="stroke"
-                        vectorEffect="non-scaling-stroke"
-                      >
-                        {formatLength(gd.length, units)}
-                      </text>
-                    </g>
-                  )
-                })}
+              <g>
+                <rect
+                  x={box.minX - px(8)}
+                  y={top}
+                  width={box.maxX - box.minX + px(16)}
+                  height={box.maxY - box.minY + px(16)}
+                  className="sel-outline"
+                  pointerEvents="none"
+                  opacity={0.6}
+                />
+                <line x1={cx} y1={top} x2={cx} y2={top - px(22)} className="sel-outline" pointerEvents="none" />
+                <circle data-kind="multi-rotate" className="handle rotate-handle" cx={cx} cy={top - px(22)} r={px(7)}>
+                  <title>Turn them together (hold Shift for free rotation)</title>
+                </circle>
               </g>
             )
           })()}

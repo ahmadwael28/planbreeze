@@ -20,7 +20,10 @@ import { formatArea, formatLength } from '@/model/units'
 import type { Dimension, ItemRef, OutdoorKind, PlanSymbol, RailingStyle, Room, SavedView, Units } from '@/model/types'
 import {
   autoDimension,
+  centerSelection,
   copySelection,
+  rotateSelection,
+  selectionBox,
   currentFloor,
   deleteSelection,
   groupSelection,
@@ -33,6 +36,7 @@ import {
   useSelectedRoom,
   useSelectedSymbol,
 } from '@/store/editor'
+import { boxGaps, centeredPosition, wallGaps } from '@/model/guides'
 import { useUi } from '@/store/ui'
 import { LengthInput, NumberInput, TextInput } from './LengthInput'
 import { CeilingSection, HiddenLightControls, LightSection, SwitchSection } from './LightingProps'
@@ -386,10 +390,57 @@ function MultiProps({ items }: { items: ItemRef[] }) {
     }),
   )
   const grouped = groups.size === 1 && !groups.has('')
+  const units = useEditor((s) => s.project.units)
+  const selection = useEditor((s) => s.selection)
+  const { box, rooms } = selectionBox(floor, selection)
+  const gaps = box ? boxGaps(box, rooms) : {}
+  const across = gaps.left !== undefined && gaps.right !== undefined
+  const depthwise = gaps.front !== undefined && gaps.back !== undefined
+  const fmt = (v?: number) => (v === undefined ? '–' : formatLength(v, units))
   return (
     <>
       <Section title={`${items.length} selected`}>
         <p className="text-sm text-muted-foreground">{parts.join(', ')}</p>
+        <div className="flex gap-2">
+          <Button variant="outline" size="sm" onClick={() => rotateSelection(-90)}>
+            <RotateCw className="-scale-x-100" /> 90°
+          </Button>
+          <Button variant="outline" size="sm" onClick={() => rotateSelection(90)}>
+            <RotateCw /> 90°
+          </Button>
+          <span className="self-center text-xs text-muted-foreground">or drag the handle above them</span>
+        </div>
+        {(across || depthwise) && (
+          <div className="space-y-2 rounded-lg bg-muted/60 p-3">
+            <p className="text-sm font-medium">Position in the room</p>
+            {(
+              [
+                ['Side to side', 'across', gaps.left, gaps.right, across],
+                ['Top to bottom', 'depth', gaps.back, gaps.front, depthwise],
+              ] as const
+            ).map(([label, axis, a, b, ok]) => {
+              const centered = ok && Math.abs(a! - b!) < 0.5
+              return (
+                <div key={axis} className="flex items-center justify-between gap-2 text-sm">
+                  <span className="min-w-0">
+                    <span className="text-muted-foreground">{label}</span>
+                    <span className="ml-2 tabular-nums">
+                      {fmt(a)} · {fmt(b)}
+                    </span>
+                  </span>
+                  <Button variant="outline" size="xs" disabled={!ok || centered} onClick={() => centerSelection(axis)}>
+                    {centered ? 'Centered' : 'Center'}
+                  </Button>
+                </div>
+              )
+            })}
+            {across && depthwise && (
+              <Button variant="outline" size="sm" className="w-full" onClick={() => centerSelection('both')}>
+                <AlignHorizontalJustifyCenter /> Center in the room
+              </Button>
+            )}
+          </div>
+        )}
         <div className="grid grid-cols-2 gap-2">
           {grouped ? (
             <Button variant="outline" size="sm" onClick={() => groupSelection(false)}>
@@ -505,6 +556,14 @@ function SymbolProps({ sym, units }: { sym: PlanSymbol; units: Units }) {
   const gapStart = wallOffset - sym.width / 2
   const gapEnd = wallLen - wallOffset - sym.width / 2
   const setOffset = (offset: number) => updateSymbol(sym.id, (s) => void (s.wall = s.wall && { ...s.wall, offset }))
+  // For free-standing furniture: the gaps to the walls around it, to center it in the room.
+  const free = !sym.wall && !sym.room && !def?.wallMount && !def?.wall
+  const gaps = free ? wallGaps(sym, floor.rooms) : {}
+  const across = gaps.left !== undefined && gaps.right !== undefined
+  const depthwise = gaps.front !== undefined && gaps.back !== undefined
+  const centerIn = (axis: 'across' | 'depth' | 'both') =>
+    updateSymbol(sym.id, (s) => Object.assign(s, centeredPosition(s, floor.rooms, axis)))
+  const fmt = (v?: number) => (v === undefined ? '–' : formatLength(v, units))
   return (
     <>
       <Section
@@ -566,6 +625,38 @@ function SymbolProps({ sym, units }: { sym: PlanSymbol; units: Units }) {
               />
             )}
           </Field>
+        )}
+        {free && (across || depthwise) && (
+          <div className="space-y-2 rounded-lg bg-muted/60 p-3">
+            <p className="text-sm font-medium">Position in the room</p>
+            {(
+              [
+                ['Side to side', 'across', gaps.left, gaps.right, across],
+                ['Front to back', 'depth', gaps.back, gaps.front, depthwise],
+              ] as const
+            ).map(([label, axis, a, b, ok]) => {
+              const centered = ok && Math.abs(a! - b!) < 0.5
+              return (
+                <div key={axis} className="flex items-center justify-between gap-2 text-sm">
+                  <span className="min-w-0">
+                    <span className="text-muted-foreground">{label}</span>
+                    <span className="ml-2 tabular-nums">
+                      {fmt(a)} · {fmt(b)}
+                    </span>
+                  </span>
+                  <Button variant="outline" size="xs" disabled={!ok || centered} onClick={() => centerIn(axis)}>
+                    {centered ? 'Centered' : 'Center'}
+                  </Button>
+                </div>
+              )
+            })}
+            {across && depthwise && (
+              <Button variant="outline" size="sm" className="w-full" onClick={() => centerIn('both')}>
+                <AlignHorizontalJustifyCenter /> Center in the room
+              </Button>
+            )}
+            <p className="text-xs text-muted-foreground">Gaps to the nearest wall on each side. Dragging near the middle snaps to it.</p>
+          </div>
         )}
         {sym.type === 'sofa-corner' && (
           <Field label="Corner on">

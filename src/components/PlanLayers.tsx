@@ -36,7 +36,11 @@ interface Props {
   ghost?: boolean
   /** Rendering for PDF: no invisible hit areas or effects the PDF converter can't reproduce. */
   forPrint?: boolean
+  /** Library categories (and 'Dimensions') shown faded and not clickable, to work around them. */
+  faded?: string[]
 }
+
+const FADE = 0.15
 
 function wallPath(room: Room) {
   return polygonPath(roomOuter(room)) + polygonPath(room.points)
@@ -47,11 +51,13 @@ const SymbolGraphic = memo(function SymbolGraphic({
   rooms,
   theme,
   forPrint,
+  faded,
 }: {
   sym: PlanSymbol
   rooms: Room[]
   theme: PlanTheme
   forPrint?: boolean
+  faded?: boolean
 }) {
   const def = SYMBOL_MAP.get(sym.type)
   const pose = symbolPose(sym, rooms)
@@ -63,6 +69,8 @@ const SymbolGraphic = memo(function SymbolGraphic({
       data-kind="symbol"
       data-id={sym.id}
       transform={`translate(${pose.x},${pose.y}) rotate(${pose.rotation}) scale(${sx},${sy})`}
+      opacity={faded ? FADE : undefined}
+      pointerEvents={faded ? 'none' : undefined}
     >
       {!forPrint && <rect x={-sym.width / 2} y={-depth / 2} width={sym.width} height={depth} fill="transparent" />}
       {def ? (
@@ -385,6 +393,7 @@ export function PlanLayers({
   activeSwitch,
   ghost,
   forPrint,
+  faded = [],
 }: Props) {
   if (ghost) {
     return (
@@ -396,6 +405,8 @@ export function PlanLayers({
     )
   }
   const lighting = layer === 'lighting'
+  const fadedSet = new Set(faded)
+  const fade = (s: PlanSymbol) => fadedSet.has(SYMBOL_MAP.get(s.type)?.category ?? '')
   const isFixture = (s: PlanSymbol) => !!SYMBOL_MAP.get(s.type)?.fixture
   const furniture = floor.symbols.filter((s) => !s.wall && !isFixture(s) && s.type !== 'gypsum-box')
   const fixtures = floor.symbols.filter((s) => isFixture(s) && !s.room)
@@ -439,13 +450,13 @@ export function PlanLayers({
       </g>
       <g opacity={lighting ? 0.22 : 1} pointerEvents={lighting ? 'none' : undefined}>
         {furniture.map((s) => (
-          <SymbolGraphic key={s.id} sym={s} rooms={floor.rooms} theme={theme} forPrint={forPrint} />
+          <SymbolGraphic key={s.id} sym={s} rooms={floor.rooms} theme={theme} forPrint={forPrint} faded={fade(s)} />
         ))}
       </g>
       {lighting && (
         <g>
           {boxes.map((s) => (
-            <SymbolGraphic key={s.id} sym={s} rooms={floor.rooms} theme={theme} forPrint={forPrint} />
+            <SymbolGraphic key={s.id} sym={s} rooms={floor.rooms} theme={theme} forPrint={forPrint} faded={fade(s)} />
           ))}
         </g>
       )}
@@ -453,20 +464,27 @@ export function PlanLayers({
         {floor.symbols
           .filter((s) => s.wall)
           .map((s) => (
-            <SymbolGraphic key={s.id} sym={s} rooms={floor.rooms} theme={theme} forPrint={forPrint} />
+            <SymbolGraphic key={s.id} sym={s} rooms={floor.rooms} theme={theme} forPrint={forPrint} faded={fade(s)} />
           ))}
       </g>
-      {lighting &&
-        coves.map((s) => {
-          const room = roomById.get(s.room!)
-          return room ? <CoveLight key={s.id} sym={s} room={room} scale={scale} forPrint={forPrint} /> : null
-        })}
+      {lighting && (
+        <g opacity={fadedSet.has('Lighting') ? FADE : undefined} pointerEvents={fadedSet.has('Lighting') ? 'none' : undefined}>
+          {coves.map((s) => {
+            const room = roomById.get(s.room!)
+            return room ? <CoveLight key={s.id} sym={s} room={room} scale={scale} forPrint={forPrint} /> : null
+          })}
+        </g>
+      )}
       <g opacity={lighting ? 1 : 0.85}>
         {fixtures.map((s) => (
-          <SymbolGraphic key={s.id} sym={s} rooms={floor.rooms} theme={theme} forPrint={forPrint} />
+          <SymbolGraphic key={s.id} sym={s} rooms={floor.rooms} theme={theme} forPrint={forPrint} faded={fade(s)} />
         ))}
       </g>
-      {lighting && <Wiring floor={floor} scale={scale} activeSwitch={activeSwitch} />}
+      {lighting && (
+        <g opacity={fadedSet.has('Lighting') ? FADE : undefined}>
+          <Wiring floor={floor} scale={scale} activeSwitch={activeSwitch} />
+        </g>
+      )}
       {showLabels && (
         <g>
           {floor.rooms.map((r) => (
@@ -484,7 +502,7 @@ export function PlanLayers({
         </g>
       )}
       {showDimensions && (
-        <g>
+        <g opacity={fadedSet.has('Dimensions') ? FADE : undefined} pointerEvents={fadedSet.has('Dimensions') ? 'none' : undefined}>
           {(floor.dimensions ?? []).map((d) => (
             <DimensionGraphic key={d.id} d={d} units={units} scale={scale} theme={theme} forPrint={forPrint} />
           ))}

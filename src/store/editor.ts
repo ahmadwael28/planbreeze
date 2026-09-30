@@ -11,7 +11,8 @@ import {
   uid,
 } from '@/model/project'
 import { bbox, labelPoint, pointInPolygon } from '@/model/geometry'
-import { allRefs, copyItems, deleteItems, exists, pasteItems, refsOf, selectionOf, setGroup } from '@/model/items'
+import { allRefs, clipFootprint, copyItems, deleteItems, exists, moveItems, pasteItems, refsOf, rotateItems, selectionOf, setGroup } from '@/model/items'
+import { boxCenterShift } from '@/model/guides'
 import type { Clip } from '@/model/items'
 import { CEILING_STYLES, OTHER_LIGHTS, pruneControls, remapEdges } from '@/model/lighting'
 import { dimensionPoints, roomOuter } from '@/model/project'
@@ -46,6 +47,8 @@ export interface Settings {
   showCeilings: boolean
   /** 3D camera lens: how much of the scene fits in view. */
   lens3d: 'normal' | 'wide' | 'ultra'
+  /** Plan: library categories (and 'Dimensions', 'Saved views') shown faded and not clickable. */
+  faded: string[]
 }
 
 export type ViewMode = '2d' | '3d'
@@ -64,6 +67,7 @@ const defaultSettings: Settings = {
   daylight: 1,
   showCeilings: true,
   lens3d: 'normal',
+  faded: [],
 }
 
 function loadSettings(): Settings {
@@ -425,6 +429,38 @@ export function groupSelection(group: boolean) {
   if (!refs.length || (group && refs.length < 2)) return
   const id = group ? uid() : null
   st.commit((d) => setGroup(draftFloor(d), refs, id))
+}
+
+/** The selected items' extent, and the rooms around them (the selected rooms themselves don't count as walls to measure to). */
+export function selectionBox(floor: Floor, sel: Selection | null) {
+  const clip = copyItems(floor, refsOf(sel))
+  const pts = clipFootprint(clip)
+  const inSel = new Set(clip.rooms.map((r) => r.id))
+  return { clip, box: pts.length ? bbox(pts) : null, rooms: floor.rooms.filter((r) => !inSel.has(r.id)) }
+}
+
+/** Turn the selection by `deg` (clockwise on the plan) around its middle. */
+export function rotateSelection(deg: number) {
+  const st = useEditor.getState()
+  const { clip, box } = selectionBox(currentFloor(st), st.selection)
+  if (!box) return
+  const c = { x: (box.minX + box.maxX) / 2, y: (box.minY + box.maxY) / 2 }
+  st.commit((d) => rotateItems(draftFloor(d), clip, c, deg))
+}
+
+/** Move the selection so it sits midway between the walls around it. */
+export function centerSelection(axis: 'across' | 'depth' | 'both') {
+  const st = useEditor.getState()
+  const { clip, box, rooms } = selectionBox(currentFloor(st), st.selection)
+  if (!box) return
+  const s = boxCenterShift(box, rooms, axis)
+  if (s.x || s.y) st.commit((d) => moveItems(draftFloor(d), clip, s.x, s.y))
+}
+
+/** Fade a category on the plan, or show it again. */
+export function toggleFaded(key: string) {
+  const { settings, setSettings } = useEditor.getState()
+  setSettings({ faded: settings.faded.includes(key) ? settings.faded.filter((k) => k !== key) : [...settings.faded, key] })
 }
 
 export function selectAll() {

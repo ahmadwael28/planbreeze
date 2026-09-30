@@ -216,6 +216,57 @@ export function setGroup(floor: Floor, refs: ItemRef[], groupId: string | null) 
   }
 }
 
+/** Where the items stand: room outlines, furniture rectangles (as rotated), dimension ends, view points. */
+export function clipFootprint(c: Clip): Point[] {
+  const pts: Point[] = c.rooms.flatMap((r) => r.points)
+  for (const s of c.symbols) {
+    if (s.wall || s.room) continue
+    const r = (s.rotation * Math.PI) / 180
+    const cos = Math.cos(r)
+    const sin = Math.sin(r)
+    for (const [ex, ey] of [
+      [-1, -1],
+      [1, -1],
+      [1, 1],
+      [-1, 1],
+    ]) {
+      const lx = (ex * s.width) / 2
+      const ly = (ey * s.depth) / 2
+      pts.push({ x: s.x + lx * cos - ly * sin, y: s.y + lx * sin + ly * cos })
+    }
+  }
+  for (const d of c.dimensions) pts.push(d.a, d.b)
+  for (const v of c.views) pts.push(v.eye)
+  return pts
+}
+
+/** Turn items (from their `orig` positions) by `deg` around `c`. Doors, windows and cove lights follow their rooms. */
+export function rotateItems(floor: Floor, orig: Clip, c: Point, deg: number) {
+  const a = (deg * Math.PI) / 180
+  const cos = Math.cos(a)
+  const sin = Math.sin(a)
+  const rot = (p: Point) => ({ x: c.x + (p.x - c.x) * cos - (p.y - c.y) * sin, y: c.y + (p.x - c.x) * sin + (p.y - c.y) * cos })
+  const round = (p: Point) => ({ x: Math.round(p.x * 10) / 10, y: Math.round(p.y * 10) / 10 })
+  for (const o of orig.rooms) {
+    const r = floor.rooms.find((x) => x.id === o.id)
+    if (r) r.points = o.points.map((p) => round(rot(p)))
+  }
+  for (const o of orig.symbols) {
+    const s = floor.symbols.find((x) => x.id === o.id)
+    if (!s || s.wall || s.room) continue
+    Object.assign(s, round(rot(o)))
+    s.rotation = (((o.rotation + deg) % 360) + 360) % 360
+  }
+  for (const o of orig.dimensions) {
+    const d = floor.dimensions?.find((x) => x.id === o.id)
+    if (d) Object.assign(d, { a: round(rot(o.a)), b: round(rot(o.b)) })
+  }
+  for (const o of orig.views) {
+    const v = floor.views?.find((x) => x.id === o.id)
+    if (v) Object.assign(v, { eye: { ...o.eye, ...round(rot(o.eye)) }, look: { ...o.look, ...round(rot(o.look)) } })
+  }
+}
+
 export function clipBounds(c: Clip) {
   const pts = [
     ...c.rooms.flatMap((r) => r.points),

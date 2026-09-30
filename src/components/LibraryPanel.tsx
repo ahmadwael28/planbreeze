@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { ChevronRight, ChevronsDownUp, ChevronsUpDown, Search } from 'lucide-react'
+import { ChevronRight, ChevronsDownUp, ChevronsUpDown, Eye, EyeOff, Search } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
@@ -9,7 +9,7 @@ import { findWallSnap, newSymbol } from '@/model/project'
 import { CATEGORIES, SYMBOLS } from '@/model/symbols'
 import type { SymbolDef } from '@/model/symbols'
 import type { PlanTheme } from '@/model/theme'
-import { addSymbol, currentFloor, useEditor, viewCenter } from '@/store/editor'
+import { addSymbol, currentFloor, toggleFaded, useEditor, viewCenter } from '@/store/editor'
 import { useUi } from '@/store/ui'
 import { SYMBOL_DRAG_MIME } from './Canvas'
 
@@ -57,6 +57,7 @@ export function LibraryPanel() {
   const [query, setQuery] = useState('')
   const q = query.trim().toLowerCase()
   // Folded categories live in the UI store, so they survive switching sidebar tabs.
+  const faded = useEditor((s) => s.settings.faded)
   const collapsed = useUi((s) => s.libraryCollapsed)
   const setCollapsed = useUi((s) => s.setLibraryCollapsed)
   const searching = !!q
@@ -86,14 +87,24 @@ export function LibraryPanel() {
         return (
           <Collapsible key={cat} open={open} onOpenChange={(o) => toggle(cat, o)} asChild>
             <section className="space-y-2">
-              <CollapsibleTrigger
-                disabled={searching}
-                className="group flex w-full items-center gap-1.5 rounded-md py-1 text-xs font-medium tracking-wide text-muted-foreground uppercase outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring disabled:hover:text-muted-foreground"
-              >
-                <ChevronRight className="size-3.5 transition-transform group-data-[state=open]:rotate-90" />
-                <span className="flex-1 text-left">{cat === 'Ceilings' ? 'Gypsum ceilings' : cat}</span>
-                <span className="font-normal tabular-nums normal-case">{items.length}</span>
-              </CollapsibleTrigger>
+              <div className="flex items-center gap-1">
+                <CollapsibleTrigger
+                  disabled={searching}
+                  className="group flex min-w-0 flex-1 items-center gap-1.5 rounded-md py-1 text-xs font-medium tracking-wide text-muted-foreground uppercase outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring disabled:hover:text-muted-foreground"
+                >
+                  <ChevronRight className="size-3.5 transition-transform group-data-[state=open]:rotate-90" />
+                  <span className="flex-1 text-left">{cat === 'Ceilings' ? 'Gypsum ceilings' : cat}</span>
+                  <span className="font-normal tabular-nums normal-case">{items.length}</span>
+                </CollapsibleTrigger>
+                <button
+                  onClick={() => toggleFaded(cat)}
+                  className="rounded p-1 text-muted-foreground outline-none hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
+                  aria-label={faded.includes(cat) ? `Show ${cat} on the plan` : `Fade ${cat} on the plan`}
+                  title={faded.includes(cat) ? 'Faded on the plan: click to show' : 'Fade on the plan'}
+                >
+                  {faded.includes(cat) ? <EyeOff className="size-3.5" /> : <Eye className="size-3.5" />}
+                </button>
+              </div>
               <CollapsibleContent className="space-y-2">
                 {cat === 'Ceilings' && (
                   <p className="text-xs text-muted-foreground">Tap a style to apply it to the selected room, or drag it onto a room.</p>
