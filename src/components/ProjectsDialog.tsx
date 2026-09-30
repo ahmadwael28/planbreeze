@@ -1,12 +1,13 @@
 import { useState } from 'react'
-import { Cloud, CloudUpload, FilePlus2, HardDrive, Loader2, Trash2 } from 'lucide-react'
+import { Check, Cloud, CloudUpload, FilePlus2, HardDrive, Loader2, Pencil, Trash2 } from 'lucide-react'
 import { toast } from 'sonner'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import { Input } from '@/components/ui/input'
 import { cn } from '@/lib/utils'
 import { useCloud } from '@/cloud/store'
-import { deleteCloudProject, listCloud, openCloudProject, uploadLocal } from '@/cloud/sync'
+import { deleteCloudProject, listCloud, openCloudProject, renameCloudProject, uploadLocal } from '@/cloud/sync'
 import { newProject } from '@/model/project'
 import { useEditor } from '@/store/editor'
 import { deleteProject, listProjects, loadProject, saveProject } from '@/store/storage'
@@ -44,6 +45,7 @@ export function ProjectsDialog() {
   const [busyId, setBusyId] = useState<string | null>(null)
   const [uploading, setUploading] = useState(false)
   const [toDelete, setToDelete] = useState<Entry | null>(null)
+  const [renaming, setRenaming] = useState<{ id: string; name: string } | null>(null)
 
   const refresh = async () => {
     saveProject(useEditor.getState().project)
@@ -102,6 +104,25 @@ export function ProjectsDialog() {
     }
     await refresh()
   }
+  const rename = async (e: Entry, raw: string) => {
+    setRenaming(null)
+    const name = raw.trim()
+    if (!name || name === e.name) return
+    try {
+      if (e.id === current.id) {
+        // The open plan: autosave takes it from here (this device and the account).
+        useEditor.getState().commit((d) => void (d.name = name))
+      } else if (e.cloud) {
+        await renameCloudProject(e.id, name)
+      } else {
+        const p = loadProject(e.id)
+        if (p) saveProject({ ...p, name, updatedAt: Date.now() })
+      }
+    } catch (err) {
+      toast.error(`Couldn't rename: ${(err as Error).message}`)
+    }
+    await refresh()
+  }
   const localOnly = entries.filter((e) => e.local && !e.cloud && e.id !== current.id)
   const uploadAll = async () => {
     setUploading(true)
@@ -144,6 +165,34 @@ export function ProjectsDialog() {
           <ul className="max-h-80 divide-y overflow-y-auto rounded-lg border">
             {entries.map((p) => (
               <li key={p.id} className={cn('flex items-center pr-2', p.id === current.id && 'bg-primary/10')}>
+                {renaming?.id === p.id ? (
+                  <form
+                    className="flex min-w-0 flex-1 items-center gap-1.5 px-3 py-2"
+                    onSubmit={(ev) => {
+                      ev.preventDefault()
+                      void rename(p, renaming.name)
+                    }}
+                  >
+                    <Input
+                      autoFocus
+                      aria-label="Project name"
+                      value={renaming.name}
+                      onChange={(ev) => setRenaming({ id: p.id, name: ev.target.value })}
+                      onFocus={(ev) => ev.currentTarget.select()}
+                      onKeyDown={(ev) => {
+                        if (ev.key === 'Escape') {
+                          ev.stopPropagation()
+                          setRenaming(null)
+                        }
+                      }}
+                      onBlur={() => void rename(p, renaming.name)}
+                      className="h-8"
+                    />
+                    <Button type="submit" size="icon-sm" aria-label="Save name">
+                      <Check />
+                    </Button>
+                  </form>
+                ) : (
                 <button
                   className="flex min-w-0 flex-1 flex-col items-start gap-0.5 px-3 py-2.5 text-left outline-none focus-visible:bg-muted"
                   onClick={() => void openEntry(p)}
@@ -164,6 +213,12 @@ export function ProjectsDialog() {
                     )}
                   </span>
                 </button>
+                )}
+                {renaming?.id !== p.id && (
+                  <Button variant="ghost" size="icon-sm" aria-label={`Rename ${p.name}`} onClick={() => setRenaming({ id: p.id, name: p.name })}>
+                    <Pencil />
+                  </Button>
+                )}
                 <Button variant="ghost" size="icon-sm" aria-label={`Delete ${p.name}`} onClick={() => setToDelete(p)}>
                   <Trash2 />
                 </Button>

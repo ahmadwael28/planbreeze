@@ -151,9 +151,13 @@
 .plan-canvas.tool-room,
 .plan-canvas.tool-rect,
 .plan-canvas.tool-balcony,
+.plan-canvas.tool-terrace,
+.plan-canvas.tool-area,
+.plan-canvas.tool-area [data-kind],
 .plan-canvas.tool-room [data-kind],
 .plan-canvas.tool-rect [data-kind],
-.plan-canvas.tool-balcony [data-kind] {
+.plan-canvas.tool-balcony [data-kind],
+.plan-canvas.tool-terrace [data-kind] {
   cursor: crosshair;
 }
 .plan-canvas.tool-pan {
@@ -200,6 +204,18 @@
 }
 .plan-canvas .rotate-handle {
   cursor: alias;
+}
+.plan-canvas .resize-handle.resize-n,
+.plan-canvas .resize-handle.resize-s {
+  cursor: ns-resize;
+}
+.plan-canvas .resize-handle.resize-e,
+.plan-canvas .resize-handle.resize-w {
+  cursor: ew-resize;
+}
+.plan-canvas .resize-handle.resize-ne,
+.plan-canvas .resize-handle.resize-sw {
+  cursor: nesw-resize;
 }
 .plan-canvas .resize-handle {
   cursor: nwse-resize;

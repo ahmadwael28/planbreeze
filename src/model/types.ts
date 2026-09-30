@@ -29,12 +29,16 @@ export interface Room {
   ceiling?: Ceiling
   /** Walls (edge indices) with a shadow gap: a recessed groove where the wall meets the ceiling. */
   shadowGaps?: number[]
-  /** An outdoor space: a railing instead of walls (none where it meets the building), no ceiling. */
-  kind?: 'balcony'
+  /** An outdoor space: a railing (or nothing) instead of walls, none where it meets the building, and no ceiling. */
+  kind?: OutdoorKind
   railing?: Railing
+  /** Items with the same group id are selected and moved together. */
+  groupId?: string
 }
 
-export type RailingStyle = 'glass' | 'metal' | 'solid'
+export type OutdoorKind = 'balcony' | 'terrace'
+
+export type RailingStyle = 'glass' | 'metal' | 'solid' | 'none'
 
 export interface Railing {
   style: RailingStyle
@@ -69,6 +73,7 @@ export interface TrackModule {
 /** A user-placed dimension line between two points. */
 export interface Dimension {
   id: string
+  groupId?: string
   a: Point
   b: Point
   /** Distance of the dimension line from a–b, to the left of a→b (cm). */
@@ -87,6 +92,7 @@ export interface WallAttachment {
 export interface PlanSymbol {
   id: string
   type: string
+  groupId?: string
   /** For a room's hidden LED strip: where it runs. */
   cove?: CoveSettings
   /** Center position (ignored while attached to a wall). */
@@ -144,6 +150,7 @@ export interface Floor {
 /** A 3D camera spot saved by the user: plan position (cm) and height above this floor's level. */
 export interface SavedView {
   id: string
+  groupId?: string
   name: string
   eye: { x: number; y: number; h: number }
   /** A point the camera looks at. */
@@ -171,8 +178,17 @@ export type Selection =
   | { kind: 'symbol'; id: string }
   | { kind: 'dimension'; id: string }
   | { kind: 'view'; id: string }
+  | { kind: 'multi'; items: ItemRef[] }
 
-export type Tool = 'select' | 'room' | 'rect' | 'balcony' | 'pan' | 'dimension' | 'wire'
+export type ItemKind = 'room' | 'symbol' | 'dimension' | 'view'
+
+/** One thing on a floor, for selecting several at once. */
+export interface ItemRef {
+  kind: ItemKind
+  id: string
+}
+
+export type Tool = 'select' | 'area' | 'room' | 'rect' | 'balcony' | 'terrace' | 'pan' | 'dimension' | 'wire'
 
 /** What the 2D plan emphasizes: furniture layout, or the ceiling & lighting plan. */
 export type PlanLayer = 'plan' | 'lighting'

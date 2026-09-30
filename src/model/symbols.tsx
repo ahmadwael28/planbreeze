@@ -51,6 +51,13 @@ export interface SymbolDef {
 }
 
 const glow = (sym?: PlanSymbol) => LIGHT_COLORS[sym?.light?.color ?? 'warm'].hex
+
+/** How many seats fit along a sofa run (about 65 cm each), so longer sofas get more cushions, not wider ones. */
+export const seatsAlong = (len: number) => Math.max(1, Math.round(len / 65))
+/** Chairs along one side of a table (about 60 cm each). */
+export const chairsAlong = (len: number) => Math.max(1, Math.floor((len + 10) / 60))
+/** Sizes that stay the same however long a sofa gets. */
+export const SOFA = { arm: 20, back: 22, seat: 95 }
 const AMBER = '#f59e0b'
 
 /** Small ceiling-plan icon for the gypsum ceiling styles. */
@@ -291,13 +298,60 @@ export const SYMBOLS: SymbolDef[] = [
     height: 80,
     render: (w, d, t) => {
       const k = kit(t)
+      // Arms and back keep their size; a longer sofa gets more seats.
+      const arm = Math.min(SOFA.arm, w * 0.15)
+      const back = Math.min(SOFA.back, d * 0.3)
+      const inner = w - arm * 2
+      const n = seatsAlong(inner)
       return (
         <>
           {k.box(w, d, 8)}
-          <rect x={-w / 2} y={-d / 2} width={w} height={d * 0.25} rx={6} {...k.s(t.fill2)} />
-          <rect x={-w / 2} y={-d / 2} width={w * 0.1} height={d} rx={6} {...k.s(t.fill2)} />
-          <rect x={w / 2 - w * 0.1} y={-d / 2} width={w * 0.1} height={d} rx={6} {...k.s(t.fill2)} />
-          <line x1={0} y1={-d / 4} x2={0} y2={d / 2} {...k.thin} />
+          <rect x={-w / 2} y={-d / 2} width={w} height={back} rx={6} {...k.s(t.fill2)} />
+          <rect x={-w / 2} y={-d / 2} width={arm} height={d} rx={6} {...k.s(t.fill2)} />
+          <rect x={w / 2 - arm} y={-d / 2} width={arm} height={d} rx={6} {...k.s(t.fill2)} />
+          {Array.from({ length: n - 1 }, (_, i) => {
+            const x = -inner / 2 + (inner * (i + 1)) / n
+            return <line key={i} x1={x} y1={-d / 2 + back} x2={x} y2={d / 2} {...k.thin} />
+          })}
+        </>
+      )
+    },
+  },
+  {
+    type: 'sofa-corner',
+    name: 'Corner sofa',
+    category: 'Living',
+    width: 260,
+    depth: 200,
+    height: 80,
+    render: (w, d, t) => {
+      const k = kit(t)
+      // An L: seats along the back (top) and down the left side; flip it for the other hand.
+      const arm = Math.min(SOFA.arm, w * 0.12, d * 0.12)
+      const back = Math.min(SOFA.back, d * 0.2, w * 0.2)
+      const seat = Math.min(SOFA.seat, d * 0.6, w * 0.6)
+      const L = -w / 2
+      const T = -d / 2
+      const runX = w - back - arm
+      const runY = d - seat - arm
+      const nx = seatsAlong(runX)
+      const ny = seatsAlong(runY)
+      return (
+        <>
+          <path d={`M${L},${T} H${w / 2} V${T + seat} H${L + seat} V${d / 2} H${L} Z`} {...k.s()} />
+          <rect x={L} y={T} width={w} height={back} rx={6} {...k.s(t.fill2)} />
+          <rect x={L} y={T} width={back} height={d} rx={6} {...k.s(t.fill2)} />
+          <rect x={w / 2 - arm} y={T} width={arm} height={seat} rx={6} {...k.s(t.fill2)} />
+          <rect x={L} y={d / 2 - arm} width={seat} height={arm} rx={6} {...k.s(t.fill2)} />
+          {Array.from({ length: nx - 1 }, (_, i) => {
+            const x = L + back + (runX * (i + 1)) / nx
+            return <line key={`x${i}`} x1={x} y1={T + back} x2={x} y2={T + seat} {...k.thin} />
+          })}
+          <line x1={L + back} y1={T + seat} x2={L + seat} y2={T + seat} {...k.thin} />
+          {Array.from({ length: ny - 1 }, (_, i) => {
+            const y = T + seat + (runY * (i + 1)) / ny
+            return <line key={`y${i}`} x1={L + back} y1={y} x2={L + seat} y2={y} {...k.thin} />
+          })}
         </>
       )
     },
@@ -314,9 +368,9 @@ export const SYMBOLS: SymbolDef[] = [
       return (
         <>
           {k.box(w, d, 8)}
-          <rect x={-w / 2} y={-d / 2} width={w} height={d * 0.25} rx={6} {...k.s(t.fill2)} />
-          <rect x={-w / 2} y={-d / 2} width={w * 0.18} height={d} rx={6} {...k.s(t.fill2)} />
-          <rect x={w / 2 - w * 0.18} y={-d / 2} width={w * 0.18} height={d} rx={6} {...k.s(t.fill2)} />
+          <rect x={-w / 2} y={-d / 2} width={w} height={Math.min(SOFA.back, d * 0.3)} rx={6} {...k.s(t.fill2)} />
+          <rect x={-w / 2} y={-d / 2} width={Math.min(18, w * 0.22)} height={d} rx={6} {...k.s(t.fill2)} />
+          <rect x={w / 2 - Math.min(18, w * 0.22)} y={-d / 2} width={Math.min(18, w * 0.22)} height={d} rx={6} {...k.s(t.fill2)} />
         </>
       )
     },
@@ -340,7 +394,7 @@ export const SYMBOLS: SymbolDef[] = [
   },
   {
     type: 'tv-unit',
-    name: 'TV unit',
+    name: 'TV unit with TV',
     category: 'Living',
     width: 160,
     depth: 45,
@@ -350,7 +404,47 @@ export const SYMBOLS: SymbolDef[] = [
       return (
         <>
           {k.box(w, d)}
-          <rect x={-w * 0.35} y={-d / 2 + 4} width={w * 0.7} height={6} {...k.s(t.ink)} />
+          <rect x={-Math.min(w * 0.35, 82)} y={-d / 2 + 4} width={Math.min(w * 0.7, 165)} height={6} {...k.s(t.ink)} />
+        </>
+      )
+    },
+  },
+  {
+    type: 'tv-stand',
+    name: 'TV table',
+    category: 'Living',
+    width: 180,
+    depth: 45,
+    height: 50,
+    render: (w, d, t) => {
+      const k = kit(t)
+      const n = Math.max(2, Math.round(w / 60))
+      return (
+        <>
+          {k.box(w, d)}
+          {Array.from({ length: n - 1 }, (_, i) => {
+            const x = -w / 2 + (w * (i + 1)) / n
+            return <line key={i} x1={x} y1={-d / 2} x2={x} y2={d / 2} {...k.thin} />
+          })}
+        </>
+      )
+    },
+  },
+  {
+    type: 'tv',
+    name: 'TV',
+    category: 'Living',
+    width: 125,
+    depth: 8,
+    height: 72,
+    // Wall-mounted by default: the bottom of the screen above the floor. Set it to 0 to stand it on its feet.
+    elevation: 100,
+    render: (w, d, t) => {
+      const k = kit(t)
+      return (
+        <>
+          <rect x={-w / 2} y={-d / 2} width={w} height={d} rx={1.5} {...k.s(t.ink)} />
+          <line x1={-w / 2 + 4} y1={d / 2 + 5} x2={w / 2 - 4} y2={d / 2 + 5} {...k.thin} strokeDasharray="3 3" />
         </>
       )
     },
@@ -366,10 +460,16 @@ export const SYMBOLS: SymbolDef[] = [
       const k = kit(t)
       return (
         <>
-          {k.chair(-w / 4, -d / 2 - 10, 0)}
-          {k.chair(w / 4, -d / 2 - 10, 0)}
-          {k.chair(-w / 4, d / 2 + 10, 180)}
-          {k.chair(w / 4, d / 2 + 10, 180)}
+          {Array.from({ length: chairsAlong(w) }, (_, i) => {
+            const n = chairsAlong(w)
+            const x = -w / 2 + (w * (i + 0.5)) / n
+            return (
+              <g key={i}>
+                {k.chair(x, -d / 2 - 10, 0)}
+                {k.chair(x, d / 2 + 10, 180)}
+              </g>
+            )
+          })}
           {k.box(w, d, 3)}
         </>
       )
@@ -456,9 +556,9 @@ export const SYMBOLS: SymbolDef[] = [
       return (
         <>
           {k.box(w, d, 3)}
-          <rect x={-w / 2 + 8} y={-d / 2 + 8} width={w / 2 - 12} height={d * 0.14} rx={6} {...k.s(t.fill2)} />
-          <rect x={4} y={-d / 2 + 8} width={w / 2 - 12} height={d * 0.14} rx={6} {...k.s(t.fill2)} />
-          <path d={`M${-w / 2},${-d / 2 + d * 0.3} H${w / 2} V${d / 2} H${-w / 2} Z`} {...k.s(t.tint('#e0e7ff'))} />
+          <rect x={-w / 2 + 8} y={-d / 2 + 8} width={w / 2 - 12} height={Math.min(30, d * 0.14)} rx={6} {...k.s(t.fill2)} />
+          <rect x={4} y={-d / 2 + 8} width={w / 2 - 12} height={Math.min(30, d * 0.14)} rx={6} {...k.s(t.fill2)} />
+          <path d={`M${-w / 2},${-d / 2 + Math.min(60, d * 0.3)} H${w / 2} V${d / 2} H${-w / 2} Z`} {...k.s(t.tint('#e0e7ff'))} />
         </>
       )
     },
@@ -493,7 +593,10 @@ export const SYMBOLS: SymbolDef[] = [
       return (
         <>
           {k.box(w, d)}
-          <line x1={0} y1={-d / 2} x2={0} y2={d / 2} {...k.line} />
+          {Array.from({ length: Math.max(2, Math.round(w / 55)) - 1 }, (_, i) => {
+            const x = -w / 2 + (w * (i + 1)) / Math.max(2, Math.round(w / 55))
+            return <line key={i} x1={x} y1={-d / 2} x2={x} y2={d / 2} {...k.line} />
+          })}
           <line x1={-w / 2 + 5} y1={0} x2={w / 2 - 5} y2={0} {...k.thin} strokeDasharray="6 4" />
         </>
       )
@@ -564,7 +667,7 @@ export const SYMBOLS: SymbolDef[] = [
       return (
         <>
           {k.box(w, d)}
-          <rect x={-w / 2 + 8} y={-d / 2 + 12} width={w - 16} height={d - 20} rx={6} {...k.s(t.fill2)} />
+          <rect x={-Math.min(w - 16, 72) / 2} y={-d / 2 + 12} width={Math.min(w - 16, 72)} height={d - 20} rx={6} {...k.s(t.fill2)} />
           <circle cx={0} cy={-d / 2 + 7} r={2.5} {...k.s(t.ink)} />
         </>
       )

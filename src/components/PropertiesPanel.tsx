@@ -1,6 +1,6 @@
 import { useId } from 'react'
 import type { ReactNode } from 'react'
-import { Box, Copy, FlipHorizontal2, FlipVertical2, ImageOff, Link2Off, Ruler, RotateCw, SplitSquareHorizontal, Trash2, Video } from 'lucide-react'
+import { Box, ClipboardCopy, Copy, FlipHorizontal2, Group, Ungroup, FlipVertical2, ImageOff, Link2Off, Ruler, RotateCw, SplitSquareHorizontal, Trash2, Video } from 'lucide-react'
 import { toast } from 'sonner'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -14,14 +14,16 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import { usePlanTheme } from '@/hooks/use-plan-theme'
 import { cn } from '@/lib/utils'
 import { area, dist, perimeter } from '@/model/geometry'
-import { DEFAULT_RAILING, isBalcony, RAILING_THICKNESS, ROOM_COLORS, roomOuter, setWallLength, symbolPose } from '@/model/project'
+import { DEFAULT_RAILING, isOutdoor, OUTDOOR, RAILING_THICKNESS, ROOM_COLORS, roomOuter, setWallLength, symbolPose } from '@/model/project'
 import { SYMBOL_MAP } from '@/model/symbols'
 import { formatArea, formatLength } from '@/model/units'
-import type { Dimension, PlanSymbol, RailingStyle, Room, SavedView, Units } from '@/model/types'
+import type { Dimension, ItemRef, OutdoorKind, PlanSymbol, RailingStyle, Room, SavedView, Units } from '@/model/types'
 import {
   autoDimension,
+  copySelection,
   currentFloor,
   deleteSelection,
+  groupSelection,
   draftFloor,
   duplicateSelection,
   removeVertex,
@@ -98,16 +100,16 @@ function RoomProps({ room, units }: { room: Room; units: Units }) {
   const selection = useEditor((s) => s.selection)
   const vertex = selection?.kind === 'room' ? selection.vertex : undefined
   const a = area(room.points)
-  const balcony = isBalcony(room)
+  const balcony = isOutdoor(room)
   const defaultWall = useEditor((s) => s.project.defaultWallThickness)
-  const setKind = (toBalcony: boolean) =>
+  const setKind = (kind: OutdoorKind | null) =>
     useEditor.getState().commit((d) => {
       const f = draftFloor(d)
       const r = f.rooms.find((x) => x.id === room.id)
       if (!r) return
-      if (toBalcony) {
-        r.kind = 'balcony'
-        r.railing ??= { ...DEFAULT_RAILING }
+      if (kind) {
+        if (r.kind !== kind) r.railing = { ...OUTDOOR[kind].railing }
+        r.kind = kind
         r.wallThickness = RAILING_THICKNESS
         // Open to the sky: no gypsum ceiling or ceiling lights.
         r.ceiling = undefined
@@ -120,7 +122,7 @@ function RoomProps({ room, units }: { room: Room; units: Units }) {
     })
   return (
     <>
-      <Section title={balcony ? 'Balcony' : 'Room'}>
+      <Section title={room.kind ? OUTDOOR[room.kind].name : 'Room'}>
         <Field label="Name">
           {(id) => <TextInput id={id} value={room.name} onChange={(v) => updateRoom(room.id, (r) => void (r.name = v))} />}
         </Field>
@@ -130,8 +132,8 @@ function RoomProps({ room, units }: { room: Room; units: Units }) {
               type="single"
               size="sm"
               variant="outline"
-              value={balcony ? 'balcony' : 'room'}
-              onValueChange={(v) => v && setKind(v === 'balcony')}
+              value={room.kind ?? 'room'}
+              onValueChange={(v) => v && setKind(v === 'room' ? null : (v as OutdoorKind))}
               className="w-full"
             >
               <ToggleGroupItem value="room" className="flex-1">
@@ -139,6 +141,9 @@ function RoomProps({ room, units }: { room: Room; units: Units }) {
               </ToggleGroupItem>
               <ToggleGroupItem value="balcony" className="flex-1">
                 Balcony
+              </ToggleGroupItem>
+              <ToggleGroupItem value="terrace" className="flex-1">
+                Terrace
               </ToggleGroupItem>
             </ToggleGroup>
           )}
@@ -165,10 +170,12 @@ function RoomProps({ room, units }: { room: Room; units: Units }) {
                     <SelectItem value="glass">Glass panels</SelectItem>
                     <SelectItem value="metal">Metal balusters</SelectItem>
                     <SelectItem value="solid">Solid wall (parapet)</SelectItem>
+                    <SelectItem value="none">No railing</SelectItem>
                   </SelectContent>
                 </Select>
               )}
             </Field>
+            {room.railing?.style !== 'none' && (
             <Field label="Railing height">
               {(id) => (
                 <LengthInput
@@ -180,8 +187,9 @@ function RoomProps({ room, units }: { room: Room; units: Units }) {
                 />
               )}
             </Field>
+            )}
             <p className="text-xs text-muted-foreground">
-              There's no railing where the balcony meets the house. Put a door in the house wall to step out onto it.
+              There's no railing where it meets the house. Put a door in the house wall to step out onto it.
             </p>
           </>
         )}
@@ -352,6 +360,72 @@ function DimensionProps({ dim, units }: { dim: Dimension; units: Units }) {
   )
 }
 
+/** Several items selected: what they are, and what can be done with all of them. */
+function MultiProps({ items }: { items: ItemRef[] }) {
+  const floor = useFloor()
+  const count = (k: ItemRef['kind']) => items.filter((r) => r.kind === k).length
+  const parts = [
+    [count('room'), 'room'],
+    [count('symbol'), 'item'],
+    [count('dimension'), 'dimension'],
+    [count('view'), 'saved view'],
+  ]
+    .filter(([n]) => n)
+    .map(([n, w]) => `${n} ${w}${n === 1 ? '' : 's'}`)
+  const groups = new Set(
+    items.map((r) => {
+      const x =
+        r.kind === 'room'
+          ? floor.rooms.find((y) => y.id === r.id)
+          : r.kind === 'symbol'
+            ? floor.symbols.find((y) => y.id === r.id)
+            : r.kind === 'dimension'
+              ? floor.dimensions?.find((y) => y.id === r.id)
+              : floor.views?.find((y) => y.id === r.id)
+      return x?.groupId ?? ''
+    }),
+  )
+  const grouped = groups.size === 1 && !groups.has('')
+  return (
+    <>
+      <Section title={`${items.length} selected`}>
+        <p className="text-sm text-muted-foreground">{parts.join(', ')}</p>
+        <div className="grid grid-cols-2 gap-2">
+          {grouped ? (
+            <Button variant="outline" size="sm" onClick={() => groupSelection(false)}>
+              <Ungroup /> Ungroup
+            </Button>
+          ) : (
+            <Button variant="outline" size="sm" onClick={() => groupSelection(true)}>
+              <Group /> Group
+            </Button>
+          )}
+          <Button variant="outline" size="sm" onClick={duplicateSelection}>
+            <Copy /> Duplicate
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => {
+              const n = copySelection()
+              if (n) toast(`Copied ${n} items`, { description: 'Paste with Ctrl+V, on this floor or another.' })
+            }}
+          >
+            <ClipboardCopy /> Copy
+          </Button>
+          <Button variant="destructive" size="sm" onClick={deleteSelection}>
+            <Trash2 /> Delete
+          </Button>
+        </div>
+        <p className="text-xs leading-relaxed text-muted-foreground">
+          Drag any of them to move them all, or use the arrow keys. {grouped ? 'Alt + click picks one item in the group.' : 'Group them to keep them together.'}{' '}
+          Shortcuts: Ctrl+G group, Ctrl+Shift+G ungroup, Ctrl+C / X / V, Ctrl+D, Delete.
+        </p>
+      </Section>
+    </>
+  )
+}
+
 function ViewProps({ view, units }: { view: SavedView; units: Units }) {
   const update = (recipe: (v: SavedView) => void) =>
     useEditor.getState().commit((d) => {
@@ -464,6 +538,19 @@ function SymbolProps({ sym, units }: { sym: PlanSymbol; units: Units }) {
               <LengthInput
                 id={id}
                 value={sym.elevation ?? def.sill ?? 0}
+                units={units}
+                min={0}
+                onChange={(v) => updateSymbol(sym.id, (s) => void (s.elevation = v))}
+              />
+            )}
+          </Field>
+        )}
+        {def?.elevation !== undefined && !def.fixture && !def.wallMount && (
+          <Field label="Above the floor">
+            {(id) => (
+              <LengthInput
+                id={id}
+                value={sym.elevation ?? def.elevation ?? 0}
                 units={units}
                 min={0}
                 onChange={(v) => updateSymbol(sym.id, (s) => void (s.elevation = v))}
@@ -683,6 +770,7 @@ function FloorAndProjectProps() {
 
 export function PropertiesPanel() {
   const units = useEditor((s) => s.project.units)
+  const multi = useEditor((s) => (s.selection?.kind === 'multi' ? s.selection.items : null))
   const room = useSelectedRoom()
   const sym = useSelectedSymbol()
   const dim = useEditor((s) => {
@@ -693,6 +781,7 @@ export function PropertiesPanel() {
     const sel = s.selection
     return sel?.kind === 'view' ? currentFloor(s).views?.find((v) => v.id === sel.id) : undefined
   })
+  if (multi) return <MultiProps items={multi} />
   if (room) return <RoomProps room={room} units={units} />
   if (sym?.room) return <CoveProps sym={sym} units={units} />
   if (sym) return <SymbolProps sym={sym} units={units} />

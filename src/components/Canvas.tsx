@@ -22,8 +22,8 @@ import { SYMBOL_MAP } from '@/model/symbols'
 import { formatLength, gridSpacing, parseLength, snapStep } from '@/model/units'
 import type { Dimension, Floor, PlanSymbol, Point, Pose, Room, SavedView } from '@/model/types'
 import {
-  addBalcony,
   addDimension,
+  addOutdoor,
   addRoom,
   addSymbol,
   currentFloor,
@@ -35,6 +35,10 @@ import {
 import { usePlanTheme } from '@/hooks/use-plan-theme'
 import { DimensionGraphic, PlanLayers } from './PlanLayers'
 import { PlanViews } from './PlanViews'
+import { clearanceGuides } from '@/model/guides'
+import { copyItems, moveItems, refsInRect, refsOf, selectionOf, withGroup } from '@/model/items'
+import type { Clip } from '@/model/items'
+import type { ItemRef } from '@/model/types'
 
 const MIN_ZOOM = 0.05
 const MAX_ZOOM = 8
@@ -54,11 +58,13 @@ type Drag = DragBase &
     | { type: 'edge'; id: string; index: number; orig: Room; start: Point }
     | { type: 'symbol'; id: string; start: Point; orig: PlanSymbol; pose: Pose }
     | { type: 'rotate'; id: string; pose: Pose }
-    | { type: 'resize'; id: string; pose: Pose; isWall: boolean }
+    | { type: 'resize'; id: string; pose: Pose; isWall: boolean; handle: string; w0: number; d0: number; offset0?: number }
     | { type: 'rect'; start: Point; current: Point }
     | { type: 'dim-end'; id: string; end: 'a' | 'b' }
     | { type: 'dim-offset'; id: string; orig: Dimension; start: Point }
     | { type: 'view'; id: string; orig: SavedView; start: Point }
+    | { type: 'multi'; orig: Clip; start: Point }
+    | { type: 'marquee'; start: Point; current: Point; additive: boolean }
     | { type: 'view-rotate'; id: string; orig: SavedView }
   )
 
@@ -114,6 +120,9 @@ export function Canvas() {
   const pointers = useRef(new Map<number, Point>())
   const pinch = useRef<{ dist: number; zoom: number; world: Point } | null>(null)
   const [rectPreview, setRectPreview] = useState<{ a: Point; b: Point } | null>(null)
+  const [marquee, setMarquee] = useState<{ a: Point; b: Point } | null>(null)
+  /** The symbol being moved or resized, for the distance guides. */
+  const [movingId, setMovingId] = useState<string | null>(null)
   const [drawPts, setDrawPts] = useState<Point[]>([])
   const [cursor, setCursor] = useState<Point | null>(null)
   const [typed, setTyped] = useState('')
@@ -326,7 +335,7 @@ export function Canvas() {
       setTyped('')
       return
     }
-    if (st.tool === 'rect' || st.tool === 'balcony') {
+    if (st.tool === 'rect' || st.tool === 'balcony' || st.tool === 'terrace') {
       const p = snapFree(w)
       drag.current = { ...base, type: 'rect', start: p, current: p }
       return
@@ -366,6 +375,32 @@ export function Canvas() {
       return
     }
 
+    // Selecting several things: drag a box (the area tool, or Shift + drag on empty space).
+    const itemKind = kind === 'room' || kind === 'symbol' || kind === 'dimension' || kind === 'view' ? kind : null
+    if (st.tool === 'area' || (e.shiftKey && !itemKind && kind !== 'vertex' && kind !== 'edge')) {
+      drag.current = { ...base, type: 'marquee', start: w, current: w, additive: e.shiftKey }
+      return
+    }
+    if (itemKind && id) {
+      const ref: ItemRef = { kind: itemKind, id }
+      const same = (r: ItemRef) => r.kind === ref.kind && r.id === ref.id
+      const current = refsOf(sel)
+      // Shift + click adds or removes an item (with its group).
+      if (e.shiftKey) {
+        st.select(selectionOf(current.some(same) ? current.filter((r) => !same(r)) : [...current, ...withGroup(fl, ref)]))
+        return
+      }
+      // Dragging one of several selected items, or any item of a group (Alt + click picks just the one), moves them all.
+      const inMulti = sel?.kind === 'multi' && current.some(same)
+      const group = e.altKey ? [ref] : withGroup(fl, ref)
+      if (inMulti || group.length > 1) {
+        const refs = inMulti ? current : group
+        if (!inMulti) st.select(selectionOf(refs))
+        drag.current = { ...base, type: 'multi', orig: copyItems(fl, refs), start: w }
+        return
+      }
+    }
+
     // select tool
     if ((kind === 'dim-a' || kind === 'dim-b') && sel?.kind === 'dimension') {
       drag.current = { ...base, type: 'dim-end', id: sel.id, end: kind === 'dim-a' ? 'a' : 'b' }
@@ -402,7 +437,17 @@ export function Canvas() {
       drag.current =
         kind === 'rotate'
           ? { ...base, type: 'rotate', id: sym.id, pose }
-          : { ...base, type: 'resize', id: sym.id, pose, isWall: !!sym.wall }
+          : {
+              ...base,
+              type: 'resize',
+              id: sym.id,
+              pose,
+              isWall: !!sym.wall,
+              handle: target?.dataset.handle ?? 'se',
+              w0: sym.width,
+              d0: sym.depth,
+              offset0: sym.wall?.offset,
+            }
     } else if (kind === 'room' && id) {
       const orig = fl.rooms.find((r) => r.id === id)!
       if (!(sel?.kind === 'room' && sel.id === id)) st.select({ kind: 'room', id })
@@ -438,7 +483,8 @@ export function Canvas() {
     if (!d.moved) {
       if (Math.hypot(s.x - d.sx, s.y - d.sy) < 3) return
       d.moved = true
-      if (d.type !== 'pan' && d.type !== 'rect') st.checkpoint()
+      if (d.type !== 'pan' && d.type !== 'rect' && d.type !== 'marquee') st.checkpoint()
+      if (d.type === 'symbol' || d.type === 'resize') setMovingId(d.id)
     }
     const fl = currentFloor(st)
     const step = snapStep(st.project.units)
@@ -509,6 +555,21 @@ export function Canvas() {
           const x = draftFloor(pd).dimensions?.find((y) => y.id === d.id)
           if (x) x.offset = offset
         })
+        break
+      }
+      case 'multi': {
+        let dx = w.x - d.start.x
+        let dy = w.y - d.start.y
+        if (snap) {
+          dx = snapTo(dx, step)
+          dy = snapTo(dy, step)
+        }
+        st.mutate((pd) => moveItems(draftFloor(pd), d.orig, dx, dy))
+        break
+      }
+      case 'marquee': {
+        d.current = w
+        setMarquee({ a: d.start, b: w })
         break
       }
       case 'view': {
@@ -585,13 +646,30 @@ export function Canvas() {
         break
       }
       case 'resize': {
+        // Drag one side (or corner) and the opposite side stays put; hold Alt to resize from the center.
         const local = rotate(sub(w, d.pose), -d.pose.rotation)
         const r1 = (v: number) => (snap ? Math.max(step, snapTo(v, step)) : Math.max(1, Math.round(v)))
+        const sx = d.handle.includes('e') ? 1 : d.handle.includes('w') ? -1 : 0
+        const sy = d.isWall ? 0 : d.handle.includes('s') ? 1 : d.handle.includes('n') ? -1 : 0
+        const fromCenter = e.altKey
+        const size = (s: number, v: number, orig: number) =>
+          s === 0 ? orig : fromCenter ? r1(Math.abs(v) * 2) : r1(s * v + orig / 2)
+        const width = size(sx, local.x, d.w0)
+        const depth = size(sy, local.y, d.d0)
+        // The center moves by half the growth, toward the dragged side.
+        const shift = fromCenter ? { x: 0, y: 0 } : { x: (sx * (width - d.w0)) / 2, y: (sy * (depth - d.d0)) / 2 }
+        const moved = rotate(shift, d.pose.rotation)
         st.mutate((pd) => {
           const sym = draftFloor(pd).symbols.find((x) => x.id === d.id)
           if (!sym) return
-          sym.width = r1(Math.abs(local.x) * 2)
-          if (!d.isWall) sym.depth = r1(Math.abs(local.y) * 2)
+          sym.width = width
+          if (d.isWall) {
+            if (sym.wall && d.offset0 !== undefined) sym.wall = { ...sym.wall, offset: d.offset0 + shift.x }
+          } else {
+            sym.depth = depth
+            sym.x = d.pose.x + moved.x
+            sym.y = d.pose.y + moved.y
+          }
         })
         break
       }
@@ -603,6 +681,20 @@ export function Canvas() {
     if (pointers.current.size < 2) pinch.current = null
     const d = drag.current
     drag.current = null
+    setMovingId(null)
+    if (d?.type === 'marquee') {
+      setMarquee(null)
+      const st = useEditor.getState()
+      if (!d.moved) {
+        if (!d.additive) st.select(null)
+        return
+      }
+      const found = refsInRect(currentFloor(st), d.start, d.current)
+      st.select(selectionOf(d.additive ? [...refsOf(st.selection), ...found] : found))
+      // Ready to move what was picked.
+      if (st.tool === 'area' && found.length) useEditor.setState({ tool: 'select' })
+      return
+    }
     if (d?.type === 'rect') {
       setRectPreview(null)
       const w = Math.abs(d.current.x - d.start.x)
@@ -616,7 +708,8 @@ export function Canvas() {
           { x: x + w, y: y + h },
           { x, y: y + h },
         ]
-        if (useEditor.getState().tool === 'balcony') addBalcony(pts)
+        const tool = useEditor.getState().tool
+        if (tool === 'balcony' || tool === 'terrace') addOutdoor(pts, tool)
         else addRoom(pts)
       }
     }
@@ -832,19 +925,128 @@ export function Canvas() {
                   </circle>
                 </>
               )}
-              <rect
-                data-kind="resize"
-                className="handle resize-handle"
-                x={hw - px(6)}
-                y={hd - px(6)}
-                width={px(12)}
-                height={px(12)}
-              >
-                <title>Resize</title>
-              </rect>
+              {(selSym.wall
+                ? (['w', 'e'] as const)
+                : (['nw', 'n', 'ne', 'e', 'se', 's', 'sw', 'w'] as const)
+              ).map((h) => {
+                const cx = h.includes('e') ? hw : h.includes('w') ? -hw : 0
+                const cy = h.includes('s') ? hd : h.includes('n') ? -hd : 0
+                const side = h.length === 1
+                return (
+                  <rect
+                    key={h}
+                    data-kind="resize"
+                    data-handle={h}
+                    className={`handle resize-handle resize-${h}`}
+                    x={cx - px(side ? 5 : 6)}
+                    y={cy - px(side ? 5 : 6)}
+                    width={px(side ? 10 : 12)}
+                    height={px(side ? 10 : 12)}
+                    rx={side ? px(5) : 0}
+                  >
+                    <title>{side ? 'Drag to stretch this side (Alt: both sides)' : 'Drag to resize from this corner (Alt: from the center)'}</title>
+                  </rect>
+                )
+              })}
             </g>
           )
         })()}
+
+        {/* several selected items: an outline around each */}
+        {selection?.kind === 'multi' && (
+          <g pointerEvents="none">
+            {selection.items.map((r) => {
+              if (r.kind === 'room') {
+                const room = floor.rooms.find((x) => x.id === r.id)
+                return room ? <path key={`r${r.id}`} d={polygonPath(room.points)} className="sel-outline" /> : null
+              }
+              if (r.kind === 'symbol') {
+                const s = floor.symbols.find((x) => x.id === r.id)
+                if (!s) return null
+                const pose = symbolPose(s, floor.rooms)
+                const hw = s.width / 2 + px(3)
+                const hd = (pose.wallThickness ?? s.depth) / 2 + px(3)
+                return (
+                  <rect
+                    key={`s${r.id}`}
+                    x={-hw}
+                    y={-hd}
+                    width={hw * 2}
+                    height={hd * 2}
+                    className="sel-outline"
+                    transform={`translate(${pose.x},${pose.y}) rotate(${pose.rotation})`}
+                  />
+                )
+              }
+              if (r.kind === 'dimension') {
+                const dm = floor.dimensions?.find((x) => x.id === r.id)
+                if (!dm) return null
+                const [p, q] = dimensionPoints(dm)
+                return <line key={`d${r.id}`} x1={p.x} y1={p.y} x2={q.x} y2={q.y} className="sel-outline" />
+              }
+              const v = floor.views?.find((x) => x.id === r.id)
+              return v ? <circle key={`v${r.id}`} cx={v.eye.x} cy={v.eye.y} r={px(17)} className="sel-outline" /> : null
+            })}
+          </g>
+        )}
+
+        {/* distances to the walls around the symbol being moved */}
+        {movingId &&
+          (() => {
+            const s = floor.symbols.find((x) => x.id === movingId)
+            if (!s || s.room) return null
+            return (
+              <g pointerEvents="none" className="guides">
+                {clearanceGuides(s, floor.rooms).map((gd, i) => {
+                  const sh = gd.shift ? { x: gd.shift.x * px(14), y: gd.shift.y * px(14) } : { x: 0, y: 0 }
+                  const a = { x: gd.a.x + sh.x, y: gd.a.y + sh.y }
+                  const b = { x: gd.b.x + sh.x, y: gd.b.y + sh.y }
+                  const m = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 }
+                  const n = normalize({ x: -(b.y - a.y), y: b.x - a.x })
+                  const tick = (p: Point) => (
+                    <line x1={p.x - n.x * px(5)} y1={p.y - n.y * px(5)} x2={p.x + n.x * px(5)} y2={p.y + n.y * px(5)} />
+                  )
+                  return (
+                    <g key={i}>
+                      <g stroke="#e11d48" strokeWidth={1.3} vectorEffect="non-scaling-stroke">
+                        <line x1={a.x} y1={a.y} x2={b.x} y2={b.y} strokeDasharray="5 3" />
+                        {tick(a)}
+                        {tick(b)}
+                      </g>
+                      <text
+                        x={m.x}
+                        y={m.y}
+                        fontSize={px(11)}
+                        fontWeight={700}
+                        fontFamily="system-ui, sans-serif"
+                        textAnchor="middle"
+                        dominantBaseline="central"
+                        fill="#e11d48"
+                        stroke={theme.paper}
+                        strokeWidth={3}
+                        paintOrder="stroke"
+                        vectorEffect="non-scaling-stroke"
+                      >
+                        {formatLength(gd.length, units)}
+                      </text>
+                    </g>
+                  )
+                })}
+              </g>
+            )
+          })()}
+
+        {/* selection box */}
+        {marquee && (
+          <rect
+            pointerEvents="none"
+            x={Math.min(marquee.a.x, marquee.b.x)}
+            y={Math.min(marquee.a.y, marquee.b.y)}
+            width={Math.abs(marquee.a.x - marquee.b.x)}
+            height={Math.abs(marquee.a.y - marquee.b.y)}
+            className="draw-preview"
+          />
+        )}
 
         {/* rectangle tool preview */}
         {rectPreview && (() => {

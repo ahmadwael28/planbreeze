@@ -12,6 +12,7 @@ import * as THREE from 'three'
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js'
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js'
 import { inwardNormal, signedArea } from '@/model/geometry'
+import { chairsAlong, seatsAlong, SOFA } from '@/model/symbols'
 import type { PlanSymbol, Point, Room } from '@/model/types'
 
 export const COLORS = {
@@ -288,6 +289,69 @@ function sofa(k: Kit, w: number, d: number, h: number, seats: number) {
   return g
 }
 
+/** An L-shaped sofa: seats along the back and down the left side, arms at both open ends. */
+function cornerSofa(k: Kit, w: number, d: number, h: number) {
+  const g = new THREE.Group()
+  const frame = k.q(COLORS.fabric, 'fabric')
+  const cushion = k.q(COLORS.fabricLight, 'fabric')
+  const legH = 8
+  const arm = Math.min(SOFA.arm, w * 0.12, d * 0.12)
+  const back = Math.min(SOFA.back, d * 0.2, w * 0.2)
+  const seat = Math.min(SOFA.seat, d * 0.6, w * 0.6)
+  const seatTop = 44
+  const L = -w / 2
+  const T = -d / 2
+  // Backs along the top and down the left.
+  g.add(rbox(w, h - legH, back, 4, 0, legH, T + back / 2, frame))
+  g.add(rbox(back, h - legH, d - back, 4, L + back / 2, legH, T + back + (d - back) / 2, frame))
+  // Seat bases.
+  const runX = w - back - arm
+  const runY = d - seat - arm
+  g.add(rbox(runX + 2, seatTop - 12 - legH, seat - back, 2, L + back + runX / 2, legH, T + back + (seat - back) / 2, frame))
+  g.add(rbox(seat - back, seatTop - 12 - legH, runY + 2, 2, L + back + (seat - back) / 2, legH, T + seat + runY / 2, frame))
+  // Arms at the two open ends.
+  g.add(rbox(arm, h * 0.72 - legH, seat, 5, w / 2 - arm / 2, legH, T + seat / 2, frame))
+  g.add(rbox(seat, h * 0.72 - legH, arm, 5, L + seat / 2, legH, d / 2 - arm / 2, frame))
+  // Seat and back cushions: along the top run (including the corner), then down the side.
+  const nx = seatsAlong(runX)
+  const cx = runX / nx
+  for (let i = 0; i < nx; i++) {
+    const x = L + back + cx * (i + 0.5)
+    g.add(rbox(cx - 1, 13, seat - back - 1, 5, x, seatTop - 13, T + back + (seat - back) / 2, cushion))
+    const b = rbox(cx - 2, (h - seatTop) * 0.95, 14, 6, x, seatTop - 1, T + back + 5, cushion)
+    b.rotation.x = -0.12
+    g.add(b)
+  }
+  const ny = seatsAlong(runY)
+  const cy = runY / ny
+  for (let i = 0; i < ny; i++) {
+    const z = T + seat + cy * (i + 0.5)
+    g.add(rbox(seat - back - 1, 13, cy - 1, 5, L + back + (seat - back) / 2, seatTop - 13, z, cushion))
+    const b = rbox(14, (h - seatTop) * 0.95, cy - 2, 6, L + back + 5, seatTop - 1, z, cushion)
+    b.rotation.z = 0.12
+    g.add(b)
+  }
+  // Two cushions in the corner.
+  for (const [x, z, ry] of [
+    [L + back + 22, T + back + 16, 0.6],
+    [w / 2 - arm - 22, T + back + 16, -0.25],
+  ] as const) {
+    const p = rbox(36, 36, 11, 8, x, seatTop - 3, z, k.q(COLORS.accent, 'fabric'))
+    p.rotation.set(-0.25, ry, 0)
+    g.add(p)
+  }
+  const legs: [number, number][] = [
+    [L + 6, T + 6],
+    [w / 2 - 6, T + 6],
+    [w / 2 - 6, T + seat - 6],
+    [L + seat - 6, T + seat - 6],
+    [L + seat - 6, d / 2 - 6],
+    [L + 6, d / 2 - 6],
+  ]
+  for (const [x, z] of legs) g.add(leg(x, z, legH, k.q(COLORS.woodDark, 'wood'), 2, 1.5))
+  return g
+}
+
 function bed(k: Kit, w: number, d: number, h: number, pillows: number) {
   const g = new THREE.Group()
   const legH = 8
@@ -295,7 +359,7 @@ function bed(k: Kit, w: number, d: number, h: number, pillows: number) {
   g.add(rbox(w, frameTop - legH, d, 2, 0, legH, 0, k.q(COLORS.woodDark, 'wood'))) // frame
   for (const [sx, sz] of CORNERS) g.add(box(5, legH, 5, sx * (w / 2 - 5), 0, sz * (d / 2 - 5), k.q(COLORS.woodDark, 'wood')))
   g.add(rbox(w - 6, h - frameTop + 2, d - 8, 6, 0, frameTop - 2, 1, k.q(COLORS.white, 'fabric'))) // mattress
-  const duvetD = d * 0.7
+  const duvetD = Math.max(d * 0.5, d - 60)
   const duvetZ = d / 2 - duvetD / 2 + 1
   g.add(rbox(w - 2, 10, duvetD + 2, 4, 0, h - 6, duvetZ, k.q(COLORS.sheet, 'fabric'))) // duvet, draping over the sides
   g.add(rbox(w - 1.5, 10.5, 14, 4, 0, h - 6, duvetZ - duvetD / 2 + 6, k.q(COLORS.linen, 'fabric'))) // folded-back sheet
@@ -380,7 +444,21 @@ function bookshelf(k: Kit, sym: PlanSymbol, w: number, d: number, h: number) {
   return g
 }
 
-function tvUnit(k: Kit, w: number, d: number, h: number) {
+/** A flat TV, on the wall (with a bracket behind it) or, when it sits low, on its own feet. */
+function tv(k: Kit, w: number, d: number, h: number, elevation: number) {
+  const g = new THREE.Group()
+  const z = d / 2 - 2
+  g.add(rbox(w, h, 3, 0.6, 0, 0, z, k.q(COLORS.black, 'satin')))
+  g.add(box(w - 2, h - 2, 0.3, 0, 1, z + 1.5, k.q(COLORS.screen, 'gloss')))
+  if (elevation > 20) {
+    g.add(box(Math.min(40, w * 0.4), Math.min(30, h * 0.5), d - 4, 0, h * 0.3, -1, k.q(COLORS.dark, 'metal'))) // wall bracket
+  } else {
+    for (const s of [-1, 1]) g.add(box(3, 1.5, 18, s * w * 0.36, -1.5, z, k.q(COLORS.dark, 'metal')))
+  }
+  return g
+}
+
+function tvUnit(k: Kit, w: number, d: number, h: number, withTv = true) {
   const g = new THREE.Group()
   const legH = 10
   for (const [sx, sz] of CORNERS) g.add(leg(sx * (w / 2 - 6), sz * (d / 2 - 5), legH, k.q(COLORS.dark, 'metal'), 1.4, 1.1))
@@ -388,6 +466,7 @@ function tvUnit(k: Kit, w: number, d: number, h: number) {
   const n = Math.max(2, Math.round(w / 60))
   const fw = w / n
   for (let i = 0; i < n; i++) front(k, g, fw - 0.8, h - legH - 3, -w / 2 + fw * (i + 0.5), legH + 1.5, d / 2 - 0.6, COLORS.woodLight, 'bar')
+  if (!withTv) return g
   // Television on its feet.
   const tw = Math.min(w * 0.72, 165)
   const th = tw * 0.5625
@@ -817,6 +896,7 @@ function windowUnit(k: Kit, w: number, h: number, wallT: number, glass: Mat, wid
 export function railingModel(room: Room, runs: { a: Point; b: Point }[], mats: Materials, hl: boolean, base: number): THREE.Group {
   const g = new THREE.Group()
   const style = room.railing?.style ?? 'glass'
+  if (style === 'none') return g
   const h = room.railing?.height ?? 105
   const t = room.wallThickness
   const sa = signedArea(room.points)
@@ -880,7 +960,11 @@ export function symbolModel(sym: PlanSymbol, mats: Materials, hl: boolean, wallT
       g = windowUnit(k, w, h, wallT, k.glass(), sym.type === 'window-wide')
       break
     case 'sofa':
-      g = sofa(k, w, d, h, w >= 170 ? 3 : 2)
+      // Longer sofas get more seats; arms and back keep their size.
+      g = sofa(k, w, d, h, seatsAlong(w - 2 * Math.min(SOFA.arm, w * 0.09)))
+      break
+    case 'sofa-corner':
+      g = cornerSofa(k, w, d, h)
       break
     case 'armchair':
       g = sofa(k, w, d, h, 1)
@@ -891,11 +975,15 @@ export function symbolModel(sym: PlanSymbol, mats: Materials, hl: boolean, wallT
     case 'desk':
       g = desk(k, w, d, h)
       break
-    case 'dining-table':
+    case 'dining-table': {
       g = table(k, w, d, h)
-      g.add(chair(k, -w / 4, -d / 2 - 10, 0), chair(k, w / 4, -d / 2 - 10, 0))
-      g.add(chair(k, -w / 4, d / 2 + 10, 180), chair(k, w / 4, d / 2 + 10, 180))
+      const n = chairsAlong(w)
+      for (let i = 0; i < n; i++) {
+        const x = -w / 2 + (w * (i + 0.5)) / n
+        g.add(chair(k, x, -d / 2 - 10, 0), chair(k, x, d / 2 + 10, 180))
+      }
       break
+    }
     case 'round-table': {
       g.add(cylinder(w / 2, 3.5, 0, h - 3.5, 0, k.q(COLORS.wood, 'wood'), d / w, w / 2 - 0.8, 48))
       const base = Math.min(28, w * 0.3)
@@ -942,6 +1030,12 @@ export function symbolModel(sym: PlanSymbol, mats: Materials, hl: boolean, wallT
       break
     case 'tv-unit':
       g = tvUnit(k, w, d, h)
+      break
+    case 'tv-stand':
+      g = tvUnit(k, w, d, h, false)
+      break
+    case 'tv':
+      g = tv(k, w, d, h, sym.elevation ?? 100)
       break
     case 'wardrobe':
       g = wardrobe(k, w, d, h)

@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react'
 import type { LucideIcon } from 'lucide-react'
-import { Cable, Fence, Hand, Maximize, MousePointer2, Pentagon, Plus, RectangleHorizontal, Ruler, ScanLine, SquareDashedBottom, ZoomIn, ZoomOut } from 'lucide-react'
+import { Cable, Fence, Hand, SquareDashedMousePointer, Trees, Maximize, MousePointer2, Pentagon, Plus, RectangleHorizontal, Ruler, ScanLine, SquareDashedBottom, ZoomIn, ZoomOut } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Separator } from '@/components/ui/separator'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
@@ -10,10 +10,12 @@ import { addLShapeRoomAtCenter, addRectRoomAtCenter, useEditor } from '@/store/e
 import { useUi } from '@/store/ui'
 
 const TOOLS: { tool: Tool; icon: LucideIcon; label: string; key: string }[] = [
-  { tool: 'select', icon: MousePointer2, label: 'Select & move', key: 'V' },
+  { tool: 'select', icon: MousePointer2, label: 'Select & move (Shift + click to add)', key: 'V' },
+  { tool: 'area', icon: SquareDashedMousePointer, label: 'Select several (drag a box)', key: 'M' },
   { tool: 'room', icon: Pentagon, label: 'Draw room (click corners)', key: 'P' },
   { tool: 'rect', icon: RectangleHorizontal, label: 'Draw rectangular room (drag)', key: 'R' },
   { tool: 'balcony', icon: Fence, label: 'Draw balcony (drag)', key: 'B' },
+  { tool: 'terrace', icon: Trees, label: 'Draw terrace (drag)', key: 'T' },
   { tool: 'dimension', icon: Ruler, label: 'Dimension line', key: 'D' },
   { tool: 'pan', icon: Hand, label: 'Pan', key: 'H' },
 ]

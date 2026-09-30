@@ -19,7 +19,7 @@ import { DEFAULT_RECOGNIZE } from '@/import/recognize'
 import type { DrawingKind } from '@/import/recognize'
 import { useRecognition } from '@/import/useRecognition'
 import type { LoadedImage } from '@/import/image'
-import { area, bbox, dist, polygonPath } from '@/model/geometry'
+import { area, bbox, dist, polygonPath, projectOnSegment } from '@/model/geometry'
 import { floorBounds, newProject } from '@/model/project'
 import { formatLength } from '@/model/units'
 import type { Floor, Point, Underlay } from '@/model/types'
@@ -78,7 +78,35 @@ function DrawingPreview({
 }) {
   const svgRef = useRef<SVGSVGElement>(null)
   const dragging = useRef<'a' | 'b' | null>(null)
+  const [snapped, setSnapped] = useState<{ a: boolean; b: boolean }>({ a: false, b: false })
   const r = Math.max(img.width, img.height) * 0.014
+
+  /** Stick to a detected room's corner if one is close, else onto its wall. */
+  const snap = (p: Point): { p: Point; hit: boolean } => {
+    let best: Point | null = null
+    let bd = r * 1.8
+    for (const poly of outlines) {
+      for (const q of poly) {
+        const d = dist(p, q)
+        if (d < bd) {
+          bd = d
+          best = q
+        }
+      }
+    }
+    if (best) return { p: best, hit: true }
+    bd = r * 1.1
+    for (const poly of outlines) {
+      poly.forEach((a, i) => {
+        const pr = projectOnSegment(p, a, poly[(i + 1) % poly.length])
+        if (pr.dist < bd) {
+          bd = pr.dist
+          best = pr.point
+        }
+      })
+    }
+    return best ? { p: best, hit: true } : { p, hit: false }
+  }
 
   const toImage = (e: RPointerEvent) => {
     const svg = svgRef.current!
@@ -91,7 +119,7 @@ function DrawingPreview({
       cx={line[which].x}
       cy={line[which].y}
       r={r}
-      className="cursor-grab fill-background stroke-primary"
+      className={cn('cursor-grab stroke-primary', snapped[which] ? 'fill-primary' : 'fill-background')}
       strokeWidth={r * 0.35}
       onPointerDown={(e) => {
         dragging.current = which
@@ -107,8 +135,11 @@ function DrawingPreview({
       className="h-full w-full touch-none select-none"
       preserveAspectRatio="xMidYMid meet"
       onPointerMove={(e) => {
-        if (!dragging.current) return
-        onLine({ ...line, [dragging.current]: toImage(e) })
+        const which = dragging.current
+        if (!which) return
+        const s = snap(toImage(e))
+        setSnapped((v) => ({ ...v, [which]: s.hit }))
+        onLine({ ...line, [which]: s.p })
       }}
       onPointerUp={() => (dragging.current = null)}
     >
@@ -122,6 +153,31 @@ function DrawingPreview({
           strokeLinejoin="round"
         />
       ))}
+      {/* Click a detected wall to measure along it. */}
+      {showLine &&
+        outlines.map((pts, i) =>
+          pts.map((a, j) => {
+            const b = pts[(j + 1) % pts.length]
+            return (
+              <line
+                key={`${i}-${j}`}
+                x1={a.x}
+                y1={a.y}
+                x2={b.x}
+                y2={b.y}
+                stroke="transparent"
+                strokeWidth={r * 1.1}
+                className="cursor-pointer"
+                onClick={() => {
+                  setSnapped({ a: true, b: true })
+                  onLine({ a, b })
+                }}
+              >
+                <title>Measure this wall</title>
+              </line>
+            )
+          }),
+        )}
       {showLine && (
         <g>
           <line
@@ -179,6 +235,7 @@ export function ImportWizard() {
   const [sensitivity, setSensitivity] = useState(DEFAULT_RECOGNIZE.sensitivity)
   const [kind, setKind] = useState<DrawingKind>('auto')
   const [tipsOpen, setTipsOpen] = useState(false)
+  const autoPlaced = useRef(false)
   const [apiKey, setApiKey] = useState(readKey)
   const [rememberKey, setRememberKey] = useState(() => !!readKey())
   const [ai, setAi] = useState<AiState>({ status: 'idle' })
@@ -208,6 +265,7 @@ export function ImportWizard() {
   }
 
   const applyImage = (im: LoadedImage, preset?: { a: Point; b: Point; len: number }) => {
+    autoPlaced.current = !!preset
     setImg(im)
     setAi({ status: 'idle' })
     setView('drawing')
@@ -322,6 +380,25 @@ export function ImportWizard() {
     )
   }, [method, img, detection, autoResult, cmPerPx])
 
+  // Until the scale is set, put the measuring line on the longest wall found: often you only need to type its length.
+  useEffect(() => {
+    if (autoPlaced.current || scaleSet || !outlines.length) return
+    let best: { a: Point; b: Point } | null = null
+    let longest = 0
+    for (const poly of outlines) {
+      poly.forEach((a, i) => {
+        const b = poly[(i + 1) % poly.length]
+        if (dist(a, b) > longest) {
+          longest = dist(a, b)
+          best = { a, b }
+        }
+      })
+    }
+    if (!best) return
+    autoPlaced.current = true
+    setLine(best)
+  }, [outlines, scaleSet])
+
   const runAi = async () => {
     if (!img || !apiKey.trim()) return
     try {
@@ -432,8 +509,8 @@ export function ImportWizard() {
   const scaleStep = (
     <Step n={1} title="Set the scale">
       <p className="text-xs leading-relaxed text-muted-foreground">
-        Drag the ends of the dashed line onto a wall whose length you know, such as one with a written dimension, then enter
-        that length.
+        Click a detected wall (or drag the ends of the dashed line; they stick to room corners) whose length you know, such as one
+        with a written dimension, then enter that length.
       </p>
       <div className="flex items-center gap-2">
         <Label className="shrink-0 font-normal text-muted-foreground">Line length</Label>

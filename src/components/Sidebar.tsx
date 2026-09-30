@@ -10,7 +10,7 @@ type Tab = 'properties' | 'library' | 'summary'
 
 export function Sidebar({ open }: { open: boolean }) {
   const [tab, setTab] = useState<Tab>('properties')
-  const selectionKey = useEditor((s) => (s.selection ? `${s.selection.kind}:${s.selection.id}` : ''))
+  const selectionKey = useEditor((s) => (s.selection ? (s.selection.kind === 'multi' ? `multi:${s.selection.items.length}` : `${s.selection.kind}:${s.selection.id}`) : ''))
 
   // Jump to properties when something gets selected.
   const [lastKey, setLastKey] = useState(selectionKey)

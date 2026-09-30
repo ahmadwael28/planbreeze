@@ -41,7 +41,10 @@ Built with React 19, TypeScript, Vite, Tailwind CSS v4, shadcn/ui (Radix), zusta
 - Symbol library: furniture, kitchen, bathroom, electrical, stairs, labels
 - Multiple floors, with the floor below shown faintly while editing
 - 3D view with openings cut into walls, floor stacking, orbit camera and click-to-select
-- Balconies: draw one with the Balcony tool (B) or turn any room into one; glass, metal or solid parapet railing at any height, none where it meets the house, open to the sky, and counted separately in the area summary
+- Balconies and terraces: draw one with the Balcony (B) or Terrace (T) tool or turn any room into one; glass, metal, solid parapet or no railing at any height, none where it meets the house, open to the sky, and counted separately in the area summary
+- Select several things (Shift + click, the Select area tool M, Shift + drag, Ctrl+A), move them together, group them (Ctrl+G), duplicate, copy / cut / paste (Ctrl+C / X / V, also onto another floor) or delete them
+- Resize furniture from any side or corner while the opposite side stays put (Alt: from the center); sofas, tables and wardrobes gain seats, chairs and doors instead of stretching
+- Distance guides to the surrounding walls while moving or resizing anything
 - Hidden LED strips per room: on all walls or only some, along the walls or inside a tray / stepped ceiling; remove from the room's ceiling settings
 - Shadow gaps: a recessed groove where chosen walls meet the ceiling, shown on the ceiling plan and in 3D
 - Viewpoints: one tap takes the camera to a spot in any room or around the home, then drag to look around (no steering needed); an automatic tour visits every spot

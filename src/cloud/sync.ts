@@ -328,6 +328,19 @@ export async function deleteCloudProject(id: string) {
   persistSynced()
 }
 
+/** Rename a plan that isn't open: in the account (and this device's copy, if there is one). */
+export async function renameCloudProject(id: string, name: string) {
+  if (!backend) return
+  const remote = await backend.get(id)
+  if (!remote) throw new Error('That plan is no longer in your account.')
+  const data = { ...remote.data, name, updatedAt: Date.now() }
+  const version = await backend.update(data, remote.version)
+  if (version === null) throw new Error('The plan changed on another device. Open it and rename it there.')
+  synced[id] = { version, updatedAt: data.updatedAt }
+  persistSynced()
+  if (loadProject(id)) saveProject(data)
+}
+
 /** Upload plans that are only on this device. Returns how many were uploaded. */
 export async function uploadLocal(ids: string[]) {
   if (!backend) return 0

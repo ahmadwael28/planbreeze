@@ -12,7 +12,7 @@ import {
   sub,
 } from '@/model/geometry'
 import { ceilingZones, covePath, coveRuns, SHADOW_GAP, WIRE_COLORS } from '@/model/lighting'
-import { dimensionPoints, isBalcony, railingRuns, roomOuter, symbolPose } from '@/model/project'
+import { dimensionPoints, isOutdoor, railingRuns, roomOuter, symbolPose } from '@/model/project'
 import { SYMBOL_MAP } from '@/model/symbols'
 import type { PlanTheme } from '@/model/theme'
 import { formatArea, formatLength } from '@/model/units'
@@ -74,13 +74,27 @@ const SymbolGraphic = memo(function SymbolGraphic({
   )
 })
 
-/** A balcony's railing: a thin band along its open edges (a filled one for a solid parapet). */
+/**
+ * A balcony's or terrace's open edges: a thin railing band (a filled one for a solid parapet), or
+ * just a dashed edge when there's no railing.
+ */
 function Railings({ room, rooms, theme }: { room: Room; rooms: Room[]; theme: PlanTheme }) {
   const sa = signedArea(room.points)
-  const solid = room.railing?.style === 'solid'
+  const style = room.railing?.style
+  const solid = style === 'solid'
+  const runs = railingRuns(room, rooms)
+  if (style === 'none') {
+    return (
+      <g data-kind="room" data-id={room.id}>
+        {runs.map(({ a, b }, i) => (
+          <line key={i} x1={a.x} y1={a.y} x2={b.x} y2={b.y} stroke={theme.ink} strokeWidth={1} strokeDasharray="6 4" vectorEffect="non-scaling-stroke" />
+        ))}
+      </g>
+    )
+  }
   return (
     <g data-kind="room" data-id={room.id}>
-      {railingRuns(room, rooms).map(({ a, b }, i) => {
+      {runs.map(({ a, b }, i) => {
         const out = mul(inwardNormal(a, b, sa), -room.wallThickness)
         return (
           <path
@@ -414,11 +428,11 @@ export function PlanLayers({
         </g>
       )}
       <g>
-        {floor.rooms.filter(isBalcony).map((r) => (
+        {floor.rooms.filter(isOutdoor).map((r) => (
           <Railings key={r.id} room={r} rooms={floor.rooms} theme={theme} />
         ))}
         {floor.rooms
-          .filter((r) => !isBalcony(r))
+          .filter((r) => !isOutdoor(r))
           .map((r) => (
             <path key={r.id} data-kind="room" data-id={r.id} d={wallPath(r)} fill={theme.wall} fillRule="evenodd" />
           ))}

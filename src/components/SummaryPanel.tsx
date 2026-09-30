@@ -22,7 +22,7 @@ export function SummaryPanel() {
     ['Walls', formatArea(stats.wallArea, units)],
     ['Level', formatArea(stats.levelArea, units)],
   ]
-  if (stats.balconyArea > 0) tiles.push(['Balconies', formatArea(stats.balconyArea, units)])
+  if (stats.outdoorArea > 0) tiles.push(['Outdoor', formatArea(stats.outdoorArea, units)])
   if (project.floors.length > 1) tiles.push(['All floors', formatArea(projectArea, units)])
 
   return (
@@ -54,7 +54,7 @@ export function SummaryPanel() {
                 <TableRow key={r.id} className="cursor-pointer" onClick={() => select({ kind: 'room', id: r.id })}>
                   <TableCell className="max-w-28 truncate">
                     {r.name}
-                    {r.balcony && <span className="ml-1 text-xs text-muted-foreground">(balcony)</span>}
+                    {r.kind && <span className="ml-1 text-xs text-muted-foreground">({r.kind})</span>}
                   </TableCell>
                   <TableCell className="text-right tabular-nums">{formatArea(r.area, units)}</TableCell>
                   <TableCell className="text-right tabular-nums">{formatLength(r.perimeter, units)}</TableCell>

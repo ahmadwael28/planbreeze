@@ -14,7 +14,20 @@ import { TopBar } from '@/components/TopBar'
 import { sampleProject } from '@/model/sample'
 import type { PlanLayer, Tool } from '@/model/types'
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
-import { currentFloor, deleteSelection, draftFloor, duplicateSelection, useEditor } from '@/store/editor'
+import {
+  copySelection,
+  currentFloor,
+  cutSelection,
+  deleteSelection,
+  draftFloor,
+  duplicateSelection,
+  groupSelection,
+  hasClipboard,
+  pasteClipboard,
+  selectAll,
+  useEditor,
+} from '@/store/editor'
+import { copyItems, moveItems, refsOf } from '@/model/items'
 import { lastProjectId, listProjects, loadProject, saveProject } from '@/store/storage'
 import { useUi } from '@/store/ui'
 import { useCloud } from '@/cloud/store'
@@ -30,12 +43,14 @@ if (import.meta.env.DEV) {
 // three.js is only downloaded when the 3D view is first opened.
 const Viewer3D = lazy(() => import('@/components/Viewer3D'))
 
-const TOOL_KEYS: Record<string, Tool> = { v: 'select', p: 'room', r: 'rect', b: 'balcony', h: 'pan', d: 'dimension' }
+const TOOL_KEYS: Record<string, Tool> = { v: 'select', m: 'area', p: 'room', r: 'rect', b: 'balcony', t: 'terrace', h: 'pan', d: 'dimension' }
 
 const HINTS: Partial<Record<Tool, string>> = {
   room: 'Click to place corners · type a length + Enter for exact walls · Enter / double-click / click the first corner to finish · Esc to cancel',
   rect: 'Drag to draw a rectangular room',
+  area: 'Drag a box around things to select them · Shift adds to the selection',
   balcony: 'Drag to draw a balcony against the outside of a wall · no railing is added where it meets the house',
+  terrace: 'Drag to draw a terrace or patio against the outside of the house',
   pan: 'Drag to move the view',
   dimension: 'Click the start point, then the end point, then where the dimension line should go · Esc when done',
 }
@@ -83,26 +98,19 @@ function nudge(dx: number, dy: number) {
   if (!selection) return
   commit((d) => {
     const f = draftFloor(d)
-    if (selection.kind === 'room') {
-      const r = f.rooms.find((x) => x.id === selection.id)
-      if (r) r.points = r.points.map((p) => ({ x: p.x + dx, y: p.y + dy }))
-    } else if (selection.kind === 'view') {
-      const v = f.views?.find((x) => x.id === selection.id)
-      if (v) {
-        v.eye = { ...v.eye, x: v.eye.x + dx, y: v.eye.y + dy }
-        v.look = { ...v.look, x: v.look.x + dx, y: v.look.y + dy }
-      }
-    } else {
+    // A door or window slides along its wall.
+    if (selection.kind === 'symbol') {
       const s = f.symbols.find((x) => x.id === selection.id)
-      if (s && !s.wall) {
-        s.x += dx
-        s.y += dy
-      } else if (s?.wall) {
+      if (s?.wall) {
         s.wall.offset += dx || dy
+        return
       }
     }
+    moveItems(f, copyItems(f, refsOf(selection)), dx, dy)
   })
 }
+
+const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`
 
 function useKeyboardShortcuts() {
   useEffect(() => {
@@ -127,6 +135,32 @@ function useKeyboardShortcuts() {
       }
       // The polygon tool handles its own keys (typing lengths, Enter, Esc, Backspace).
       if (st.tool === 'room' && !mod && k !== 'v' && k !== 'r' && k !== 'h') return
+
+      // Clipboard and groups (Ctrl/⌘ + C, X, V, A, G).
+      if (mod && (k === 'c' || k === 'x')) {
+        const n = k === 'c' ? copySelection() : cutSelection()
+        if (n) {
+          e.preventDefault()
+          toast(`${k === 'c' ? 'Copied' : 'Cut'} ${plural(n, 'item')}`, { description: 'Paste with Ctrl+V, on this floor or another.' })
+        }
+        return
+      }
+      if (mod && k === 'v') {
+        if (!hasClipboard()) return
+        e.preventDefault()
+        pasteClipboard()
+        return
+      }
+      if (mod && k === 'a' && is2d) {
+        e.preventDefault()
+        selectAll()
+        return
+      }
+      if (mod && k === 'g') {
+        e.preventDefault()
+        groupSelection(!e.shiftKey)
+        return
+      }
 
       if (mod && k === 'd') {
         e.preventDefault()

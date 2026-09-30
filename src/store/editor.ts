@@ -1,7 +1,7 @@
 import { produce } from 'immer'
 import { create } from 'zustand'
 import {
-  newBalcony,
+  newOutdoor,
   newFloor,
   newProject,
   newRoom,
@@ -11,6 +11,8 @@ import {
   uid,
 } from '@/model/project'
 import { bbox, labelPoint, pointInPolygon } from '@/model/geometry'
+import { allRefs, copyItems, deleteItems, exists, pasteItems, refsOf, selectionOf, setGroup } from '@/model/items'
+import type { Clip } from '@/model/items'
 import { CEILING_STYLES, OTHER_LIGHTS, pruneControls, remapEdges } from '@/model/lighting'
 import { dimensionPoints, roomOuter } from '@/model/project'
 import { SYMBOL_MAP } from '@/model/symbols'
@@ -20,6 +22,7 @@ import type {
   Floor,
   PlanLayer,
   PlanSymbol,
+  OutdoorKind,
   Point,
   Project,
   Room,
@@ -127,6 +130,7 @@ function validSelection(p: Project, floorId: string, sel: Selection | null): Sel
     if (!room) return null
     return sel.vertex !== undefined && sel.vertex >= room.points.length ? { kind: 'room', id: sel.id } : sel
   }
+  if (sel.kind === 'multi') return selectionOf(sel.items.filter((r) => exists(floor, r)))
   if (sel.kind === 'dimension') return floor.dimensions?.some((d) => d.id === sel.id) ? sel : null
   if (sel.kind === 'view') return floor.views?.some((v) => v.id === sel.id) ? sel : null
   return floor.symbols.some((s) => s.id === sel.id) ? sel : null
@@ -276,9 +280,9 @@ export function addRoom(points: Point[]) {
   useEditor.setState({ selection: { kind: 'room', id: room.id }, tool: 'select' })
 }
 
-export function addBalcony(points: Point[]) {
+export function addOutdoor(points: Point[], kind: OutdoorKind) {
   const st = useEditor.getState()
-  const room = newBalcony(currentFloor(st), points)
+  const room = newOutdoor(currentFloor(st), points, kind)
   st.commit((d) => {
     draftFloor(d).rooms.push(room)
   })
@@ -361,22 +365,71 @@ export function addSymbol(type: string, at?: Point, rotation = 0, wall?: PlanSym
 
 export function deleteSelection() {
   const { selection, commit } = useEditor.getState()
-  if (!selection) return
+  const refs = refsOf(selection)
+  if (!refs.length) return
   commit((d) => {
     const f = draftFloor(d)
-    if (selection.kind === 'room') {
-      f.rooms = f.rooms.filter((r) => r.id !== selection.id)
-      f.symbols = f.symbols.filter((s) => s.wall?.roomId !== selection.id && s.room !== selection.id)
-    } else if (selection.kind === 'dimension') {
-      f.dimensions = (f.dimensions ?? []).filter((x) => x.id !== selection.id)
-    } else if (selection.kind === 'view') {
-      f.views = (f.views ?? []).filter((x) => x.id !== selection.id)
-    } else {
-      f.symbols = f.symbols.filter((s) => s.id !== selection.id)
-    }
+    deleteItems(f, refs)
     pruneControls(f)
   })
   useEditor.setState({ selection: null })
+}
+
+// ---------------------------------------------------------------------------
+// Several items at once: clipboard, groups, select all
+
+let clipboard: { clip: Clip; floorId: string } | null = null
+let pastes = 0
+
+/** Copy the selection. Returns how many items were copied. */
+export function copySelection(): number {
+  const st = useEditor.getState()
+  const refs = refsOf(st.selection)
+  if (!refs.length) return 0
+  clipboard = { clip: copyItems(currentFloor(st), refs), floorId: st.floorId }
+  pastes = 0
+  return refs.length
+}
+
+export function cutSelection(): number {
+  const n = copySelection()
+  if (n) deleteSelection()
+  return n
+}
+
+/**
+ * Paste the clipboard onto the current floor: shifted a little each time on the floor it came
+ * from, in the same place on another floor (or project). Returns how many items were added.
+ */
+export function pasteClipboard(): number {
+  if (!clipboard) return 0
+  const st = useEditor.getState()
+  const sameFloor = clipboard.floorId === st.floorId
+  pastes++
+  const off = sameFloor ? 50 * pastes : 50 * (pastes - 1)
+  const { clip } = clipboard
+  let added: ReturnType<typeof pasteItems> = []
+  st.commit((d) => {
+    added = pasteItems(draftFloor(d), clip, off, off)
+  })
+  useEditor.setState({ selection: selectionOf(added) })
+  return added.length
+}
+
+export const hasClipboard = () => !!clipboard
+
+/** Group the selected items (they're then selected and moved together), or ungroup them. */
+export function groupSelection(group: boolean) {
+  const st = useEditor.getState()
+  const refs = refsOf(st.selection)
+  if (!refs.length || (group && refs.length < 2)) return
+  const id = group ? uid() : null
+  st.commit((d) => setGroup(draftFloor(d), refs, id))
+}
+
+export function selectAll() {
+  const st = useEditor.getState()
+  st.select(selectionOf(allRefs(currentFloor(st))))
 }
 
 export function removeVertex(roomId: string, index: number) {
@@ -420,41 +473,14 @@ export function fixAttachments(d: Project, oldRoom: Room) {
 
 export function duplicateSelection() {
   const st = useEditor.getState()
-  const sel = st.selection
-  if (!sel) return
-  const floor = currentFloor(st)
-  const OFFSET = 50
-  if (sel.kind === 'dimension' || sel.kind === 'view') return
-  if (sel.kind === 'room') {
-    const room = floor.rooms.find((r) => r.id === sel.id)
-    if (!room) return
-    const copy: Room = {
-      ...room,
-      id: uid(),
-      name: `${room.name} copy`,
-      points: room.points.map((p) => ({ x: p.x + OFFSET, y: p.y + OFFSET })),
-    }
-    const syms = floor.symbols
-      .filter((s) => s.wall?.roomId === room.id)
-      .map((s) => ({ ...s, id: uid(), wall: { ...s.wall!, roomId: copy.id } }))
-    st.commit((d) => {
-      const f = draftFloor(d)
-      f.rooms.push(copy)
-      f.symbols.push(...syms)
-    })
-    useEditor.setState({ selection: { kind: 'room', id: copy.id } })
-  } else {
-    const sym = floor.symbols.find((s) => s.id === sel.id)
-    if (!sym) return
-    if (sym.room) return // a cove light belongs to its room
-    const copy: PlanSymbol = { ...sym, id: uid(), x: sym.x + OFFSET, y: sym.y + OFFSET }
-    if (sym.modules) copy.modules = sym.modules.map((m) => ({ ...m, id: uid() }))
-    if (sym.wall) copy.wall = { ...sym.wall, offset: sym.wall.offset + sym.width + 20 }
-    st.commit((d) => {
-      draftFloor(d).symbols.push(copy)
-    })
-    useEditor.setState({ selection: { kind: 'symbol', id: copy.id } })
-  }
+  const refs = refsOf(st.selection)
+  if (!refs.length) return
+  const clip = copyItems(currentFloor(st), refs)
+  let added: ReturnType<typeof pasteItems> = []
+  st.commit((d) => {
+    added = pasteItems(draftFloor(d), clip, 50, 50)
+  })
+  useEditor.setState({ selection: selectionOf(added) })
 }
 
 export function addFloor() {

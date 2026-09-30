@@ -1,7 +1,8 @@
 import * as THREE from 'three'
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js'
 import { add, dist, dot, inwardNormal, mul, normalize, offsetPolygon, signedArea, sub } from '@/model/geometry'
-import { isBalcony, railingRuns, roomOuter, symbolPose } from '@/model/project'
+import { isSelected } from '@/model/items'
+import { isOutdoor, railingRuns, roomOuter, symbolPose } from '@/model/project'
 import { SYMBOL_MAP } from '@/model/symbols'
 import type { PlanTheme } from '@/model/theme'
 import type { Floor, Point, Project, Room, Selection } from '@/model/types'
@@ -203,7 +204,7 @@ export function buildProjectGroup(project: Project, opts: BuildOptions): THREE.G
       const geo = new THREE.ShapeGeometry(shape)
       geo.rotateX(Math.PI / 2)
       geo.translate(0, floorBase + 0.3, 0)
-      const hl = sel?.kind === 'room' && sel.id === room.id
+      const hl = isSelected(sel, 'room', room.id)
       const mat = mats.get(room.color, hl).clone()
       mat.side = THREE.DoubleSide
       group.add(mesh(geo, mat, { floorId: floor.id, kind: 'room', id: room.id }))
@@ -211,7 +212,7 @@ export function buildProjectGroup(project: Project, opts: BuildOptions): THREE.G
 
     // Walls (merged per room so each room stays pickable), with skirting boards.
     const openings = wallOpenings(floor)
-    const skirts = floor.rooms.filter((r) => r.points.length >= 3 && !isBalcony(r)).flatMap((r) => skirting(r, openings, floorBase))
+    const skirts = floor.rooms.filter((r) => r.points.length >= 3 && !isOutdoor(r)).flatMap((r) => skirting(r, openings, floorBase))
     if (skirts.length) {
       const merged = mergeGeometries(skirts)
       skirts.forEach((g) => g.dispose())
@@ -219,9 +220,9 @@ export function buildProjectGroup(project: Project, opts: BuildOptions): THREE.G
     }
     for (const room of floor.rooms) {
       if (room.points.length < 3) continue
-      if (isBalcony(room)) {
+      if (isOutdoor(room)) {
         // A railing instead of walls, left off where the balcony meets the building.
-        const hl = sel?.kind === 'room' && sel.id === room.id
+        const hl = isSelected(sel, 'room', room.id)
         const railing = railingModel(room, railingRuns(room, floor.rooms), mats, hl, floorBase)
         const pick: PickInfo = { floorId: floor.id, kind: 'room', id: room.id }
         railing.traverse((o) => {
@@ -235,7 +236,7 @@ export function buildProjectGroup(project: Project, opts: BuildOptions): THREE.G
       if (!geos.length) continue
       const merged = mergeGeometries(geos)
       geos.forEach((g) => g.dispose())
-      const hl = sel?.kind === 'room' && sel.id === room.id
+      const hl = isSelected(sel, 'room', room.id)
       if (merged) {
         const w = mesh(merged, mats.get(COLORS.wall, hl), { floorId: floor.id, kind: 'room', id: room.id })
         walls.push(w) // the walk-through camera collides with these
@@ -258,7 +259,7 @@ export function buildProjectGroup(project: Project, opts: BuildOptions): THREE.G
       }
       if (sym.type === 'gypsum-box' || def?.ceilingStyle) continue
       const pose = symbolPose(sym, floor.rooms)
-      const hl = sel?.kind === 'symbol' && sel.id === sym.id
+      const hl = isSelected(sel, 'symbol', sym.id)
       const obj = symbolModel(sym, mats, hl, pose.wallThickness ?? sym.depth, floor.height, !!def)
       if (!obj.children.length) continue
       const elevation = def?.wall ? (sym.elevation ?? def.sill ?? 0) : (sym.elevation ?? 0)

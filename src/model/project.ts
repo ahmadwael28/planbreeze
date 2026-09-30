@@ -15,7 +15,7 @@ import {
   sub,
 } from './geometry'
 import { SYMBOL_MAP } from './symbols'
-import type { Dimension, Floor, PlanSymbol, Point, Pose, Project, Railing, Room, WallAttachment } from './types'
+import type { Dimension, Floor, OutdoorKind, PlanSymbol, Point, Pose, Project, Railing, Room, WallAttachment } from './types'
 
 export const uid = () => Math.random().toString(36).slice(2, 10) + Date.now().toString(36).slice(-4)
 
@@ -62,20 +62,28 @@ export const DEFAULT_RAILING: Railing = { style: 'glass', height: 105 }
 /** How thick a balcony's railing is drawn. */
 export const RAILING_THICKNESS = 5
 
-export function isBalcony(room: Room) {
-  return room.kind === 'balcony'
+export const OUTDOOR: Record<OutdoorKind, { name: string; color: string; railing: Railing }> = {
+  balcony: { name: 'Balcony', color: '#f1f5f9', railing: DEFAULT_RAILING },
+  // At ground level: usually open, no railing.
+  terrace: { name: 'Terrace', color: '#ffedd5', railing: { style: 'none', height: 105 } },
 }
 
-export function newBalcony(floor: Floor, points: Point[]): Room {
-  const n = floor.rooms.filter(isBalcony).length
+/** Balconies and terraces: outdoor spaces with railings (or nothing) instead of walls. */
+export function isOutdoor(room: Room) {
+  return room.kind === 'balcony' || room.kind === 'terrace'
+}
+
+export function newOutdoor(floor: Floor, points: Point[], kind: OutdoorKind): Room {
+  const n = floor.rooms.filter((r) => r.kind === kind).length
+  const d = OUTDOOR[kind]
   return {
     id: uid(),
-    name: n ? `Balcony ${n + 1}` : 'Balcony',
+    name: n ? `${d.name} ${n + 1}` : d.name,
     points,
     wallThickness: RAILING_THICKNESS,
-    color: '#f1f5f9',
-    kind: 'balcony',
-    railing: { ...DEFAULT_RAILING },
+    color: d.color,
+    kind,
+    railing: { ...d.railing },
   }
 }
 
@@ -85,7 +93,7 @@ export function newBalcony(floor: Floor, points: Point[]): Room {
  */
 export function railingRuns(room: Room, rooms: Room[]): { a: Point; b: Point; edge: number }[] {
   const out: { a: Point; b: Point; edge: number }[] = []
-  const others = rooms.filter((r) => r.id !== room.id && !isBalcony(r) && r.points.length >= 3)
+  const others = rooms.filter((r) => r.id !== room.id && !isOutdoor(r) && r.points.length >= 3)
   const pts = room.points
   for (let i = 0; i < pts.length; i++) {
     const a = pts[i]
@@ -304,10 +312,11 @@ function multiPolygonArea(mp: Ring[][]) {
 }
 
 export interface FloorStats {
-  rooms: { id: string; name: string; area: number; perimeter: number; balcony: boolean }[]
+  rooms: { id: string; name: string; area: number; perimeter: number; kind?: OutdoorKind }[]
   /** Indoor rooms only. */
   interiorArea: number
-  balconyArea: number
+  /** Balconies and terraces. */
+  outdoorArea: number
   levelArea: number
   wallArea: number
   symbolCounts: { type: string; count: number }[]
@@ -319,13 +328,13 @@ export function floorStats(floor: Floor): FloorStats {
     name: r.name,
     area: area(r.points),
     perimeter: perimeter(r.points),
-    balcony: isBalcony(r),
+    kind: r.kind,
   }))
-  const interiorArea = rooms.reduce((s, r) => s + (r.balcony ? 0 : r.area), 0)
-  const balconyArea = rooms.reduce((s, r) => s + (r.balcony ? r.area : 0), 0)
+  const interiorArea = rooms.reduce((s, r) => s + (r.kind ? 0 : r.area), 0)
+  const outdoorArea = rooms.reduce((s, r) => s + (r.kind ? r.area : 0), 0)
   let levelArea = 0
-  // The level's footprint is the building: balconies are outside it.
-  const indoor = floor.rooms.filter((r) => !isBalcony(r))
+  // The level's footprint is the building: balconies and terraces are outside it.
+  const indoor = floor.rooms.filter((r) => !isOutdoor(r))
   if (indoor.length) {
     const polys = indoor
       .filter((r) => r.points.length >= 3)
@@ -342,7 +351,7 @@ export function floorStats(floor: Floor): FloorStats {
   return {
     rooms,
     interiorArea,
-    balconyArea,
+    outdoorArea,
     levelArea,
     wallArea: Math.max(0, levelArea - interiorArea),
     symbolCounts: [...counts].map(([type, count]) => ({ type, count })),
