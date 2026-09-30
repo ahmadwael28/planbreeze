@@ -623,7 +623,11 @@ export function Canvas() {
           const sym = draftFloor(pd).symbols.find((x) => x.id === d.id)
           if (!sym) return
           if (att) {
-            if (snap) att.offset = snapTo(att.offset, step)
+            // Close to the middle of the wall: stick to it exactly.
+            const room = fl.rooms.find((r) => r.id === att.roomId)
+            const L = room ? dist(room.points[att.edge], room.points[(att.edge + 1) % room.points.length]) : 0
+            if (L && Math.abs(att.offset - L / 2) < Math.max(6, 12 / st.view.zoom)) att.offset = L / 2
+            else if (snap) att.offset = snapTo(att.offset, step)
             sym.wall = att
           } else {
             sym.wall = undefined
@@ -997,7 +1001,9 @@ export function Canvas() {
             if (!s || s.room) return null
             return (
               <g pointerEvents="none" className="guides">
-                {clearanceGuides(s, floor.rooms).map((gd, i) => {
+                {clearanceGuides(s, floor.rooms).map((gd, i, all) => {
+                  // A door or window with equal gaps on both sides is centered: show it in green.
+                  const color = s.wall && all.length === 2 && Math.abs(all[0].length - all[1].length) < 0.5 ? '#16a34a' : '#e11d48'
                   const sh = gd.shift ? { x: gd.shift.x * px(14), y: gd.shift.y * px(14) } : { x: 0, y: 0 }
                   const a = { x: gd.a.x + sh.x, y: gd.a.y + sh.y }
                   const b = { x: gd.b.x + sh.x, y: gd.b.y + sh.y }
@@ -1008,7 +1014,7 @@ export function Canvas() {
                   )
                   return (
                     <g key={i}>
-                      <g stroke="#e11d48" strokeWidth={1.3} vectorEffect="non-scaling-stroke">
+                      <g stroke={color} strokeWidth={1.3} vectorEffect="non-scaling-stroke">
                         <line x1={a.x} y1={a.y} x2={b.x} y2={b.y} strokeDasharray="5 3" />
                         {tick(a)}
                         {tick(b)}
@@ -1021,7 +1027,7 @@ export function Canvas() {
                         fontFamily="system-ui, sans-serif"
                         textAnchor="middle"
                         dominantBaseline="central"
-                        fill="#e11d48"
+                        fill={color}
                         stroke={theme.paper}
                         strokeWidth={3}
                         paintOrder="stroke"

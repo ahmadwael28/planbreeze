@@ -1,6 +1,6 @@
 import { useId } from 'react'
 import type { ReactNode } from 'react'
-import { Box, ClipboardCopy, Copy, FlipHorizontal2, Group, Ungroup, FlipVertical2, ImageOff, Link2Off, Ruler, RotateCw, SplitSquareHorizontal, Trash2, Video } from 'lucide-react'
+import { AlignHorizontalJustifyCenter, Box, ClipboardCopy, Copy, FlipHorizontal2, Group, Ungroup, FlipVertical2, ImageOff, Link2Off, Ruler, RotateCw, SplitSquareHorizontal, Trash2, Video } from 'lucide-react'
 import { toast } from 'sonner'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -496,6 +496,15 @@ function SymbolProps({ sym, units }: { sym: PlanSymbol; units: Units }) {
   const wallRoom = sym.wall ? floor.rooms.find((r) => r.id === sym.wall!.roomId) : undefined
   const pose = symbolPose(sym, floor.rooms)
   const isLabel = sym.type === 'label'
+  // For a door or window: the wall's length and the gaps to its two ends.
+  const wallLen =
+    sym.wall && wallRoom
+      ? dist(wallRoom.points[sym.wall.edge], wallRoom.points[(sym.wall.edge + 1) % wallRoom.points.length])
+      : 0
+  const wallOffset = sym.wall ? (wallLen < sym.width ? wallLen / 2 : Math.min(Math.max(sym.wall.offset, sym.width / 2), wallLen - sym.width / 2)) : 0
+  const gapStart = wallOffset - sym.width / 2
+  const gapEnd = wallLen - wallOffset - sym.width / 2
+  const setOffset = (offset: number) => updateSymbol(sym.id, (s) => void (s.wall = s.wall && { ...s.wall, offset }))
   return (
     <>
       <Section
@@ -558,6 +567,27 @@ function SymbolProps({ sym, units }: { sym: PlanSymbol; units: Units }) {
             )}
           </Field>
         )}
+        {sym.type === 'sofa-corner' && (
+          <Field label="Corner on">
+            {() => (
+              <ToggleGroup
+                type="single"
+                size="sm"
+                variant="outline"
+                value={sym.flipX ? 'right' : 'left'}
+                onValueChange={(v) => v && updateSymbol(sym.id, (s) => void (s.flipX = v === 'right'))}
+                className="w-full"
+              >
+                <ToggleGroupItem value="left" className="flex-1">
+                  Left
+                </ToggleGroupItem>
+                <ToggleGroupItem value="right" className="flex-1">
+                  Right
+                </ToggleGroupItem>
+              </ToggleGroup>
+            )}
+          </Field>
+        )}
         {!sym.wall && (
           <Field label="Rotation">
             {(id) => (
@@ -582,10 +612,10 @@ function SymbolProps({ sym, units }: { sym: PlanSymbol; units: Units }) {
             </Button>
           )}
           <Button variant="outline" size="sm" onClick={() => updateSymbol(sym.id, (s) => void (s.flipX = !s.flipX))}>
-            <FlipHorizontal2 /> Flip
+            <FlipHorizontal2 /> {sym.wall ? 'Hinge side' : 'Mirror'}
           </Button>
           <Button variant="outline" size="sm" onClick={() => updateSymbol(sym.id, (s) => void (s.flipY = !s.flipY))}>
-            <FlipVertical2 /> {sym.wall ? 'Swing side' : 'Flip'}
+            <FlipVertical2 /> {sym.wall ? 'Swing side' : 'Flip front/back'}
           </Button>
         </div>
         {sym.wall && (
@@ -606,6 +636,29 @@ function SymbolProps({ sym, units }: { sym: PlanSymbol; units: Units }) {
               }
             >
               <Link2Off /> Detach
+            </Button>
+          </div>
+        )}
+        {sym.wall && wallLen > 0 && (
+          <div className="space-y-2">
+            <Field label="Gap to wall start">
+              {(id) => (
+                <LengthInput id={id} value={Math.max(0, gapStart)} units={units} min={0} onChange={(v) => setOffset(v + sym.width / 2)} />
+              )}
+            </Field>
+            <Field label="Gap to wall end">
+              {(id) => (
+                <LengthInput id={id} value={Math.max(0, gapEnd)} units={units} min={0} onChange={(v) => setOffset(wallLen - v - sym.width / 2)} />
+              )}
+            </Field>
+            <Button
+              variant="outline"
+              size="sm"
+              className="w-full"
+              disabled={Math.abs(gapStart - gapEnd) < 0.5}
+              onClick={() => setOffset(wallLen / 2)}
+            >
+              <AlignHorizontalJustifyCenter /> {Math.abs(gapStart - gapEnd) < 0.5 ? 'Centered on the wall' : 'Center on wall'}
             </Button>
           </div>
         )}
