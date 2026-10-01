@@ -38,7 +38,7 @@ import { poseDoor } from '@/three/furniture'
 import { applyLightState, DETAIL_DISTANCE } from '@/three/lighting3d'
 import type { LightHandle } from '@/three/lighting3d'
 import { LightPool } from '@/three/lightPool'
-import type { PoolRoom } from '@/three/lightPool'
+import type { PoolRoom, VirtualLight } from '@/three/lightPool'
 import { computeViewpoints, floorBase, LENSES, planFlight, stepFlight, verticalFov } from '@/three/viewpoints'
 import type { Flight, Lens, Viewpoint } from '@/three/viewpoints'
 
@@ -93,13 +93,17 @@ const movingRatio = () => Math.max(0.75, fullRatio() * 0.5)
 /** Hand out the real lights again, when the camera has moved or lights changed (at most every so often). */
 const POOL_EVERY_MS = 150
 
-/** Give the pool's real lights to the fixtures that matter most from where the camera is. */
-function updatePool(ctx: Ctx) {
+/**
+ * Give the pool's real lights to the fixtures that matter most from where the camera is: fading over as it moves,
+ * at once for a new scene or a switch flipped (`instant`).
+ */
+function updatePool(ctx: Ctx, instant = false) {
   ctx.poolDirty = false
   ctx.poolAt = performance.now()
   const content = ctx.content
   if (!content) return ctx.pool.clear()
-  const lights = ((content.userData.lightHandles ?? []) as LightHandle[]).flatMap((h) => h.lights)
+  // The same list for the same scene, so the pool can tell a new scene from the camera moving.
+  const lights = (content.userData.poolLights ??= ((content.userData.lightHandles ?? []) as LightHandle[]).flatMap((h) => h.lights)) as VirtualLight[]
   const rooms = (content.userData.poolRooms ?? []) as PoolRoom[]
   const st = useEditor.getState()
   const floor = currentFloor(st)
@@ -112,11 +116,14 @@ function updatePool(ctx: Ctx) {
   // Walking in a room: light around the camera. Looking at the home from outside: around what it looks at.
   const inside = roomAt(ctx.camera.position, false)
   const focus = inside ? ctx.camera.position : ctx.controls.target
-  ctx.pool.assign(lights, rooms, focus, (inside ?? roomAt(ctx.controls.target, true))?.id ?? null)
-  // Small fixture parts only near the camera.
+  ctx.pool.retarget(lights, rooms, focus, (inside ?? roomAt(ctx.controls.target, true))?.id ?? null, instant)
+  // Small fixture parts only near the camera; once shown, they stay a little further, so they don't blink at the edge.
   const at = new THREE.Vector3()
   for (const g of (content.userData.detailed ?? []) as THREE.Object3D[]) {
-    const near = g.getWorldPosition(at).distanceTo(ctx.camera.position) < DETAIL_DISTANCE
+    const dist = g.getWorldPosition(at).distanceTo(ctx.camera.position)
+    const near = dist < DETAIL_DISTANCE || (g.userData.near === true && dist < DETAIL_DISTANCE + 1.5)
+    if (near === g.userData.near) continue
+    g.userData.near = near
     for (const d of g.userData.details as THREE.Object3D[]) d.visible = near
   }
   ctx.dirty = true
@@ -523,6 +530,11 @@ export default function Viewer3D() {
       }
       controls.update()
       if (ctx.poolDirty && now - ctx.poolAt > POOL_EVERY_MS) updatePool(ctx)
+      // Lights handed over to other fixtures fade across.
+      if (ctx.pool.animating) {
+        ctx.pool.step(Math.min(dt, 0.1))
+        ctx.dirty = true
+      }
       // Frames too slow while moving: move at a lower resolution, sharp again once the camera stops.
       const moving = now - ctx.movedAt < 300
       if (moving && ctx.dirty) ctx.frameMs = ctx.frameMs * 0.8 + Math.min(dt * 1000, 200) * 0.2
@@ -832,7 +844,7 @@ export default function Viewer3D() {
     if (!ctx.pool.group.userData.compiled) {
       ctx.pool.group.userData.compiled = true
       ctx.compiling = true
-      updatePool(ctx)
+      updatePool(ctx, true)
       ctx.renderer
         .compileAsync(ctx.scene, ctx.camera)
         .catch(() => {})
@@ -876,7 +888,7 @@ export default function Viewer3D() {
     ctx.sun.intensity = 2.4 * t * t
     ctx.sun.castShadow = t > 0.15
     ctx.renderer.shadowMap.needsUpdate = true
-    updatePool(ctx)
+    updatePool(ctx, true)
   }, [built, project, lightStates, daylight, theme])
 
   // ---------- doors open or shut, kept as they were across rebuilds ----------
