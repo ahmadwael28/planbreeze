@@ -34,7 +34,26 @@ export function inset(room: Room, by: number): Point[] {
   return by === 0 ? room.points : offsetPolygon(room.points, -by)
 }
 
-/** Footprints of the columns built into a room's walls, reaching a little into the wall so cutting them out is clean. */
+/** How far from `o` along `d` the room's outline is, if it's within `max`. */
+function rayToOutline(o: Point, d: Point, pts: Point[], max: number): number | null {
+  let best = max
+  for (let i = 0; i < pts.length; i++) {
+    const a = pts[i]
+    const e = { x: pts[(i + 1) % pts.length].x - a.x, y: pts[(i + 1) % pts.length].y - a.y }
+    const den = d.x * e.y - d.y * e.x
+    if (Math.abs(den) < 1e-9) continue
+    const ao = { x: a.x - o.x, y: a.y - o.y }
+    const t = (ao.x * e.y - ao.y * e.x) / den
+    const s = (ao.x * d.y - ao.y * d.x) / den
+    if (t >= 0 && s >= 0 && s <= 1 && t < best) best = t
+  }
+  return best < max ? best : null
+}
+
+/**
+ * Footprints of the columns built into a room's walls, reaching a little into the wall so cutting them out is clean.
+ * One a few centimeters from a corner reaches the other wall too: no sliver of ceiling is left between them.
+ */
 export function roomColumns(room: Room, floor: Floor): Point[][] {
   const out: Point[][] = []
   for (const s of floor.symbols) {
@@ -42,26 +61,32 @@ export function roomColumns(room: Room, floor: Floor): Point[][] {
     const r = (s.rotation * Math.PI) / 180
     const c = Math.cos(r)
     const sn = Math.sin(r)
+    const at = (x: number, y: number) => ({ x: s.x + x * c - y * sn, y: s.y + x * sn + y * c })
+    const reach = (side: 1 | -1) => {
+      const t = rayToOutline(at((side * s.width) / 2, 0), { x: side * c, y: side * sn }, room.points, 8)
+      return t === null ? 0 : t + 3
+    }
+    const left = s.width / 2 + reach(-1)
+    const right = s.width / 2 + reach(1)
     // Its back (local -y) is against the wall.
-    const corners: [number, number][] = [
-      [-s.width / 2, -s.depth / 2 - 3],
-      [s.width / 2, -s.depth / 2 - 3],
-      [s.width / 2, s.depth / 2],
-      [-s.width / 2, s.depth / 2],
-    ]
-    out.push(corners.map(([x, y]) => ({ x: s.x + x * c - y * sn, y: s.y + x * sn + y * c })))
+    out.push([at(-left, -s.depth / 2 - 3), at(right, -s.depth / 2 - 3), at(right, s.depth / 2), at(-left, s.depth / 2)])
   }
   return out
 }
 
-/** How each edge of a room as its ceiling sees it came about: the room's wall it's along, and whether it's a column's side. */
-const shapes = new WeakMap<Room, { parent: number[]; face: boolean[] }>()
+/**
+ * How each edge of a room as its ceiling sees it came about: the room's wall it's along, and whether it's a column's
+ * side; and the room itself and its columns (the band's inner edge is measured from the walls, see bandInset).
+ */
+const shapes = new WeakMap<Room, { parent: number[]; face: boolean[]; room: Room; columns: Point[][] }>()
 const ceilingRooms = new WeakMap<Room, { symbols: PlanSymbol[]; room: Room }>()
 
 /**
- * The room as its ceiling sees it: columns built into its walls cut out of it, so the gypsum, cove lights, shadow gaps
- * and curtain pockets go around them. Per-wall settings carry over: each piece of the outline takes its wall's, and a
- * column's sides take those of the wall it stands on (shadow gaps not if they stop at columns; pockets never).
+ * The room as its ceiling sees it: columns built into its walls cut out of it, so where the gypsum meets the walls it
+ * fits around them, and what runs along the walls (hidden lights, shadow gaps, curtain pockets) goes around them. The
+ * band's inner edge stays straight, measured from the walls (see bandInset). Per-wall settings carry over: each piece
+ * of the outline takes its wall's, and a column's sides take those of the wall it stands on (shadow gaps not if they
+ * stop at columns; pockets never).
  */
 export function ceilingRoom(room: Room, floor: Floor): Room {
   const hit = ceilingRooms.get(room)
@@ -112,7 +137,7 @@ export function ceilingRoom(room: Room, floor: Floor): Room {
         curtainPockets: map(room.curtainPockets, false),
         ceiling: room.ceiling && { ...room.ceiling, bands: room.ceiling.bands && pts.map((_, i) => room.ceiling!.bands![parent[i]] ?? null) },
       }
-      shapes.set(out, { parent, face })
+      shapes.set(out, { parent, face, room, columns: cols })
     }
   }
   // Its hidden light along the walls: the gypsum stops short of the walls it lights.
@@ -137,11 +162,33 @@ export function ceilingRoom(room: Room, floor: Floor): Room {
  */
 export function ceilingLight(sym: PlanSymbol, croom: Room): PlanSymbol {
   const info = shapes.get(croom)
-  if (!info || !sym.room) return sym
+  if (!info || !sym.room || followsBand(croom, sym)) return sym
   const off = new Set(sym.cove?.off ?? [])
   const stop = sym.type === 'cove-light' && sym.cove?.columns === 'stop'
   const mapped = info.parent.map((_, i) => i).filter((i) => off.has(info.parent[i]) || (stop && info.face[i]))
   return { ...sym, cove: { ...sym.cove, off: mapped } }
+}
+
+/**
+ * A room light that runs along the band's inner edge rather than the walls (in a cove's trough, around a floating
+ * panel, inside a tray): straight, like the band, whatever columns there are.
+ */
+export function followsBand(room: Room, sym: PlanSymbol) {
+  const style = room.ceiling?.style
+  return sym.type === 'cove-light' && (style === 'cove' || style === 'floating' || (sym.cove?.at === 'inner' && hasTrayEdge(room)))
+}
+
+/** A band's inner edge kept clear of columns deeper than the band: it goes around them, `margin` off. */
+function clearOfColumns(inner: Point[], columns: Point[][], margin = 10): Point[] {
+  const hits = columns.filter((c) => c.some((p) => pointInPolygon(p, inner)) || inner.some((p) => pointInPolygon(p, c)))
+  if (!hits.length || inner.length < 3) return inner
+  const ring = (pts: Point[]) => [pts.map((p) => [p.x, p.y] as [number, number])]
+  const parts = polygonClipping.difference(ring(inner), ...hits.map((c) => ring(offsetPolygon(c, margin))))
+  const area = (r: [number, number][]) => Math.abs(signedArea(r.map(([x, y]) => ({ x, y }))))
+  const outer = parts.map((p) => p[0]).sort((a, b) => area(b) - area(a))[0]
+  if (!outer || outer.length < 4) return inner
+  const pts = outer.slice(0, -1).map(([x, y]) => ({ x, y }))
+  return Math.sign(signedArea(pts)) === Math.sign(signedArea(inner)) ? pts : pts.reverse()
 }
 
 /** Usual width of a curtain pocket (cm). */
@@ -164,10 +211,17 @@ export const pocketWidth = (room: Room) => room.pocketWidth ?? POCKET_WIDTH
 /** The ceiling's band width along wall i: its own, or the ceiling's. */
 export const bandAt = (room: Room, i: number) => room.ceiling?.bands?.[i] ?? room.ceiling?.band ?? 0
 
-/** The room moved in by the ceiling's band on each wall (each its own width) times `k`, plus `extra`. */
+/**
+ * The room moved in by the ceiling's band on each wall (each its own width) times `k`, plus `extra`: the band's inner
+ * edge, and what runs along it. Measured from the walls, so it stays straight past columns built into them, unless a
+ * column stands out further than the band (then it goes around it).
+ */
 export function bandInset(room: Room, k = 1, extra = 0): Point[] {
-  const d = room.points.map((_, i) => -(bandAt(room, i) * k + extra))
-  return d.every((x) => x === 0) ? room.points : offsetEdges(room.points, d)
+  const info = shapes.get(room)
+  const base = info?.room ?? room
+  const d = base.points.map((_, i) => -(bandAt(base, i) * k + extra))
+  const inner = d.every((x) => x === 0) ? base.points : offsetEdges(base.points, d)
+  return info ? clearOfColumns(inner, info.columns) : inner
 }
 
 /**

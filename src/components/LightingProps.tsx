@@ -7,7 +7,7 @@ import { Slider } from '@/components/ui/slider'
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
 import { cn } from '@/lib/utils'
 import { bbox, dist, polygonPath } from '@/model/geometry'
-import { bandAt, bandInset, CEILING_STYLES, ceilingRoom, HIDDEN_GAP, hasTrayEdge, hiddenLightInGap, LIGHT_COLORS, pocketWidth, pruneControls, roomColumns, switchesFor, WIRE_COLORS } from '@/model/lighting'
+import { bandAt, bandInset, CEILING_STYLES, ceilingRoom, followsBand, HIDDEN_GAP, hasTrayEdge, hiddenLightInGap, LIGHT_COLORS, pocketWidth, pruneControls, roomColumns, switchesFor, WIRE_COLORS } from '@/model/lighting'
 import { newSymbol, uid } from '@/model/project'
 import { SYMBOL_MAP } from '@/model/symbols'
 import { formatLength } from '@/model/units'
@@ -244,7 +244,8 @@ function AtColumns({ value, onChange }: { value: 'wrap' | 'stop'; onChange: (v: 
 
 export function HiddenLightControls({ room, sym, units }: { room: Room; sym: PlanSymbol; units: Units }) {
   const floor = useFloor()
-  const columns = roomColumns(room, floor).length > 0
+  // Lights along the walls can go around columns or stop at them; those along the band's edge stay straight.
+  const columns = roomColumns(room, floor).length > 0 && !followsBand(room, sym)
   const off = new Set(sym.cove?.off ?? [])
   const lit = room.points.map((_, i) => i).filter((i) => !off.has(i))
   const style = room.ceiling?.style
