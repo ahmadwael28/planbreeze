@@ -7,6 +7,7 @@ import { SYMBOL_MAP } from '@/model/symbols'
 import type { PlanTheme } from '@/model/theme'
 import type { Floor, Point, Project, Room, Selection } from '@/model/types'
 import { COLORS, Materials, railingModel, symbolModel } from './furniture'
+import { ceilingHeightAt } from '@/model/lighting'
 import { bakeGlows, buildCeilings, buildFixture } from './lighting3d'
 import type { LightHandle, SwitchHandle } from './lighting3d'
 import type { PoolRoom } from './lightPool'
@@ -273,7 +274,9 @@ export function buildProjectGroup(project: Project, opts: BuildOptions): THREE.G
       if (sym.type === 'gypsum-box' || def?.ceilingStyle) continue
       const pose = symbolPose(sym, floor.rooms)
       const hl = isSelected(sel, 'symbol', sym.id)
-      const obj = symbolModel(sym, mats, hl, pose.wallThickness ?? sym.depth, floor.height, !!def, floor.rooms)
+      // Curtains and blinds hang from the ceiling above them (up in a curtain pocket if there's one).
+      const hangs = sym.type === 'curtain' || sym.type === 'blind'
+      const obj = symbolModel(sym, mats, hl, pose.wallThickness ?? sym.depth, floor.height, !!def, floor.rooms, hangs ? ceilingHeightAt(floor, pose) : floor.height)
       if (!obj.children.length) continue
       const elevation = def?.wall ? (sym.elevation ?? def.sill ?? 0) : (sym.elevation ?? 0)
       obj.position.set(pose.x, floorBase + elevation, pose.y)

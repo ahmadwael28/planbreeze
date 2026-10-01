@@ -25,6 +25,8 @@ const RULES: Record<string, Rules> = {
   opening: { width: [30, 1000], height: [100, 400] },
   window: { width: [30, 600], height: [30, 300] },
   'window-wide': { width: [60, 600], height: [30, 300] },
+  curtain: { width: [40, 1000], depth: [8, 30] },
+  blind: { width: [30, 400], depth: [5, 15], height: [40, 300] },
   // Living
   sofa: { width: [120, 400], depth: [70, 120], height: [60, 110] },
   'sofa-corner': { width: [180, 450], depth: [150, 400], height: [60, 110] },

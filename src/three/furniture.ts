@@ -14,7 +14,7 @@ import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js'
 import { inwardNormal, signedArea } from '@/model/geometry'
 import { openSides } from '@/model/guides'
 import type { Side } from '@/model/guides'
-import { chairsAlong, cornerArm, frameOf, seatsAlong, SOFA } from '@/model/symbols'
+import { chairsAlong, cornerArm, curtainPanel, frameOf, seatsAlong, SOFA } from '@/model/symbols'
 import type { PlanSymbol, Point, Room } from '@/model/types'
 
 export const COLORS = {
@@ -52,7 +52,7 @@ export const COLORS = {
   books: ['#b91c1c', '#1d4ed8', '#15803d', '#a16207', '#6b21a8', '#334155', '#e7e5e4', '#0f766e'],
 }
 
-export type Finish = 'matte' | 'fabric' | 'wood' | 'satin' | 'gloss' | 'metal' | 'chrome' | 'leaf' | 'ceramic'
+export type Finish = 'matte' | 'fabric' | 'wood' | 'satin' | 'gloss' | 'metal' | 'chrome' | 'leaf' | 'ceramic' | 'cloth'
 
 const FINISHES: Record<Finish, { roughness: number; metalness: number; flat?: boolean; double?: boolean }> = {
   matte: { roughness: 0.85, metalness: 0 },
@@ -64,6 +64,7 @@ const FINISHES: Record<Finish, { roughness: number; metalness: number; flat?: bo
   chrome: { roughness: 0.12, metalness: 0.45 },
   leaf: { roughness: 0.8, metalness: 0, flat: true },
   ceramic: { roughness: 0.15, metalness: 0, double: true },
+  cloth: { roughness: 0.95, metalness: 0, double: true },
 }
 
 /** Caches materials per color and finish so the scene uses as few as possible. */
@@ -98,6 +99,17 @@ export class Materials {
         depthWrite: false,
       })
       this.cache.set('glass', m)
+    }
+    return m
+  }
+
+  /** See-through fabric (sheer curtains, screen blinds), in a color. */
+  sheer(color: string, opacity: number): THREE.Material {
+    const key = `sheer|${color}|${opacity}`
+    let m = this.cache.get(key)
+    if (!m) {
+      m = new THREE.MeshStandardMaterial({ color, transparent: true, opacity, roughness: 1, side: THREE.DoubleSide, depthWrite: false })
+      this.cache.set(key, m)
     }
     return m
   }
@@ -283,6 +295,7 @@ interface Kit {
   q: (color: string, finish?: Finish) => Mat
   glass: () => Mat
   tinted: () => Mat
+  sheer: (color: string, opacity: number) => Mat
 }
 
 function chair(k: Kit, x: number, z: number, rotDeg: number, w = 44, d = 46) {
@@ -948,6 +961,61 @@ function quadrantShower(k: Kit, w: number, d: number, h: number, glass: Mat, doo
   return g
 }
 
+/**
+ * A panel of fabric hanging in folds from x0 to x1 (z its middle), from just off the floor up to `top`: the same
+ * fabric for its width, so it folds deeper when gathered.
+ */
+function drape(x0: number, x1: number, z: number, top: number, fabric: number, mat: Mat) {
+  const w = Math.max(2, Math.abs(x1 - x0))
+  const n = Math.max(2, Math.round(fabric / 14))
+  const amp = Math.min(8, Math.max(1.2, Math.sqrt(Math.max(0, (fabric / n / 2) ** 2 - (w / n / 2) ** 2)) / 2))
+  const h = top - 1.5
+  const geo = new THREE.PlaneGeometry(w, h, n * 6, 1)
+  const pos = geo.attributes.position
+  for (let i = 0; i < pos.count; i++) {
+    const u = (pos.getX(i) + w / 2) / w
+    pos.setZ(i, amp * Math.sin(u * n * Math.PI * 2))
+  }
+  geo.computeVertexNormals()
+  const m = mesh(geo, mat)
+  m.position.set((x0 + x1) / 2, 1.5 + h / 2, z)
+  return m
+}
+
+/** Curtains on a track near the ceiling: two panels, gathered at the ends as far as they're open; a sheer behind maybe. */
+function curtain(k: Kit, sym: PlanSymbol, w: number, d: number, top: number) {
+  const g = new THREE.Group()
+  const color = frameOf(sym)?.hex ?? '#d9cfbf'
+  const fabric = sym.fabric ?? 'curtain'
+  const back = -d / 2
+  g.add(box(w, 2.5, 3, 0, top - 2.5, back + 4, k.q('#d4d4d8', 'metal')))
+  const layer = (z: number, open: number, mat: Mat) => {
+    const wp = curtainPanel(w, open)
+    // The fabric for each panel: twice the half-width it covers when closed.
+    const amount = w
+    g.add(drape(-w / 2, -w / 2 + wp, z, top - 3, amount, mat))
+    g.add(drape(w / 2 - wp, w / 2, z, top - 3, amount, mat))
+  }
+  if (sym.sheer && fabric !== 'sheer') layer(back + 4, 0, k.sheer('#f8f6f1', 0.32))
+  const front = Math.min(d / 2 - 3, back + 10)
+  if (fabric === 'sheer') layer(front, sym.open ?? 0.7, k.sheer(color, 0.38))
+  else layer(front, sym.open ?? 0.7, k.q(color, 'cloth'))
+  return g
+}
+
+/** A roller blind: a cassette at the top and the fabric let down as far as it's not rolled up. */
+function blind(k: Kit, sym: PlanSymbol, w: number, d: number, h: number, top: number) {
+  const g = new THREE.Group()
+  const color = frameOf(sym)?.hex ?? '#f4f4f2'
+  const z = -d / 2 + d / 2
+  g.add(rbox(w, 7, Math.min(d, 8), 1, 0, top - 7, z, k.q('#e7e5e4', 'satin')))
+  const len = Math.max(2, Math.min(h, top - 8) * (1 - (sym.open ?? 0)))
+  const mat = sym.fabric === 'blackout' ? k.q(color, 'cloth') : k.sheer(color, 0.8)
+  g.add(box(w - 3, len, 0.3, 0, top - 7 - len, z + 1, mat))
+  g.add(box(w - 3, 2.2, 1.6, 0, top - 7 - len - 2.2, z + 1, k.q('#d4d4d8', 'metal')))
+  return g
+}
+
 /** A column built into a wall, floor to ceiling, with skirting along its three exposed faces. */
 function wallPost(k: Kit, w: number, d: number, floorH: number) {
   const g = new THREE.Group()
@@ -1279,8 +1347,22 @@ export function railingModel(room: Room, runs: { a: Point; b: Point }[], mats: M
 // ---------------------------------------------------------------------------
 
 /** The 3D model for a symbol (not light fixtures), in its local frame. Empty for symbols without one. */
-export function symbolModel(sym: PlanSymbol, mats: Materials, hl: boolean, wallT: number, floorH: number, hasDef: boolean, rooms: Room[] = []): THREE.Group {
-  const k: Kit = { q: (color, finish) => mats.get(color, hl, finish), glass: () => mats.glass(), tinted: () => mats.tinted() }
+export function symbolModel(
+  sym: PlanSymbol,
+  mats: Materials,
+  hl: boolean,
+  wallT: number,
+  floorH: number,
+  hasDef: boolean,
+  rooms: Room[] = [],
+  ceilingH = floorH,
+): THREE.Group {
+  const k: Kit = {
+    q: (color, finish) => mats.get(color, hl, finish),
+    glass: () => mats.glass(),
+    tinted: () => mats.tinted(),
+    sheer: (color, opacity) => mats.sheer(color, opacity),
+  }
   const w = sym.width
   const d = sym.depth
   const h = sym.height
@@ -1383,6 +1465,12 @@ export function symbolModel(sym: PlanSymbol, mats: Materials, hl: boolean, wallT
       break
     case 'wall-post':
       g = wallPost(k, w, d, floorH)
+      break
+    case 'curtain':
+      g = curtain(k, sym, w, d, ceilingH)
+      break
+    case 'blind':
+      g = blind(k, sym, w, d, h, ceilingH)
       break
     case 'toilet':
       g = toilet(k, w, d, h)

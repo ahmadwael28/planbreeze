@@ -57,6 +57,8 @@ export interface SymbolDef {
   fullHeight?: boolean
   /** Not offered in the library (added from elsewhere, e.g. a room's settings). */
   hidden?: boolean
+  /** What the `frames` choice is called (Frame, Color…). */
+  frameLabel?: string
   /** Draw the symbol centered at the origin: x ∈ [-w/2, w/2], y ∈ [-d/2, d/2]. */
   render: (w: number, d: number, t: PlanTheme, sym?: PlanSymbol) => ReactNode
 }
@@ -124,6 +126,30 @@ export const ALU_FRAMES: FrameColor[] = [
   { name: 'Bronze', hex: '#5b4633', metal: true },
   { name: 'Champagne', hex: '#c8b28e', metal: true },
 ]
+
+export const CURTAIN_COLORS: FrameColor[] = [
+  { name: 'Ivory', hex: '#efe9df' },
+  { name: 'Linen', hex: '#d9cfbf' },
+  { name: 'Sand', hex: '#c9b79c' },
+  { name: 'Grey', hex: '#9ca3af' },
+  { name: 'Charcoal', hex: '#4b5563' },
+  { name: 'Navy', hex: '#1f2a44' },
+  { name: 'Sage', hex: '#8a9a7b' },
+  { name: 'Terracotta', hex: '#b4664a' },
+]
+
+export const BLIND_COLORS: FrameColor[] = [
+  { name: 'White', hex: '#f4f4f2' },
+  { name: 'Linen', hex: '#d9cfbf' },
+  { name: 'Grey', hex: '#9ca3af' },
+  { name: 'Charcoal', hex: '#3f4349' },
+]
+
+/** How far a curtain's panels reach in from each end: gathered at the ends when open, meeting in the middle when closed. */
+export function curtainPanel(w: number, open: number) {
+  const stack = Math.min(w / 2, Math.max(14, w * 0.1))
+  return stack + (w / 2 - stack) * (1 - open)
+}
 
 /** The frame finish an item has: one of its type's, or a custom color. Null for items without a frame choice. */
 export function frameOf(sym: PlanSymbol): FrameColor | null {
@@ -421,6 +447,60 @@ export const SYMBOLS: SymbolDef[] = [
           {panel(-w / 2 + 4, -ph - 0.5)}
           {panel(w / 2 - 4 - pw, 0.5)}
           <path d={`M${w / 4 - 12},${d / 2 + 8} h24 m-20,-3 l-4,3 l4,3`} {...k.thin} />
+        </>
+      )
+    },
+  },
+  {
+    // Hung from the ceiling (up in a curtain pocket if there's one) against a wall, floor to ceiling.
+    type: 'curtain',
+    name: 'Curtain',
+    keywords: 'drape drapes sheer blackout',
+    category: 'Doors & Windows',
+    width: 200,
+    depth: 15,
+    height: 250,
+    wallMount: true,
+    fullHeight: true,
+    frames: CURTAIN_COLORS,
+    frameLabel: 'Color',
+    render: (w, d, t, sym) => {
+      const k = kit(t)
+      const wp = curtainPanel(w, sym?.open ?? 0.7)
+      const y = -d / 2 + d * 0.6
+      // A zig-zag for each panel, from its end of the track.
+      const folds = (x0: number, x1: number) => {
+        const n = Math.max(2, Math.round(Math.abs(x1 - x0) / 7))
+        return Array.from({ length: n + 1 }, (_, i) => `${i ? 'L' : 'M'}${x0 + ((x1 - x0) * i) / n},${y + (i % 2 ? 3 : -3)}`).join('')
+      }
+      return (
+        <>
+          <line x1={-w / 2} y1={-d / 2 + 4} x2={w / 2} y2={-d / 2 + 4} {...k.thin} strokeDasharray="6 3" />
+          {sym?.sheer && <line x1={-w / 2} y1={-d / 2 + 7} x2={w / 2} y2={-d / 2 + 7} {...k.thin} />}
+          <path d={folds(-w / 2, -w / 2 + wp)} {...k.line} />
+          <path d={folds(w / 2, w / 2 - wp)} {...k.line} />
+        </>
+      )
+    },
+  },
+  {
+    // A roller blind hung from the ceiling against a wall (or a window); its height is how far down it reaches.
+    type: 'blind',
+    name: 'Roller blind',
+    keywords: 'blackout shade screen roller blinds',
+    category: 'Doors & Windows',
+    width: 120,
+    depth: 8,
+    height: 160,
+    wallMount: true,
+    frames: BLIND_COLORS,
+    frameLabel: 'Color',
+    render: (w, d, t) => {
+      const k = kit(t)
+      return (
+        <>
+          <rect x={-w / 2} y={-d / 2} width={w} height={d * 0.6} rx={1} {...k.s()} />
+          <line x1={-w / 2 + 2} y1={-d / 2 + d * 0.8} x2={w / 2 - 2} y2={-d / 2 + d * 0.8} {...k.thin} strokeDasharray="4 3" />
         </>
       )
     },

@@ -125,6 +125,12 @@ export interface PlanSymbol {
   doors?: 'hinged' | 'sliding'
   /** Wardrobes: glass doors. */
   glass?: boolean
+  /** Curtains and blinds: the fabric (sheer, curtain or blackout; a blind's screen or blackout). */
+  fabric?: 'sheer' | 'curtain' | 'blackout' | 'screen'
+  /** Curtains: a sheer layer behind. */
+  sheer?: boolean
+  /** Curtains and blinds: how far open (0 closed … 1 drawn back, or a blind rolled up). */
+  open?: number
   /** Showers: the sides with glass (front, back, left, right); left out, the sides not against a wall. */
   screens?: ('front' | 'back' | 'left' | 'right')[]
   /** Frame / trim color (hex) for items that come in several finishes: spots, tracks, aluminium doors. */

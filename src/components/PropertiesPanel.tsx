@@ -400,6 +400,62 @@ function DimensionProps({ dim, units }: { dim: Dimension; units: Units }) {
 }
 
 /** Several items selected: what they are, and what can be done with all of them. */
+/** Curtains and blinds: the fabric, a sheer behind, and how far open (one undo step per drag). */
+function FabricControls({ sym }: { sym: PlanSymbol }) {
+  const isBlind = sym.type === 'blind'
+  const fabric = sym.fabric ?? (isBlind ? 'screen' : 'curtain')
+  const open = sym.open ?? (isBlind ? 0 : 0.7)
+  const kinds = isBlind ? (['screen', 'blackout'] as const) : (['sheer', 'curtain', 'blackout'] as const)
+  return (
+    <>
+      <Field label="Fabric">
+        {() => (
+          <ToggleGroup
+            type="single"
+            size="sm"
+            variant="outline"
+            value={fabric}
+            onValueChange={(v) => v && updateSymbol(sym.id, (s) => void (s.fabric = v as NonNullable<PlanSymbol['fabric']>))}
+            className="w-full"
+          >
+            {kinds.map((f) => (
+              <ToggleGroupItem key={f} value={f} className="flex-1 capitalize">
+                {f}
+              </ToggleGroupItem>
+            ))}
+          </ToggleGroup>
+        )}
+      </Field>
+      {!isBlind && fabric !== 'sheer' && (
+        <label className="flex items-center justify-between gap-2 text-sm">
+          <span className="text-muted-foreground">Sheer curtain behind</span>
+          <Switch size="sm" checked={!!sym.sheer} onCheckedChange={(on) => updateSymbol(sym.id, (s) => void (s.sheer = on || undefined))} />
+        </label>
+      )}
+      <Field label={isBlind ? 'Rolled up' : 'Open'}>
+        {() => (
+          <div className="flex items-center gap-3">
+            <Slider
+              min={0}
+              max={1}
+              step={0.05}
+              value={[open]}
+              onPointerDown={() => useEditor.getState().checkpoint()}
+              onValueChange={([v]) =>
+                useEditor.getState().mutate((d) => {
+                  const s = draftFloor(d).symbols.find((x) => x.id === sym.id)
+                  if (s) s.open = v
+                })
+              }
+            />
+            <span className="w-10 text-right text-xs tabular-nums text-muted-foreground">{Math.round(open * 100)}%</span>
+          </div>
+        )}
+      </Field>
+    </>
+  )
+}
+
 /** Items with a choice of hinged or sliding doors, and which they have unless chosen. */
 const DOOR_DEFAULT: Record<string, 'hinged' | 'sliding'> = {
   shower: 'hinged',
@@ -451,14 +507,14 @@ function ShowerGlass({ sym }: { sym: PlanSymbol }) {
 }
 
 /** Swatches for the frame finishes an item comes in, plus any custom color. */
-function FramePicker({ sym, frames }: { sym: PlanSymbol; frames: FrameColor[] }) {
+function FramePicker({ sym, frames, label = 'Frame' }: { sym: PlanSymbol; frames: FrameColor[]; label?: string }) {
   const current = frameOf(sym) ?? frames[0]
   const custom = !frames.some((f) => f.hex === current.hex)
   const set = (hex: string) => updateSymbol(sym.id, (s) => void (s.frame = hex))
   const swatch = (f: FrameColor) => (f.metal ? `linear-gradient(135deg, ${f.hex} 20%, #ffffff 50%, ${f.hex} 80%)` : f.hex)
   const ring = 'ring-2 ring-primary ring-offset-2 ring-offset-background'
   return (
-    <Field label="Frame">
+    <Field label={label}>
       {(id) => (
         <div id={id} className="flex flex-wrap items-center gap-2 py-1">
           {frames.map((f) => (
@@ -837,7 +893,8 @@ function SymbolProps({ sym, units }: { sym: PlanSymbol; units: Units }) {
         })}
         {def?.fullHeight && <p className="text-xs text-muted-foreground">Floor to ceiling, whatever the room's height.</p>}
         {sym.type === 'shower' && <ShowerGlass sym={sym} />}
-        {def?.frames && <FramePicker sym={sym} frames={def.frames} />}
+        {(sym.type === 'curtain' || sym.type === 'blind') && <FabricControls sym={sym} />}
+        {def?.frames && <FramePicker sym={sym} frames={def.frames} label={def.frameLabel} />}
         {def?.sill !== undefined && (
           <Field label="Sill height">
             {(id) => (
