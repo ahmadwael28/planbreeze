@@ -7,12 +7,13 @@
 import * as THREE from 'three'
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js'
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js'
-import { offsetEdges, signedArea } from '@/model/geometry'
+import { offsetEdges, pointInPolygon, signedArea } from '@/model/geometry'
 import { ceilingHeightAt, ceilingZones, COVE_WIDTH, coveRuns, inset, LIGHT_COLORS, SHADOW_GAP } from '@/model/lighting'
 import { symbolPose } from '@/model/project'
 import { frameOf } from '@/model/symbols'
 import type { FixtureKind } from '@/model/symbols'
 import type { Floor, PlanSymbol, Point, Room } from '@/model/types'
+import type { VirtualLight } from './lightPool'
 
 const CM = 0.01 // RectAreaLight sizes ignore parent scale, so they're given in meters
 
@@ -20,9 +21,13 @@ const CM = 0.01 // RectAreaLight sizes ignore parent scale, so they're given in 
 export interface LightHandle {
   floorId: string
   id: string
-  lights: { light: THREE.Light; base: number }[]
+  /** Its lights: virtual ones, lent a real light by the viewer's light pool when they matter (see lightPool). */
+  lights: VirtualLight[]
   emissive: THREE.MeshStandardMaterial[]
+  /** Glow halos while building; `bakeGlows` then turns them into points of one shared cloud (`glowAt`, with colors). */
   glows: THREE.Sprite[]
+  glowAt: number[]
+  glowColors: THREE.Color[]
 }
 
 export interface SwitchHandle {
@@ -165,10 +170,13 @@ interface Ctx {
   color: THREE.Color
   brightness: number
   handle: LightHandle
+  /** The room the fixture is in. */
+  room?: string
 }
 
 function lens(ctx: Ctx, geo: THREE.BufferGeometry) {
   const m = new THREE.MeshStandardMaterial({ color: '#ffffff', emissive: ctx.color, emissiveIntensity: 0, roughness: 0.4 })
+  m.userData.lens = true // lit by the light state, so it's left alone when highlighting a selection
   ctx.handle.emissive.push(m)
   return new THREE.Mesh(geo, m)
 }
@@ -186,24 +194,31 @@ function glow(ctx: Ctx, size: number, x: number, y: number, z: number) {
 /** Overall calibration of fixture output against the day/night ambient light. */
 const OUTPUT = 0.7
 
-function add<T extends THREE.Light>(ctx: Ctx, light: T, base: number): T {
-  ctx.handle.lights.push({ light, base: base * ctx.brightness * OUTPUT })
-  return light
+/** A fixture's light, as a virtual light at (x, y, z) in the group's frame (see lightPool). */
+function virtual(ctx: Ctx, g: THREE.Object3D, kind: VirtualLight['kind'], x: number, y: number, z: number, base: number, more: Partial<VirtualLight> = {}) {
+  const anchor = new THREE.Object3D()
+  anchor.position.set(x, y, z)
+  g.add(anchor)
+  const b = base * ctx.brightness * OUTPUT
+  const v: VirtualLight = { kind, anchor, color: ctx.color, base: b, intensity: b, room: ctx.room, ...more }
+  ctx.handle.lights.push(v)
+  return v
 }
 
+/** Spot light shining straight down. */
 function spotLight(ctx: Ctx, g: THREE.Group, x: number, y: number, z: number, intensity: number, angle: number) {
-  const light = add(ctx, new THREE.SpotLight(ctx.color, intensity, 0, angle, 0.65, 2), intensity)
-  light.position.set(x, y, z)
-  light.target.position.set(x, y - 100, z)
-  g.add(light, light.target)
+  virtual(ctx, g, 'spot', x, y, z, intensity, { angle, penumbra: 0.65 })
 }
 
 /** Area light facing down (or up), `w` × `h` cm, centered at (x, y, z) in the group's frame. */
 function areaLight(ctx: Ctx, g: THREE.Group, w: number, h: number, x: number, y: number, z: number, intensity: number, up = false) {
-  const light = add(ctx, new THREE.RectAreaLight(ctx.color, intensity, Math.max(w, 1) * CM, Math.max(h, 1) * CM), intensity)
-  light.position.set(x, y, z)
-  light.rotation.x = up ? Math.PI / 2 : -Math.PI / 2
-  g.add(light)
+  const v = virtual(ctx, g, 'rect', x, y, z, intensity, { width: Math.max(w, 1) * CM, height: Math.max(h, 1) * CM })
+  v.anchor.rotation.x = up ? Math.PI / 2 : -Math.PI / 2
+}
+
+/** Light shining all around. */
+function pointLight(ctx: Ctx, g: THREE.Group, x: number, y: number, z: number, intensity: number) {
+  virtual(ctx, g, 'point', x, y, z, intensity)
 }
 
 const dark = () => new THREE.MeshStandardMaterial({ color: '#27272a', roughness: 0.5, metalness: 0.3 })
@@ -284,11 +299,12 @@ export function buildFixture(
     return g
   }
 
-  const handle: LightHandle = { floorId: floor.id, id: sym.id, lights: [], emissive: [], glows: [] }
+  const handle: LightHandle = { floorId: floor.id, id: sym.id, lights: [], emissive: [], glows: [], glowAt: [], glowColors: [] }
   const ctx: Ctx = {
     color: new THREE.Color(LIGHT_COLORS[sym.light?.color ?? 'warm'].hex),
     brightness: sym.light?.brightness ?? 1,
     handle,
+    room: kind === 'cove' ? sym.room : floor.rooms.find((r) => pointInPolygon(pose, r.points))?.id,
   }
   handles.lights.push(handle)
 
@@ -360,9 +376,7 @@ export function buildFixture(
       g.add(lens(ctx, new THREE.SphereGeometry(4, 16, 12)).translateY(hang + h * 0.35))
       g.add(glow(ctx, w * 1.1, 0, hang + 2, 0))
       spotLight(ctx, g, 0, hang + h * 0.3, 0, 10, 0.75)
-      const p = add(ctx, new THREE.PointLight(ctx.color, 2.5, 0, 2), 2.5)
-      p.position.set(0, hang + h * 0.3, 0)
-      g.add(p)
+      pointLight(ctx, g, 0, hang + h * 0.3, 0, 2.5)
       break
     }
     case 'linear-pendant': {
@@ -400,9 +414,7 @@ export function buildFixture(
         g.add(lens(ctx, new THREE.SphereGeometry(3, 12, 10)).translateX(x).translateY(hang + h * 0.3 + 5).translateZ(z))
         g.add(glow(ctx, 18, x, hang + h * 0.3 + 5, z))
       }
-      const p = add(ctx, new THREE.PointLight(ctx.color, 9, 0, 2), 9)
-      p.position.set(0, hang + h * 0.35, 0)
-      g.add(p)
+      pointLight(ctx, g, 0, hang + h * 0.35, 0, 9)
       break
     }
     case 'ceiling': {
@@ -410,9 +422,7 @@ export function buildFixture(
       g.add(ring(w / 2 - 0.6, 0.7, white(), 0, top - 5, 0)) // rim
       g.add(lens(ctx, new THREE.CylinderGeometry(w / 2 - 2, w / 2 - 2, 0.4, 32)).translateY(top - 5.2))
       g.add(glow(ctx, w * 1.6, 0, top - 8, 0))
-      const p = add(ctx, new THREE.PointLight(ctx.color, 6, 0, 2), 6)
-      p.position.set(0, top - 15, 0)
-      g.add(p)
+      pointLight(ctx, g, 0, top - 15, 0, 6)
       break
     }
     case 'wall': {
@@ -421,14 +431,90 @@ export function buildFixture(
       // Half cylinder bulging into the room (+Z).
       g.add(lens(ctx, new THREE.CylinderGeometry(w / 2, w / 2, h * 0.8, 24, 1, false, -Math.PI / 2, Math.PI)).translateY(hang + h / 2).translateZ(-d / 2 + 3))
       g.add(glow(ctx, 40, 0, hang + h / 2, 4))
-      const p = add(ctx, new THREE.PointLight(ctx.color, 3, 0, 2), 3)
-      p.position.set(0, hang + h / 2, 12 - d / 2)
-      g.add(p)
+      pointLight(ctx, g, 0, hang + h / 2, 12 - d / 2, 3)
       break
     }
   }
   g.traverse((o) => (o.userData.pick = pick))
+  // A spot's trim and housing only show up close by; further away its lit lens and glow are all there is to see.
+  if (kind === 'spot') {
+    const details: THREE.Object3D[] = []
+    g.traverse((o) => {
+      if (o instanceof THREE.Mesh && !(o.material as THREE.Material).userData.lens) details.push(o)
+    })
+    g.userData.details = details
+  }
   return g
+}
+
+/** Within this distance of the camera (m), spots show their trim and housing. */
+export const DETAIL_DISTANCE = 8
+
+const glowVertex = `
+attribute float size;
+attribute vec3 color;
+uniform float halfHeight;
+varying vec3 vColor;
+void main() {
+  vColor = color;
+  vec4 mv = modelViewMatrix * vec4(position, 1.0);
+  gl_Position = projectionMatrix * mv;
+  // Sized in model units, like the sprites these replace.
+  gl_PointSize = size * length(modelMatrix[0].xyz) * projectionMatrix[1][1] * halfHeight / -mv.z;
+}`
+
+const glowFragment = `
+uniform float opacity;
+varying vec3 vColor;
+void main() {
+  float d = length(gl_PointCoord - vec2(0.5)) * 2.0;
+  if (d >= 1.0 || dot(vColor, vColor) == 0.0) discard;
+  float a = d < 0.25 ? mix(1.0, 0.55, d / 0.25) : mix(0.55, 0.0, (d - 0.25) / 0.75);
+  gl_FragColor = vec4(vColor, a * opacity);
+  #include <tonemapping_fragment>
+  #include <colorspace_fragment>
+}`
+
+/**
+ * All the fixtures' glow halos as one cloud of points: one draw call instead of one per sprite. Each light handle
+ * keeps the indices of its points and their colors, to switch them with its lights (see applyLightState).
+ */
+export function bakeGlows(root: THREE.Object3D, handles: LightHandle[]) {
+  root.updateMatrixWorld(true)
+  const pos: number[] = []
+  const size: number[] = []
+  const p = new THREE.Vector3()
+  const inv = root.matrixWorld.clone().invert()
+  for (const h of handles) {
+    for (const s of h.glows) {
+      s.getWorldPosition(p).applyMatrix4(inv)
+      h.glowAt.push(size.length)
+      h.glowColors.push((s.material as THREE.SpriteMaterial).color.clone())
+      pos.push(p.x, p.y, p.z)
+      size.push(s.scale.x)
+      s.removeFromParent()
+      ;(s.material as THREE.Material).dispose()
+    }
+    h.glows = []
+  }
+  if (!size.length) return
+  const geo = new THREE.BufferGeometry()
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3))
+  geo.setAttribute('color', new THREE.Float32BufferAttribute(new Float32Array(size.length * 3), 3))
+  geo.setAttribute('size', new THREE.Float32BufferAttribute(size, 1))
+  const material = new THREE.ShaderMaterial({
+    uniforms: { opacity: { value: 0.5 }, halfHeight: { value: 400 } },
+    vertexShader: glowVertex,
+    fragmentShader: glowFragment,
+    blending: THREE.AdditiveBlending,
+    transparent: true,
+    depthWrite: false,
+  })
+  const cloud = new THREE.Points(geo, material)
+  const buf = new THREE.Vector2()
+  cloud.onBeforeRender = (renderer) => (material.uniforms.halfHeight.value = renderer.getDrawingBufferSize(buf).y / 2)
+  root.add(cloud)
+  root.userData.glowCloud = cloud
 }
 
 /** Apply on/off states and the daylight level to the lights in a built scene. */
@@ -441,14 +527,21 @@ export function applyLightState(
   const lights = (root.userData.lightHandles ?? []) as LightHandle[]
   const switches = (root.userData.switchHandles ?? []) as SwitchHandle[]
   const glowOpacity = 0.25 + 0.6 * (1 - daylight)
+  const cloud = root.userData.glowCloud as THREE.Points<THREE.BufferGeometry, THREE.ShaderMaterial> | undefined
+  const colors = cloud?.geometry.getAttribute('color') as THREE.BufferAttribute | undefined
   for (const h of lights) {
     const on = isOn(h.floorId, h.id)
-    for (const { light, base } of h.lights) light.intensity = on ? base : 0
+    for (const v of h.lights) v.intensity = on ? v.base : 0
     for (const m of h.emissive) m.emissiveIntensity = on ? 2.2 : 0
-    for (const s of h.glows) {
-      s.visible = on
-      ;(s.material as THREE.SpriteMaterial).opacity = glowOpacity
-    }
+    h.glowAt.forEach((i, k) => {
+      const c = h.glowColors[k]
+      if (on) colors?.setXYZ(i, c.r, c.g, c.b)
+      else colors?.setXYZ(i, 0, 0, 0)
+    })
+  }
+  if (cloud && colors) {
+    colors.needsUpdate = true
+    cloud.material.uniforms.opacity.value = glowOpacity
   }
   for (const s of switches) {
     const on = switchOn(s.id)

@@ -4,7 +4,7 @@ import * as THREE from 'three'
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
 import { RectAreaLightUniformsLib } from 'three/addons/lights/RectAreaLightUniformsLib.js'
 import { toast } from 'sonner'
-import { Aperture, BookmarkPlus, Camera, DoorClosed, DoorOpen, Keyboard, Lightbulb, LightbulbOff, Moon, RotateCcw, SquareDashed, Sun, X } from 'lucide-react'
+import { Aperture, BookmarkPlus, Camera, DoorClosed, DoorOpen, Loader2, Keyboard, Lightbulb, LightbulbOff, Moon, RotateCcw, SquareDashed, Sun, X } from 'lucide-react'
 import { ViewpointBar, ViewpointMarkers } from '@/components/Viewpoints'
 import {
   DropdownMenu,
@@ -27,14 +27,18 @@ import { bbox, labelPoint, pointInPolygon } from '@/model/geometry'
 import { isLightOn, LIGHT_COLORS, OTHER_LIGHTS, switchesFor, WIRE_COLORS } from '@/model/lighting'
 import { uid } from '@/model/project'
 import { SYMBOL_MAP } from '@/model/symbols'
-import type { LightColor } from '@/model/types'
+import { refsOf } from '@/model/items'
+import type { LightColor, Selection } from '@/model/types'
 import { currentFloor, draftFloor, useEditor, useFloor } from '@/store/editor'
 import { useUi } from '@/store/ui'
 import { buildProjectGroup, SLAB } from '@/three/buildScene'
 import type { FloorFilter, PickInfo } from '@/three/buildScene'
 import { KEY_HELP, KeyboardNav, NUMPAD_HELP } from '@/three/keyboardNav'
 import { poseDoor } from '@/three/furniture'
-import { applyLightState } from '@/three/lighting3d'
+import { applyLightState, DETAIL_DISTANCE } from '@/three/lighting3d'
+import type { LightHandle } from '@/three/lighting3d'
+import { LightPool } from '@/three/lightPool'
+import type { PoolRoom } from '@/three/lightPool'
 import { computeViewpoints, floorBase, LENSES, planFlight, stepFlight, verticalFov } from '@/three/viewpoints'
 import type { Flight, Lens, Viewpoint } from '@/three/viewpoints'
 
@@ -63,6 +67,83 @@ interface Ctx {
   flight: Flight | null
   /** Doors swinging or sliding open or shut: the part, from and to (0 shut … 1 open), and when it started (ms). */
   doorAnims: { part: THREE.Object3D; from: number; to: number; t0: number }[]
+  /** The few real lights, lent to the fixtures that matter from where the camera is; handed out again when it moves. */
+  pool: LightPool
+  poolDirty: boolean
+  poolAt: number
+  /** Shaders are being compiled in the background (first build): nothing is drawn meanwhile. */
+  compiling: boolean
+  /** Shown (3D mode); hidden, it stays alive but doesn't draw, listen to keys or rebuild. */
+  visible: boolean
+  /** The selection's meshes, showing highlighted copies of their materials (originals in userData.baseMat). */
+  highlighted: THREE.Mesh[]
+  hlMats: Map<THREE.Material, THREE.Material>
+  /** The project last built, to frame a newly opened one. */
+  projectId: string | null
+  /** When the camera last moved (ms), and whether frames were slow while it moved: then it moves at a lower resolution. */
+  movedAt: number
+  frameMs: number
+  slow: boolean
+}
+
+/** Pixel ratio at rest, and while moving on a slow machine (sharp again as soon as the camera stops). */
+const fullRatio = () => Math.min(window.devicePixelRatio, 2)
+const movingRatio = () => Math.max(0.75, fullRatio() * 0.5)
+
+/** Hand out the real lights again, when the camera has moved or lights changed (at most every so often). */
+const POOL_EVERY_MS = 150
+
+/** Give the pool's real lights to the fixtures that matter most from where the camera is. */
+function updatePool(ctx: Ctx) {
+  ctx.poolDirty = false
+  ctx.poolAt = performance.now()
+  const content = ctx.content
+  if (!content) return ctx.pool.clear()
+  const lights = ((content.userData.lightHandles ?? []) as LightHandle[]).flatMap((h) => h.lights)
+  const rooms = (content.userData.poolRooms ?? []) as PoolRoom[]
+  const st = useEditor.getState()
+  const floor = currentFloor(st)
+  const base = floorBase(st.project, floor.id)
+  const roomAt = (v: THREE.Vector3, anyHeight: boolean) => {
+    const h = v.y / WORLD_SCALE - base
+    if (!anyHeight && (h < 0 || h > floor.height)) return undefined
+    return floor.rooms.find((r) => pointInPolygon({ x: v.x / WORLD_SCALE, y: v.z / WORLD_SCALE }, r.points))
+  }
+  // Walking in a room: light around the camera. Looking at the home from outside: around what it looks at.
+  const inside = roomAt(ctx.camera.position, false)
+  const focus = inside ? ctx.camera.position : ctx.controls.target
+  ctx.pool.assign(lights, rooms, focus, (inside ?? roomAt(ctx.controls.target, true))?.id ?? null)
+  // Small fixture parts only near the camera.
+  const at = new THREE.Vector3()
+  for (const g of (content.userData.detailed ?? []) as THREE.Object3D[]) {
+    const near = g.getWorldPosition(at).distanceTo(ctx.camera.position) < DETAIL_DISTANCE
+    for (const d of g.userData.details as THREE.Object3D[]) d.visible = near
+  }
+  ctx.dirty = true
+}
+
+/** Show the selected items highlighted, by swapping in highlighted copies of their materials (no rebuild needed). */
+function highlight(ctx: Ctx, sel: Selection | null) {
+  for (const m of ctx.highlighted) m.material = m.userData.baseMat as THREE.Material
+  ctx.highlighted = []
+  const keys = new Set(refsOf(sel).map((r) => `${r.kind}:${r.id}`))
+  if (!keys.size || !ctx.content) return
+  ctx.content.traverse((o) => {
+    if (!(o instanceof THREE.Mesh)) return
+    const pick = o.userData.pick as PickInfo | undefined
+    const mat = o.material
+    if (!pick || !keys.has(`${pick.kind}:${pick.id}`) || !(mat instanceof THREE.MeshStandardMaterial) || mat.userData.lens) return
+    let hl = ctx.hlMats.get(mat)
+    if (!hl) {
+      const copy = mat.clone()
+      copy.emissive = new THREE.Color('#2563eb')
+      copy.emissiveIntensity = 0.45
+      ctx.hlMats.set(mat, (hl = copy))
+    }
+    o.userData.baseMat = mat
+    o.material = hl
+    ctx.highlighted.push(o)
+  })
 }
 
 const DOOR_MS = 650
@@ -291,7 +372,11 @@ export default function Viewer3D() {
   const lens = useEditor((s) => s.settings.lens3d)
   const setSettings = useEditor((s) => s.setSettings)
   const theme = usePlanTheme()
+  const visible = useEditor((s) => s.viewMode === '3d')
   const [built, setBuilt] = useState(0)
+  const [compiling, setCompiling] = useState(true)
+  /** What the scene was last built from, so showing the view again doesn't rebuild an unchanged scene. */
+  const builtFrom = useRef<unknown[]>([])
   const [tour, setTour] = useState(false)
   const [active, setActive] = useState<string | null>(null)
   const [playing, setPlaying] = useState(false)
@@ -302,9 +387,11 @@ export default function Viewer3D() {
     RectAreaLightUniformsLib.init()
     const host = hostRef.current!
     const renderer = new THREE.WebGLRenderer({ antialias: true })
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2))
+    renderer.setPixelRatio(fullRatio())
     renderer.shadowMap.enabled = true
     renderer.shadowMap.type = THREE.PCFShadowMap
+    // The sun doesn't move with the camera: redraw its shadows only when the scene or daylight changes.
+    renderer.shadowMap.autoUpdate = false
     renderer.toneMapping = THREE.NeutralToneMapping
     host.appendChild(renderer.domElement)
     renderer.domElement.style.display = 'block'
@@ -338,6 +425,9 @@ export default function Viewer3D() {
     ground.receiveShadow = true
     scene.add(ground)
 
+    const pool = new LightPool()
+    scene.add(pool.group)
+
     const ctx: Ctx = {
       renderer,
       scene,
@@ -357,9 +447,24 @@ export default function Viewer3D() {
       markers: new Map(),
       flight: null,
       doorAnims: [],
+      pool,
+      poolDirty: true,
+      poolAt: 0,
+      compiling: false,
+      visible: false,
+      highlighted: [],
+      hlMats: new Map(),
+      projectId: null,
+      movedAt: 0,
+      frameMs: 0,
+      slow: false,
     }
     ctxRef.current = ctx
-    controls.addEventListener('change', () => (ctx.dirty = true))
+    controls.addEventListener('change', () => {
+      ctx.dirty = true
+      ctx.poolDirty = true
+      ctx.movedAt = performance.now()
+    })
 
     // Walk with the keyboard; mouse orbiting keeps working alongside.
     const nav = new KeyboardNav(camera, controls, {
@@ -371,13 +476,14 @@ export default function Viewer3D() {
       },
     })
     ctx.nav = nav
-    const detachKeys = nav.attach()
     if (import.meta.env.DEV) Object.assign(window, { __viewer: { ctx, nav } })
     const clock = new THREE.Clock()
 
     const resize = () => {
       const { clientWidth: w, clientHeight: h } = host
       if (!w || !h) return
+      ctx.slow = false
+      ctx.frameMs = 0
       renderer.setSize(w, h)
       camera.aspect = w / h
       applyLens(ctx)
@@ -387,8 +493,17 @@ export default function Viewer3D() {
     resize()
 
     renderer.setAnimationLoop(() => {
-      if (nav.update(clock.getDelta())) ctx.dirty = true
+      const dt = clock.getDelta()
+      if (!ctx.visible || ctx.compiling) return
+      const now = performance.now()
+      if (nav.update(dt)) {
+        ctx.dirty = true
+        ctx.poolDirty = true
+        ctx.movedAt = now
+      }
       if (ctx.flight) {
+        ctx.poolDirty = true
+        ctx.movedAt = now
         if (stepFlight(ctx.flight, camera, controls.target)) {
           ctx.flight = null
           controls.enabled = true
@@ -403,9 +518,20 @@ export default function Viewer3D() {
           poseDoor(a.part, a.from + (a.to - a.from) * eased)
           return u < 1
         })
+        renderer.shadowMap.needsUpdate = true
         ctx.dirty = true
       }
       controls.update()
+      if (ctx.poolDirty && now - ctx.poolAt > POOL_EVERY_MS) updatePool(ctx)
+      // Frames too slow while moving: move at a lower resolution, sharp again once the camera stops.
+      const moving = now - ctx.movedAt < 300
+      if (moving && ctx.dirty) ctx.frameMs = ctx.frameMs * 0.8 + Math.min(dt * 1000, 200) * 0.2
+      if (moving && ctx.frameMs > 28) ctx.slow = true
+      const ratio = moving && ctx.slow ? movingRatio() : fullRatio()
+      if (renderer.getPixelRatio() !== ratio) {
+        renderer.setPixelRatio(ratio)
+        ctx.dirty = true
+      }
       if (ctx.dirty) {
         ctx.dirty = false
         renderer.render(scene, camera)
@@ -415,7 +541,6 @@ export default function Viewer3D() {
 
     return () => {
       renderer.setAnimationLoop(null)
-      detachKeys()
       ro.disconnect()
       controls.dispose()
       ctx.content?.userData.dispose?.()
@@ -426,6 +551,18 @@ export default function Viewer3D() {
       ctxRef.current = null
     }
   }, [])
+
+  // ---------- shown or hidden (the view stays alive in 2D, so coming back is instant) ----------
+  useEffect(() => {
+    const ctx = ctxRef.current
+    if (!ctx) return
+    ctx.visible = visible
+    if (!visible) return
+    ctx.dirty = true
+    ctx.poolDirty = true
+    // Walk with the keyboard only while the 3D view is showing.
+    return ctx.nav?.attach()
+  }, [visible])
 
   // ---------- camera helpers ----------
   const frame = useCallback((mode: 'perspective' | 'top') => {
@@ -554,14 +691,14 @@ export default function Viewer3D() {
 
   // Automatic tour: move on to the next viewpoint every few seconds.
   useEffect(() => {
-    if (!playing) return
+    if (!playing || !visible) return
     const t = setTimeout(() => step(1), active ? 6500 : 0)
     return () => clearTimeout(t)
-  }, [playing, active, step])
+  }, [playing, active, step, visible])
 
   // Page Up / Page Down (also what presentation clickers send) step through viewpoints; Esc leaves.
   useEffect(() => {
-    if (!tour) return
+    if (!tour || !visible) return
     const onKey = (e: KeyboardEvent) => {
       if (e.target instanceof Element && e.target.closest('input, textarea, select, [role="dialog"]:not([data-slot="popover-content"]), [role="menu"], [role="listbox"]')) return
       if (e.key === 'Escape') exitTour()
@@ -572,7 +709,7 @@ export default function Viewer3D() {
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [tour, step, exitTour])
+  }, [tour, step, exitTour, visible])
 
   // ---------- saved views ----------
   const savedActions = {
@@ -624,7 +761,7 @@ export default function Viewer3D() {
   // "Look from here in 3D" on a saved view in the 2D plan: go there once the scene is ready.
   const pendingView = useUi((s) => s.pendingView)
   useEffect(() => {
-    if (!pendingView || !built) return
+    if (!pendingView || !built || !visible) return
     const t = setTimeout(() => {
       useUi.getState().setPendingView(null)
       const id = `saved:${pendingView}`
@@ -633,7 +770,7 @@ export default function Viewer3D() {
       goTo(id)
     })
     return () => clearTimeout(t)
-  }, [pendingView, built, viewpoints, goTo])
+  }, [pendingView, built, viewpoints, goTo, visible])
 
   const registerMarker = useCallback((id: string, el: HTMLElement | null) => {
     const ctx = ctxRef.current
@@ -646,12 +783,24 @@ export default function Viewer3D() {
   // ---------- rebuild scene content ----------
   useEffect(() => {
     const ctx = ctxRef.current
-    if (!ctx) return
+    // Hidden: rebuild when shown again, and only if something changed.
+    if (!ctx || !visible) return
+    const from = [project, floorId, filter, theme, showCeilings]
+    if (ctx.content && from.every((x, i) => x === builtFrom.current[i])) return
+    builtFrom.current = from
+    highlight(ctx, null)
+    for (const m of ctx.hlMats.values()) m.dispose()
+    ctx.hlMats.clear()
     ctx.content?.userData.dispose?.()
     if (ctx.content) ctx.world.remove(ctx.content)
-    const content = buildProjectGroup(project, { floorId, filter, selection, theme, showCeilings })
+    // Selection is shown by swapping materials (see `highlight`), so selecting doesn't rebuild the scene.
+    const content = buildProjectGroup(project, { floorId, filter, selection: null, theme, showCeilings })
     ctx.world.add(content)
     ctx.content = content
+    if (ctx.projectId !== project.id) {
+      ctx.projectId = project.id
+      ctx.fitted = false
+    }
 
     // Fit sun, shadow camera and ground to the content (world units are meters).
     ctx.world.updateMatrixWorld(true)
@@ -676,9 +825,34 @@ export default function Viewer3D() {
       ctx.fitted = true
       frame('perspective')
     }
+    ctx.renderer.shadowMap.needsUpdate = true
+    ctx.poolDirty = true
+    ctx.poolAt = 0
+    // The first time, compile the shaders in the background instead of freezing the page on the first frame.
+    if (!ctx.pool.group.userData.compiled) {
+      ctx.pool.group.userData.compiled = true
+      ctx.compiling = true
+      updatePool(ctx)
+      ctx.renderer
+        .compileAsync(ctx.scene, ctx.camera)
+        .catch(() => {})
+        .finally(() => {
+          ctx.compiling = false
+          ctx.dirty = true
+          setCompiling(false)
+        })
+    }
     ctx.dirty = true
     setBuilt((n) => n + 1)
-  }, [project, floorId, filter, selection, theme, showCeilings, frame])
+  }, [project, floorId, filter, theme, showCeilings, frame, visible])
+
+  // ---------- selection, highlighted without rebuilding ----------
+  useEffect(() => {
+    const ctx = ctxRef.current
+    if (!ctx?.content) return
+    highlight(ctx, selection)
+    ctx.dirty = true
+  }, [built, selection])
 
   // ---------- lights on/off and time of day (no rebuild needed) ----------
   useEffect(() => {
@@ -701,7 +875,8 @@ export default function Viewer3D() {
     ctx.hemi.intensity = 0.04 + (theme.dark ? 1.6 : 2.2) * t
     ctx.sun.intensity = 2.4 * t * t
     ctx.sun.castShadow = t > 0.15
-    ctx.dirty = true
+    ctx.renderer.shadowMap.needsUpdate = true
+    updatePool(ctx)
   }, [built, project, lightStates, daylight, theme])
 
   // ---------- doors open or shut, kept as they were across rebuilds ----------
@@ -713,6 +888,7 @@ export default function Viewer3D() {
     ctx.content.traverse((o) => {
       if (o.userData.door) poseDoor(o, closed[pickedId(o)] ? 0 : 1)
     })
+    ctx.renderer.shadowMap.needsUpdate = true
     ctx.dirty = true
   }, [built])
 
@@ -783,6 +959,13 @@ export default function Viewer3D() {
   return (
     <div className="relative h-full w-full">
       <div ref={hostRef} className="absolute inset-0" onPointerDown={onPointerDown} onPointerUp={onPointerUp} />
+      {compiling && (
+        <div className="absolute inset-0 z-20 grid place-items-center bg-background/80 backdrop-blur-sm">
+          <div className="flex items-center gap-2 text-sm text-muted-foreground">
+            <Loader2 className="size-5 animate-spin" /> Preparing the 3D view…
+          </div>
+        </div>
+      )}
       {tour && <ViewpointMarkers points={viewpoints} onGo={goTo} register={registerMarker} />}
       <LightingPanel
         onInside={() => {

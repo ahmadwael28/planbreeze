@@ -1,14 +1,15 @@
 import * as THREE from 'three'
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js'
-import { add, dist, dot, inwardNormal, mul, normalize, offsetPolygon, signedArea, sub } from '@/model/geometry'
+import { add, bbox, dist, dot, inwardNormal, labelPoint, mul, normalize, offsetPolygon, signedArea, sub } from '@/model/geometry'
 import { isSelected } from '@/model/items'
 import { isOutdoor, railingRuns, roomOuter, symbolPose } from '@/model/project'
 import { SYMBOL_MAP } from '@/model/symbols'
 import type { PlanTheme } from '@/model/theme'
 import type { Floor, Point, Project, Room, Selection } from '@/model/types'
 import { COLORS, Materials, railingModel, symbolModel } from './furniture'
-import { buildCeilings, buildFixture } from './lighting3d'
+import { bakeGlows, buildCeilings, buildFixture } from './lighting3d'
 import type { LightHandle, SwitchHandle } from './lighting3d'
+import type { PoolRoom } from './lightPool'
 
 /*
  * Coordinate mapping: plan (x, y) in cm, y pointing down  →  three.js (X = x, Y = up, Z = y).
@@ -171,6 +172,7 @@ export function buildProjectGroup(project: Project, opts: BuildOptions): THREE.G
   const mats = new Materials()
   const handles: { lights: LightHandle[]; switches: SwitchHandle[] } = { lights: [], switches: [] }
   const walls: THREE.Mesh[] = []
+  const poolRooms: PoolRoom[] = []
   const currentIdx = Math.max(
     0,
     project.floors.findIndex((f) => f.id === opts.floorId),
@@ -208,6 +210,17 @@ export function buildProjectGroup(project: Project, opts: BuildOptions): THREE.G
       const mat = mats.get(room.color, hl).clone()
       mat.side = THREE.DoubleSide
       group.add(mesh(geo, mat, { floorId: floor.id, kind: 'room', id: room.id }))
+    }
+
+    // Where each room's fill light goes, if it needs one (see lightPool): its middle, near the ceiling.
+    for (const room of floor.rooms) {
+      if (room.points.length < 3 || isOutdoor(room)) continue
+      const c = labelPoint(room.points)
+      const b = bbox(room.points)
+      const anchor = new THREE.Object3D()
+      anchor.position.set(c.x, floorBase + floor.height * 0.8, c.y)
+      group.add(anchor)
+      poolRooms.push({ id: room.id, anchor, reach: Math.hypot(b.maxX - b.minX, b.maxY - b.minY) * 0.8 })
     }
 
     // Walls (merged per room so each room stays pickable), with skirting boards.
@@ -274,9 +287,17 @@ export function buildProjectGroup(project: Project, opts: BuildOptions): THREE.G
     root.add(group)
   })
 
+  bakeGlows(root, handles.lights)
+  const details: THREE.Object3D[] = []
+  root.traverse((o) => {
+    if (o.userData.details) details.push(o)
+  })
   root.userData.walls = walls
+  /** Fixtures whose small parts only show near the camera (see DETAIL_DISTANCE). */
+  root.userData.detailed = details
   root.userData.lightHandles = handles.lights
   root.userData.switchHandles = handles.switches
+  root.userData.poolRooms = poolRooms
   root.userData.dispose = () => {
     root.traverse((o) => {
       if (o instanceof THREE.Mesh) {
@@ -284,6 +305,9 @@ export function buildProjectGroup(project: Project, opts: BuildOptions): THREE.G
         const m = o.material as THREE.Material | THREE.Material[]
         if (Array.isArray(m)) m.forEach((x) => x.dispose())
         else m.dispose()
+      } else if (o instanceof THREE.Points) {
+        o.geometry.dispose()
+        ;(o.material as THREE.Material).dispose()
       }
     })
   }

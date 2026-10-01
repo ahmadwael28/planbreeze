@@ -89,6 +89,8 @@ interface EditorState {
   selection: Selection | null
   tool: Tool
   viewMode: ViewMode
+  /** The 3D view has been opened: it then stays alive (hidden in 2D), so switching back is instant. */
+  seen3d: boolean
   layer: PlanLayer
   /** The switch being wired while the wire tool is active. */
   wireSwitch: string | null
@@ -156,6 +158,7 @@ export const useEditor = create<EditorState>((set, get) => ({
   selection: null,
   tool: 'select',
   viewMode: '2d',
+  seen3d: false,
   layer: 'plan',
   wireSwitch: null,
   lightStates: {},
@@ -226,7 +229,7 @@ export const useEditor = create<EditorState>((set, get) => ({
       selection: tool === 'select' || tool === 'wire' ? get().selection : null,
       wireSwitch: tool === 'wire' ? get().wireSwitch : null,
     }),
-  setViewMode: (viewMode) => set({ viewMode, tool: 'select' }),
+  setViewMode: (viewMode) => set({ viewMode, tool: 'select', ...(viewMode === '3d' && { seen3d: true }) }),
   setLayer: (layer) => set({ layer, tool: 'select', wireSwitch: null }),
   setWireSwitch: (wireSwitch) => set({ wireSwitch }),
   setLightState: (id, on) => set({ lightStates: { ...get().lightStates, [id]: on } }),

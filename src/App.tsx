@@ -256,6 +256,7 @@ export default function App() {
   const [sidebarOpen, setSidebarOpen] = useState(() => window.innerWidth >= 768)
   const tool = useEditor((s) => s.tool)
   const viewMode = useEditor((s) => s.viewMode)
+  const seen3d = useEditor((s) => s.seen3d)
   const hint = useHint(tool)
 
   useEffect(loadInitialProject, [])
@@ -269,7 +270,7 @@ export default function App() {
       <div className="relative flex min-h-0 flex-1">
         {viewMode === '2d' && <Toolbar />}
         <main className="relative min-w-0 flex-1">
-          {viewMode === '2d' ? (
+          {viewMode === '2d' && (
             <>
               <Canvas />
               <LayerToggle />
@@ -280,16 +281,20 @@ export default function App() {
                 </div>
               )}
             </>
-          ) : (
-            <Suspense
-              fallback={
-                <div className="grid h-full place-items-center text-muted-foreground">
-                  <Loader2 className="size-6 animate-spin" />
-                </div>
-              }
-            >
-              <Viewer3D />
-            </Suspense>
+          )}
+          {/* Once opened, the 3D view stays alive while hidden, so switching back to it is instant. */}
+          {(viewMode === '3d' || seen3d) && (
+            <div className={viewMode === '3d' ? 'h-full' : 'hidden'}>
+              <Suspense
+                fallback={
+                  <div className="grid h-full place-items-center text-muted-foreground">
+                    <Loader2 className="size-6 animate-spin" />
+                  </div>
+                }
+              >
+                <Viewer3D />
+              </Suspense>
+            </div>
           )}
           <FloorBar />
         </main>
