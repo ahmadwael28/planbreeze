@@ -11,7 +11,7 @@ import {
   signedArea,
   sub,
 } from '@/model/geometry'
-import { ceilingZones, covePath, coveRuns, SHADOW_GAP, WIRE_COLORS } from '@/model/lighting'
+import { ceilingZones, covePath, coveRuns, pocketWidth, SHADOW_GAP, WIRE_COLORS } from '@/model/lighting'
 import { dimensionPoints, isOutdoor, railingRuns, roomOuter, symbolPose } from '@/model/project'
 import { SYMBOL_MAP } from '@/model/symbols'
 import type { PlanTheme } from '@/model/theme'
@@ -135,7 +135,9 @@ function CoveLight({ sym, room, scale, forPrint }: { sym: PlanSymbol; room: Room
 
 /** Shadow gaps: a dark groove along the walls where they meet the ceiling (ceiling plan). */
 function ShadowGaps({ room, theme }: { room: Room; theme: PlanTheme }) {
-  const gaps = room.shadowGaps
+  // A curtain pocket on the same wall takes its place.
+  const pockets = new Set(room.ceiling && room.ceiling.style !== 'floating' ? (room.curtainPockets ?? []) : [])
+  const gaps = room.shadowGaps?.filter((i) => !pockets.has(i))
   if (!gaps?.length) return null
   const pts = room.points
   const sa = signedArea(pts)
@@ -148,6 +150,34 @@ function ShadowGaps({ room, theme }: { room: Room; theme: PlanTheme }) {
         const n = mul(inwardNormal(a, b, sa), SHADOW_GAP.width)
         const quad = [a, b, add(b, n), add(a, n)]
         return <path key={i} d={polygonPath(quad)} fill={theme.ink} fillOpacity={0.75} />
+      })}
+    </g>
+  )
+}
+
+/** Curtain pockets: a strip along the wall where the gypsum ceiling stops short, with the curtain track in it. */
+function CurtainPockets({ room, theme }: { room: Room; theme: PlanTheme }) {
+  const pockets = room.ceiling && room.ceiling.style !== 'floating' ? room.curtainPockets : undefined
+  if (!pockets?.length) return null
+  const pts = room.points
+  const sa = signedArea(pts)
+  const w = pocketWidth(room)
+  return (
+    <g pointerEvents="none">
+      {pockets.map((i) => {
+        const a = pts[i]
+        const b = pts[(i + 1) % pts.length]
+        if (!a || !b) return null
+        const n = inwardNormal(a, b, sa)
+        const quad = [a, b, add(b, mul(n, w)), add(a, mul(n, w))]
+        const m1 = add(a, mul(n, w / 2))
+        const m2 = add(b, mul(n, w / 2))
+        return (
+          <g key={i}>
+            <path d={polygonPath(quad)} fill={theme.paper} stroke={theme.ink} strokeWidth={1} vectorEffect="non-scaling-stroke" />
+            <line x1={m1.x} y1={m1.y} x2={m2.x} y2={m2.y} stroke={theme.ink} strokeWidth={1} strokeDasharray="8 3 2 3" vectorEffect="non-scaling-stroke" />
+          </g>
+        )
       })}
     </g>
   )
@@ -432,6 +462,9 @@ export function PlanLayers({
         <g>
           {floor.rooms.map((r) => (
             <CeilingZones key={r.id} room={r} theme={theme} />
+          ))}
+          {floor.rooms.map((r) => (
+            <CurtainPockets key={r.id} room={r} theme={theme} />
           ))}
           {floor.rooms.map((r) => (
             <ShadowGaps key={r.id} room={r} theme={theme} />

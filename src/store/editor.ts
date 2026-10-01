@@ -17,7 +17,7 @@ import type { Arrangement } from '@/model/arrange'
 import { boxCenterShift } from '@/model/guides'
 import { fixSizes } from '@/model/sizes'
 import type { Clip } from '@/model/items'
-import { CEILING_STYLES, OTHER_LIGHTS, pruneControls, remapEdges } from '@/model/lighting'
+import { CEILING_STYLES, OTHER_LIGHTS, pruneControls, remapEdges, remapEdgeValues } from '@/model/lighting'
 import { dimensionPoints, roomOuter } from '@/model/project'
 import { SYMBOL_MAP } from '@/model/symbols'
 import type {
@@ -531,6 +531,8 @@ export function fixAttachments(d: Project, oldRoom: Room) {
   reattachSymbols(f, oldRoom, r)
   // Per-wall settings follow the walls.
   if (r.shadowGaps) r.shadowGaps = remapEdges(oldRoom.points, r.points, r.shadowGaps)
+  if (r.curtainPockets) r.curtainPockets = remapEdges(oldRoom.points, r.points, r.curtainPockets)
+  if (r.ceiling?.bands) r.ceiling.bands = remapEdgeValues(oldRoom.points, r.points, r.ceiling.bands)
   for (const s of f.symbols) {
     if (s.room === r.id && s.cove?.off) s.cove = { ...s.cove, off: remapEdges(oldRoom.points, r.points, s.cove.off) }
   }

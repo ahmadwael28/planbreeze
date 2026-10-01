@@ -8,7 +8,7 @@ import * as THREE from 'three'
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js'
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js'
 import { offsetEdges, pointInPolygon, signedArea } from '@/model/geometry'
-import { ceilingHeightAt, ceilingZones, COVE_WIDTH, coveRuns, gapDrops, inset, LIGHT_COLORS, SHADOW_GAP } from '@/model/lighting'
+import { bandInset, ceilingHeightAt, ceilingOutline, ceilingZones, COVE_WIDTH, coveRuns, gapDrops, LIGHT_COLORS, pocketWidth, SHADOW_GAP } from '@/model/lighting'
 import { symbolPose } from '@/model/project'
 import { frameOf } from '@/model/symbols'
 import type { FixtureKind } from '@/model/symbols'
@@ -81,37 +81,44 @@ export function buildCeilings(floor: Floor, base: number): THREE.Object3D[] {
     // Balconies are open to the sky.
     if (room.points.length < 3 || room.kind) continue
     const c = room.ceiling
-    // Shadow gaps: the ceiling that meets the wall stops short of it, leaving a dark groove.
+    // Shadow gaps: the ceiling that meets the wall stops short of it, leaving a dark groove. Curtain pockets: it stops
+    // further short, leaving a pocket up to the slab for the curtain track.
     const gaps = room.shadowGaps?.filter((i) => i < room.points.length) ?? []
-    const cut = gaps.length ? offsetEdges(room.points, room.points.map((_, i) => (gaps.includes(i) ? -SHADOW_GAP.width : undefined))) : room.points
     const wallCeiling = !c || c.style === 'floating' ? 'structure' : 'gypsum'
+    const pockets = wallCeiling === 'gypsum' ? (room.curtainPockets?.filter((i) => i < room.points.length) ?? []) : []
+    const cut = wallCeiling === 'gypsum' ? ceilingOutline(room) : gaps.length ? offsetEdges(room.points, room.points.map((_, i) => (gaps.includes(i) ? -SHADOW_GAP.width : undefined))) : room.points
     geos.push(ceilingPlane(wallCeiling === 'structure' ? cut : room.points, undefined, H - 0.2))
     if (gaps.length) {
       const surface = wallCeiling === 'structure' ? H - 0.2 : H - c!.drop
       const top = Math.min(surface + SHADOW_GAP.depth, H - 0.1)
       for (const i of gaps) {
+        if (pockets.includes(i)) continue
         const j = (i + 1) % room.points.length
         gapGeos.push(ceilingPlane([room.points[i], room.points[j], cut[j], cut[i]], undefined, top))
         if (top > surface + 0.5) geos.push(band([cut[i], cut[j]], surface, top, 'in'))
       }
     }
+    for (const i of pockets) {
+      const j = (i + 1) % room.points.length
+      geos.push(band([cut[i], cut[j]], H - c!.drop, H - 0.2, 'in'))
+    }
     if (!c) continue
-    ceilingZones(room).forEach((z, k) => geos.push(ceilingPlane(k === 0 && wallCeiling === 'gypsum' ? cut : z.outer, z.inner, H - z.drop)))
+    ceilingZones(room).forEach((z) => geos.push(ceilingPlane(z.outer, z.inner, H - z.drop)))
     switch (c.style) {
       case 'tray':
-        geos.push(band(inset(room, c.band), H - c.drop, H, 'in'))
+        geos.push(band(bandInset(room), H - c.drop, H, 'in'))
         break
       case 'stepped':
-        geos.push(band(inset(room, c.band), H - c.drop, H - c.drop / 2, 'in'))
-        geos.push(band(inset(room, c.band * 2), H - c.drop / 2, H, 'in'))
+        geos.push(band(bandInset(room), H - c.drop, H - c.drop / 2, 'in'))
+        geos.push(band(bandInset(room, 2), H - c.drop / 2, H, 'in'))
         break
       case 'cove':
         // A lip at the edge of the band hides the LED; behind it the trough rises to the ceiling.
-        geos.push(band(inset(room, c.band), H - c.drop, H - c.drop + 8, 'in'))
-        geos.push(band(inset(room, c.band - COVE_WIDTH), H - c.drop + 1, H, 'in'))
+        geos.push(band(bandInset(room), H - c.drop, H - c.drop + 8, 'in'))
+        geos.push(band(bandInset(room, 1, -COVE_WIDTH), H - c.drop + 1, H, 'in'))
         break
       case 'floating':
-        geos.push(band(inset(room, c.band), H - c.drop, H - c.drop + 6, 'out'))
+        geos.push(band(bandInset(room), H - c.drop, H - c.drop + 6, 'out'))
         break
     }
   }
@@ -256,7 +263,7 @@ function rod(a: THREE.Vector3, b: THREE.Vector3, r: number, mat: THREE.Material)
 function gapFixture(ctx: Ctx, room: Room, floor: Floor, base: number, sym: PlanSymbol): THREE.Group {
   const g = new THREE.Group()
   const { runs, drop } = coveRuns(room, sym)
-  const { mouth } = gapDrops(room)
+  const { mouth } = gapDrops(room, sym)
   const y = base + floor.height - drop
   for (const { a, b } of runs) {
     const len = Math.hypot(b.x - a.x, b.y - a.y)
@@ -265,7 +272,7 @@ function gapFixture(ctx: Ctx, room: Room, floor: Floor, base: number, sym: PlanS
     seg.position.set((a.x + b.x) / 2, y, (a.y + b.y) / 2)
     seg.rotation.y = -Math.atan2(b.y - a.y, b.x - a.x)
     seg.add(lens(ctx, new THREE.BoxGeometry(len, 0.8, 1.2)))
-    areaLight(ctx, seg, len, SHADOW_GAP.width - 1, 0, drop - mouth - 0.3, 0, 25)
+    areaLight(ctx, seg, len, sym.type === 'pocket-light' ? pocketWidth(room) - 4 : SHADOW_GAP.width - 1, 0, drop - mouth - 0.3, 0, 25)
     g.add(seg)
   }
   return g

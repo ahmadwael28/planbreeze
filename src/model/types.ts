@@ -16,6 +16,8 @@ export interface Ceiling {
   drop: number
   /** Width of the bulkhead band along the walls (or the gap around a floating panel). */
   band: number
+  /** A different band width on some walls (by wall index; null: the usual one), e.g. deeper over a wardrobe. */
+  bands?: (number | null)[]
 }
 
 export interface Room {
@@ -29,6 +31,10 @@ export interface Room {
   ceiling?: Ceiling
   /** Walls (edge indices) with a shadow gap: a recessed groove where the wall meets the ceiling. */
   shadowGaps?: number[]
+  /** Walls with a curtain pocket: the gypsum ceiling stops short of them, so curtain tracks hide up in the gap. */
+  curtainPockets?: number[]
+  /** How wide the curtain pockets are (cm). */
+  pocketWidth?: number
   /** An outdoor space: a railing (or nothing) instead of walls, none where it meets the building, and no ceiling. */
   kind?: OutdoorKind
   railing?: Railing

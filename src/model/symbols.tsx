@@ -1212,6 +1212,20 @@ export const SYMBOLS: SymbolDef[] = [
     ),
   },
   {
+    // The LED in a room's curtain pockets, lighting the curtains; added from the room's ceiling settings.
+    type: 'pocket-light',
+    name: 'Curtain pocket light',
+    category: 'Lighting',
+    width: 90,
+    depth: 70,
+    height: 1,
+    fixture: 'gap',
+    hidden: true,
+    render: (w, d, _t, sym) => (
+      <rect x={-w / 2} y={-d / 2} width={w} height={d} fill="none" stroke={glow(sym)} strokeWidth={2.5} strokeDasharray="3 3" vectorEffect="non-scaling-stroke" />
+    ),
+  },
+  {
     type: 'pendant',
     name: 'Pendant light',
     category: 'Lighting',

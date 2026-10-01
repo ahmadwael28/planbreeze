@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import type { KeyboardEvent, ReactNode } from 'react'
 import { Cable, Lightbulb, Plus, SlidersHorizontal, Trash2, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -7,7 +8,7 @@ import { Switch } from '@/components/ui/switch'
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
 import { cn } from '@/lib/utils'
 import { bbox, dist, polygonPath } from '@/model/geometry'
-import { CEILING_STYLES, hasTrayEdge, LIGHT_COLORS, pruneControls, switchesFor, WIRE_COLORS } from '@/model/lighting'
+import { bandAt, bandInset, CEILING_STYLES, hasTrayEdge, LIGHT_COLORS, pocketWidth, pruneControls, switchesFor, WIRE_COLORS } from '@/model/lighting'
 import { newSymbol, uid } from '@/model/project'
 import { SYMBOL_MAP } from '@/model/symbols'
 import { formatLength } from '@/model/units'
@@ -200,11 +201,95 @@ export function HiddenLightControls({ room, sym, units }: { room: Room; sym: Pla
 // ---------------------------------------------------------------------------
 // Room ceiling
 
+/** A different band width on some walls (e.g. deeper over a wardrobe): pick a wall on the little plan, set its width. */
+function WallBands({ room, units, set }: { room: Room; units: Units; set: (recipe: (r: Room) => void) => void }) {
+  const [wall, setWall] = useState<number | null>(null)
+  const c = room.ceiling!
+  const pts = room.points
+  const b = bbox(pts)
+  const w = Math.max(1, b.maxX - b.minX)
+  const h = Math.max(1, b.maxY - b.minY)
+  const pad = Math.max(w, h) * 0.08
+  const at = wall !== null && wall < pts.length ? wall : null
+  const custom = (i: number) => c.bands?.[i] != null
+  const setBand = (i: number, v: number | null) =>
+    set((r) => {
+      const ceiling = r.ceiling!
+      const bands = pts.map((_, k) => (k === i ? (v === ceiling.band ? null : v) : (ceiling.bands?.[k] ?? null)))
+      ceiling.bands = bands.some((x) => x !== null) ? bands : undefined
+    })
+  return (
+    <div className="space-y-1.5">
+      <svg
+        viewBox={`${b.minX - pad} ${b.minY - pad} ${w + pad * 2} ${h + pad * 2}`}
+        className="h-28 w-full rounded-md bg-muted/60"
+        preserveAspectRatio="xMidYMid meet"
+        role="group"
+        aria-label="Band width per wall"
+      >
+        <path d={polygonPath(pts)} className="fill-foreground/15" />
+        <path d={polygonPath(bandInset(room))} className="fill-background" />
+        {pts.map((a, i) => {
+          const p = pts[(i + 1) % pts.length]
+          const name = `Wall ${i + 1}, ${formatLength(dist(a, p), units)}: band ${formatLength(bandAt(room, i), units)}`
+          return (
+            <g
+              key={i}
+              role="button"
+              aria-pressed={at === i}
+              aria-label={name}
+              tabIndex={0}
+              className="cursor-pointer outline-none [&:focus-visible>line:last-child]:stroke-ring"
+              onClick={() => setWall(i)}
+              onKeyDown={(e: KeyboardEvent) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault()
+                  setWall(i)
+                }
+              }}
+            >
+              <title>{name}</title>
+              <line x1={a.x} y1={a.y} x2={p.x} y2={p.y} stroke="transparent" strokeWidth={18} vectorEffect="non-scaling-stroke" />
+              <line
+                x1={a.x}
+                y1={a.y}
+                x2={p.x}
+                y2={p.y}
+                stroke={at === i ? 'var(--primary)' : custom(i) ? 'var(--foreground)' : 'var(--muted-foreground)'}
+                strokeOpacity={at === i || custom(i) ? 1 : 0.4}
+                strokeWidth={at === i ? 5 : 3}
+                strokeLinecap="round"
+                vectorEffect="non-scaling-stroke"
+              />
+            </g>
+          )
+        })}
+      </svg>
+      {at === null ? (
+        <p className="text-xs text-muted-foreground">Click a wall to give it a different width, e.g. deeper over a wardrobe.</p>
+      ) : (
+        <div className="space-y-1">
+          <Row label={`Wall ${at + 1}`}>
+            <LengthInput value={bandAt(room, at)} units={units} min={c.style === 'floating' ? 5 : 10} onChange={(v) => setBand(at, v)} />
+          </Row>
+          {custom(at) && (
+            <button className="text-xs text-muted-foreground underline-offset-2 hover:text-foreground hover:underline" onClick={() => setBand(at, null)}>
+              Same as the other walls
+            </button>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
 export function CeilingSection({ room, units }: { room: Room; units: Units }) {
   const floor = useFloor()
   const c = room.ceiling
   const cove = floor.symbols.find((s) => s.room === room.id && s.type === 'cove-light')
   const gapLight = floor.symbols.find((s) => s.room === room.id && s.type === 'gap-light')
+  const pocketLight = floor.symbols.find((s) => s.room === room.id && s.type === 'pocket-light')
+  const canPocket = !!c && c.style !== 'floating'
   const set = (recipe: (r: Room) => void) =>
     useEditor.getState().commit((d) => {
       const r = draftFloor(d).rooms.find((x) => x.id === room.id)
@@ -216,6 +301,26 @@ export function CeilingSection({ room, units }: { room: Room; units: Units }) {
       f.symbols = f.symbols.filter((s) => !(s.room === room.id && s.type === 'cove-light'))
       pruneControls(f)
     })
+  /** Curtain pockets on these walls, and whether they have an LED (it goes with the last pocket). */
+  const setPockets = (walls: number[], light = !!pocketLight) =>
+    useEditor.getState().commit((d) => {
+      const f = draftFloor(d)
+      const r = f.rooms.find((x) => x.id === room.id)
+      if (!r) return
+      r.curtainPockets = walls.length ? walls : undefined
+      const lit = f.symbols.some((s) => s.room === r.id && s.type === 'pocket-light')
+      const want = walls.length > 0 && light
+      if (want && !lit) f.symbols.push({ ...newSymbol('pocket-light', 0, 0), room: r.id })
+      if (!want && lit) {
+        f.symbols = f.symbols.filter((s) => !(s.room === r.id && s.type === 'pocket-light'))
+        pruneControls(f)
+      }
+    })
+  const selectLight = (id: string) => {
+    const st = useEditor.getState()
+    if (st.layer !== 'lighting') st.setLayer('lighting')
+    st.select({ kind: 'symbol', id })
+  }
   /** Shadow gaps on these walls; the first ones come with their LED, and with none left it goes. */
   const setGaps = (walls: number[], light?: boolean) =>
     useEditor.getState().commit((d) => {
@@ -256,9 +361,12 @@ export function CeilingSection({ room, units }: { room: Room; units: Units }) {
             <LengthInput value={c.drop} units={units} min={5} onChange={(v) => set((r) => void (r.ceiling!.drop = v))} />
           </Row>
           {c.style !== 'flat' && (
-            <Row label={c.style === 'floating' ? 'Gap to walls' : 'Band width'}>
-              <LengthInput value={c.band} units={units} min={10} onChange={(v) => set((r) => void (r.ceiling!.band = v))} />
-            </Row>
+            <>
+              <Row label={c.style === 'floating' ? 'Gap to walls' : 'Band width'}>
+                <LengthInput value={c.band} units={units} min={10} onChange={(v) => set((r) => void (r.ceiling!.band = v))} />
+              </Row>
+              <WallBands room={room} units={units} set={set} />
+            </>
           )}
         </>
       )}
@@ -305,6 +413,47 @@ export function CeilingSection({ room, units }: { room: Room; units: Units }) {
           </>
         ) : (
           <p className="text-xs text-muted-foreground">An LED strip hidden in the ceiling, lighting the walls or the ceiling itself.</p>
+        )}
+      </div>
+      <div className="space-y-2 rounded-lg border p-3">
+        <span className="text-sm font-medium">Curtain pocket</span>
+        {canPocket ? (
+          <>
+            <p className="text-xs text-muted-foreground">A gap in the gypsum ceiling along a wall, up to the slab, that hides the curtain track.</p>
+            <WallPicker
+              room={room}
+              on={room.curtainPockets ?? []}
+              units={units}
+              tone="dark"
+              label="Walls with a curtain pocket"
+              onChange={(walls) => setPockets(walls)}
+            />
+            {!!room.curtainPockets?.length && (
+              <>
+                <Row label="Width">
+                  <LengthInput
+                    value={pocketWidth(room)}
+                    units={units}
+                    min={8}
+                    onChange={(v) => set((r) => void (r.pocketWidth = Math.min(40, v)))}
+                  />
+                </Row>
+                <label className="flex items-center justify-between gap-2 text-sm">
+                  <span className="flex items-center gap-1.5">
+                    <Lightbulb className="size-4" /> LED light in the pocket
+                  </span>
+                  <Switch size="sm" checked={!!pocketLight} onCheckedChange={(on) => setPockets(room.curtainPockets ?? [], on)} />
+                </label>
+                {pocketLight && (
+                  <Button variant="outline" size="sm" className="w-full" onClick={() => selectLight(pocketLight.id)}>
+                    <SlidersHorizontal /> Color, brightness and switches
+                  </Button>
+                )}
+              </>
+            )}
+          </>
+        ) : (
+          <p className="text-xs text-muted-foreground">Needs a gypsum ceiling (not a floating panel): choose a style above.</p>
         )}
       </div>
       <div className="space-y-2 rounded-lg border p-3">
@@ -496,7 +645,7 @@ export function SwitchSection({ sym }: { sym: PlanSymbol }) {
   const lights = (sym.controls ?? []).map((id) => byId.get(id)).filter((s): s is PlanSymbol => !!s)
   const wiring = useEditor((s) => s.tool === 'wire' && s.wireSwitch === sym.id)
   const name = (s: PlanSymbol) => {
-    if (s.room) return `${s.type === 'gap-light' ? 'Shadow gap light' : 'Hidden LED'} · ${floor.rooms.find((r) => r.id === s.room)?.name ?? 'room'}`
+    if (s.room) return `${s.type === 'gap-light' ? 'Shadow gap light' : s.type === 'pocket-light' ? 'Curtain pocket light' : 'Hidden LED'} · ${floor.rooms.find((r) => r.id === s.room)?.name ?? 'room'}`
     return SYMBOL_MAP.get(s.type)?.name ?? s.type
   }
   const startWiring = () => {

@@ -319,13 +319,15 @@ function updateSymbol(id: string, recipe: (s: PlanSymbol) => void) {
 function CoveProps({ sym, units }: { sym: PlanSymbol; units: Units }) {
   const floor = useFloor()
   const room = floor.rooms.find((r) => r.id === sym.room)
-  if (sym.type === 'gap-light') {
+  if (sym.type === 'gap-light' || sym.type === 'pocket-light') {
+    const gap = sym.type === 'gap-light'
     return (
       <>
-        <Section title="Shadow gap light">
+        <Section title={gap ? 'Shadow gap light' : 'Curtain pocket light'}>
           <p className="text-sm text-muted-foreground">
-            An LED strip in the shadow gap of <b className="text-foreground">{room?.name ?? 'the room'}</b>, washing the walls below. Choose
-            the walls with a gap in the room's ceiling settings.
+            An LED strip in the {gap ? 'shadow gap' : 'curtain pocket'} of <b className="text-foreground">{room?.name ?? 'the room'}</b>,{' '}
+            {gap ? 'washing the walls below' : 'lighting the curtains'}. Choose the walls with a {gap ? 'gap' : 'pocket'} in the room's ceiling
+            settings.
           </p>
           <LightSection sym={sym} units={units} />
         </Section>

@@ -1007,7 +1007,7 @@ export function Canvas() {
 
         {/* selected cove light: its path */}
         {selCoveRoom &&
-          (selSym?.type === 'gap-light' ? (
+          (selSym?.type === 'gap-light' || selSym?.type === 'pocket-light' ? (
             <path d={coveRuns(selCoveRoom, selSym).runs.map(({ a, b }) => `M${a.x},${a.y}L${b.x},${b.y}`).join('')} className="sel-outline" />
           ) : (
             <path d={polygonPath(covePath(selCoveRoom, selSym).path)} className="sel-outline" />

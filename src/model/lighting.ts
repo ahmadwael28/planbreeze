@@ -1,4 +1,4 @@
-import { offsetPolygon, pointInPolygon, projectOnSegment } from './geometry'
+import { offsetEdges, offsetPolygon, pointInPolygon, projectOnSegment } from './geometry'
 import type { Ceiling, CeilingStyle, Floor, LightColor, PlanSymbol, Point, Room } from './types'
 
 export const LIGHT_COLORS: Record<LightColor, { label: string; kelvin: number; hex: string }> = {
@@ -33,23 +33,65 @@ export function inset(room: Room, by: number): Point[] {
   return by === 0 ? room.points : offsetPolygon(room.points, -by)
 }
 
+/** Usual width of a curtain pocket (cm). */
+export const POCKET_WIDTH = 15
+
+export const pocketWidth = (room: Room) => room.pocketWidth ?? POCKET_WIDTH
+
+/** The ceiling's band width along wall i: its own, or the ceiling's. */
+export const bandAt = (room: Room, i: number) => room.ceiling?.bands?.[i] ?? room.ceiling?.band ?? 0
+
+/** The room moved in by the ceiling's band on each wall (each its own width) times `k`, plus `extra`. */
+export function bandInset(room: Room, k = 1, extra = 0): Point[] {
+  const d = room.points.map((_, i) => -(bandAt(room, i) * k + extra))
+  return d.every((x) => x === 0) ? room.points : offsetEdges(room.points, d)
+}
+
+/**
+ * Where a gypsum ceiling's outer edge runs: along the walls, or short of them where there's a shadow gap or a
+ * curtain pocket.
+ */
+export function ceilingOutline(room: Room): Point[] {
+  const gaps = new Set(room.shadowGaps ?? [])
+  const pockets = new Set(room.ceiling && room.ceiling.style !== 'floating' ? (room.curtainPockets ?? []) : [])
+  if (!gaps.size && !pockets.size) return room.points
+  return offsetEdges(
+    room.points,
+    room.points.map((_, i) => (pockets.has(i) ? -pocketWidth(room) : gaps.has(i) ? -SHADOW_GAP.width : undefined)),
+  )
+}
+
+/**
+ * After a room's outline changed, carry per-wall values over (like `remapEdges`): a new wall takes the value of the
+ * old wall it lies along.
+ */
+export function remapEdgeValues<T>(oldPts: Point[], newPts: Point[], values: (T | null)[] | undefined): (T | null)[] | undefined {
+  if (!values?.length || oldPts.length === newPts.length) return values
+  return newPts.map((a, i) => {
+    const b = newPts[(i + 1) % newPts.length]
+    const m = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 }
+    const j = oldPts.findIndex((p, k) => projectOnSegment(m, p, oldPts[(k + 1) % oldPts.length]).dist < 1)
+    return j >= 0 ? (values[j] ?? null) : null
+  })
+}
+
 /** Areas of a room's ceiling at different heights, for drawing and 3D. `drop` is below the structural ceiling. */
 export function ceilingZones(room: Room): { outer: Point[]; inner?: Point[]; drop: number }[] {
   const c = room.ceiling
   if (!c) return []
   switch (c.style) {
     case 'flat':
-      return [{ outer: room.points, drop: c.drop }]
+      return [{ outer: ceilingOutline(room), drop: c.drop }]
     case 'tray':
     case 'cove':
-      return [{ outer: room.points, inner: inset(room, c.band), drop: c.drop }]
+      return [{ outer: ceilingOutline(room), inner: bandInset(room), drop: c.drop }]
     case 'stepped':
       return [
-        { outer: room.points, inner: inset(room, c.band), drop: c.drop },
-        { outer: inset(room, c.band), inner: inset(room, c.band * 2), drop: c.drop / 2 },
+        { outer: ceilingOutline(room), inner: bandInset(room), drop: c.drop },
+        { outer: bandInset(room), inner: bandInset(room, 2), drop: c.drop / 2 },
       ]
     case 'floating':
-      return [{ outer: inset(room, c.band), drop: c.drop }]
+      return [{ outer: bandInset(room), drop: c.drop }]
   }
 }
 
@@ -78,9 +120,11 @@ export function ceilingHeightAt(floor: Floor, p: Point): number {
  * How far below the ceiling slab a room's shadow gap LED sits (cm), and the gap's mouth: with a gypsum ceiling the
  * groove goes up from it; with none it's just a dark strip at the ceiling.
  */
-export function gapDrops(room: Room): { led: number; mouth: number } {
+export function gapDrops(room: Room, sym?: PlanSymbol): { led: number; mouth: number } {
   const c = room.ceiling
   const mouth = c && c.style !== 'floating' ? c.drop : 0.2
+  // A curtain pocket goes up to the slab: its LED sits at the top, lighting the curtain below.
+  if (sym?.type === 'pocket-light') return { led: 3, mouth }
   return { led: Math.max(mouth - SHADOW_GAP.depth + 1, 0.3), mouth }
 }
 
@@ -90,14 +134,14 @@ export function gapDrops(room: Room): { led: number; mouth: number } {
  */
 export function covePath(room: Room, sym?: PlanSymbol): { path: Point[]; up: boolean; drop: number } {
   if (sym?.type === 'gap-light') return { path: inset(room, SHADOW_GAP.width / 2), up: false, drop: gapDrops(room).led }
+  if (sym?.type === 'pocket-light') return { path: inset(room, pocketWidth(room) / 2), up: false, drop: gapDrops(room, sym).led }
   const c = room.ceiling
-  if (c?.style === 'cove') return { path: inset(room, c.band - COVE_WIDTH / 2), up: true, drop: c.drop - 4 }
-  if (c?.style === 'floating') return { path: inset(room, c.band + 4), up: true, drop: c.drop - 6 }
+  if (c?.style === 'cove') return { path: bandInset(room, 1, -COVE_WIDTH / 2), up: true, drop: c.drop - 4 }
+  if (c?.style === 'floating') return { path: bandInset(room, 1, 4), up: true, drop: c.drop - 6 }
   if (c && sym?.cove?.at === 'inner' && hasTrayEdge(room)) {
     // On top of the band, just behind its inner edge: hidden from below, washing the raised middle.
-    const band = c.style === 'stepped' ? c.band * 2 : c.band
     const drop = c.style === 'stepped' ? c.drop / 2 : c.drop
-    return { path: inset(room, band - 6), up: true, drop: drop - 3 }
+    return { path: bandInset(room, c.style === 'stepped' ? 2 : 1, -6), up: true, drop: drop - 3 }
   }
   return { path: inset(room, 6), up: false, drop: (c?.drop ?? 0) + 3 }
 }
@@ -105,7 +149,7 @@ export function covePath(room: Room, sym?: PlanSymbol): { path: Point[]; up: boo
 /** The lit runs of a room's hidden light: one per wall that isn't switched off (a shadow gap light: that has a gap). */
 export function coveRuns(room: Room, sym?: PlanSymbol): { runs: { a: Point; b: Point; edge: number }[]; up: boolean; drop: number } {
   const { path, up, drop } = covePath(room, sym)
-  const gaps = sym?.type === 'gap-light' ? new Set(room.shadowGaps ?? []) : null
+  const gaps = sym?.type === 'gap-light' ? new Set(room.shadowGaps ?? []) : sym?.type === 'pocket-light' ? new Set(room.curtainPockets ?? []) : null
   const off = new Set(sym?.cove?.off ?? [])
   const runs = path
     .map((a, i) => ({ a, b: path[(i + 1) % path.length], edge: i }))
