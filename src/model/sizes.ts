@@ -54,6 +54,7 @@ const RULES: Record<string, Rules> = {
   washbasin: { width: [30, 200], depth: [30, 60], height: [60, 100] },
   bathtub: { width: [120, 200], depth: [60, 100], height: [40, 70] },
   shower: { width: [70, 200], depth: [70, 200], height: [180, 250] },
+  'shower-quadrant': { width: [70, 120], depth: [70, 120], height: [180, 250] },
   // Electrical and lighting (a switch's or outlet's height is how high it's mounted)
   outlet: { width: 'fixed', depth: 'fixed', height: [10, 200] },
   switch: { width: 'fixed', depth: 'fixed', height: [20, 200] },
@@ -68,7 +69,8 @@ const RULES: Record<string, Rules> = {
   // Ceilings and other
   'gypsum-box': { height: [5, 100] },
   stairs: { width: [60, 300], depth: [150, 800], height: [150, 500] },
-  column: { width: [10, 200], depth: [10, 200], height: [100, 600] },
+  column: { width: [10, 200], depth: [10, 200] },
+  'wall-post': { width: [10, 200], depth: [5, 100] },
 }
 
 /** The limits on one size of an item (fixed: always its standard size), or null if it can be anything. */

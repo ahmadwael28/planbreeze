@@ -80,7 +80,7 @@ export function LibraryPanel() {
         </div>
       )}
       {order.map((cat) => {
-        const items = SYMBOLS.filter((s) => s.category === cat && (!q || `${s.name} ${s.keywords ?? ''}`.toLowerCase().includes(q)))
+        const items = SYMBOLS.filter((s) => s.category === cat && !s.hidden && (!q || `${s.name} ${s.keywords ?? ''}`.toLowerCase().includes(q)))
         if (!items.length) return null
         // While searching, every category with a match is shown open.
         const open = searching || !collapsed.includes(cat)

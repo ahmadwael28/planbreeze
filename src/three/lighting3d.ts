@@ -8,7 +8,7 @@ import * as THREE from 'three'
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js'
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js'
 import { offsetEdges, pointInPolygon, signedArea } from '@/model/geometry'
-import { ceilingHeightAt, ceilingZones, COVE_WIDTH, coveRuns, inset, LIGHT_COLORS, SHADOW_GAP } from '@/model/lighting'
+import { ceilingHeightAt, ceilingZones, COVE_WIDTH, coveRuns, gapDrops, inset, LIGHT_COLORS, SHADOW_GAP } from '@/model/lighting'
 import { symbolPose } from '@/model/project'
 import { frameOf } from '@/model/symbols'
 import type { FixtureKind } from '@/model/symbols'
@@ -252,6 +252,25 @@ function rod(a: THREE.Vector3, b: THREE.Vector3, r: number, mat: THREE.Material)
   return m
 }
 
+/** A shadow gap's LED: high in the groove where the ceiling stops short of the walls, washing the walls below. */
+function gapFixture(ctx: Ctx, room: Room, floor: Floor, base: number, sym: PlanSymbol): THREE.Group {
+  const g = new THREE.Group()
+  const { runs, drop } = coveRuns(room, sym)
+  const { mouth } = gapDrops(room)
+  const y = base + floor.height - drop
+  for (const { a, b } of runs) {
+    const len = Math.hypot(b.x - a.x, b.y - a.y)
+    if (len < 5) continue
+    const seg = new THREE.Group()
+    seg.position.set((a.x + b.x) / 2, y, (a.y + b.y) / 2)
+    seg.rotation.y = -Math.atan2(b.y - a.y, b.x - a.x)
+    seg.add(lens(ctx, new THREE.BoxGeometry(len, 0.8, 1.2)))
+    areaLight(ctx, seg, len, SHADOW_GAP.width - 1, 0, drop - mouth - 0.3, 0, 25)
+    g.add(seg)
+  }
+  return g
+}
+
 function coveFixture(ctx: Ctx, room: Room, floor: Floor, base: number, sym: PlanSymbol): THREE.Group {
   const g = new THREE.Group()
   const { runs, up, drop } = coveRuns(room, sym)
@@ -304,14 +323,14 @@ export function buildFixture(
     color: new THREE.Color(LIGHT_COLORS[sym.light?.color ?? 'warm'].hex),
     brightness: sym.light?.brightness ?? 1,
     handle,
-    room: kind === 'cove' ? sym.room : floor.rooms.find((r) => pointInPolygon(pose, r.points))?.id,
+    room: kind === 'cove' || kind === 'gap' ? sym.room : floor.rooms.find((r) => pointInPolygon(pose, r.points))?.id,
   }
   handles.lights.push(handle)
 
-  if (kind === 'cove') {
+  if (kind === 'cove' || kind === 'gap') {
     const room = floor.rooms.find((r) => r.id === sym.room)
     if (!room) return null
-    const g = coveFixture(ctx, room, floor, base, sym)
+    const g = (kind === 'gap' ? gapFixture : coveFixture)(ctx, room, floor, base, sym)
     g.traverse((o) => (o.userData.pick = pick))
     return g
   }

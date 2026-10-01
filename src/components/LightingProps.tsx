@@ -3,6 +3,7 @@ import { Cable, Lightbulb, Plus, SlidersHorizontal, Trash2, X } from 'lucide-rea
 import { Button } from '@/components/ui/button'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Slider } from '@/components/ui/slider'
+import { Switch } from '@/components/ui/switch'
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
 import { cn } from '@/lib/utils'
 import { bbox, dist, polygonPath } from '@/model/geometry'
@@ -202,7 +203,8 @@ export function HiddenLightControls({ room, sym, units }: { room: Room; sym: Pla
 export function CeilingSection({ room, units }: { room: Room; units: Units }) {
   const floor = useFloor()
   const c = room.ceiling
-  const cove = floor.symbols.find((s) => s.room === room.id)
+  const cove = floor.symbols.find((s) => s.room === room.id && s.type === 'cove-light')
+  const gapLight = floor.symbols.find((s) => s.room === room.id && s.type === 'gap-light')
   const set = (recipe: (r: Room) => void) =>
     useEditor.getState().commit((d) => {
       const r = draftFloor(d).rooms.find((x) => x.id === room.id)
@@ -211,8 +213,24 @@ export function CeilingSection({ room, units }: { room: Room; units: Units }) {
   const removeCove = () =>
     useEditor.getState().commit((d) => {
       const f = draftFloor(d)
-      f.symbols = f.symbols.filter((s) => s.room !== room.id)
+      f.symbols = f.symbols.filter((s) => !(s.room === room.id && s.type === 'cove-light'))
       pruneControls(f)
+    })
+  /** Shadow gaps on these walls; the first ones come with their LED, and with none left it goes. */
+  const setGaps = (walls: number[], light?: boolean) =>
+    useEditor.getState().commit((d) => {
+      const f = draftFloor(d)
+      const r = f.rooms.find((x) => x.id === room.id)
+      if (!r) return
+      const had = !!r.shadowGaps?.length
+      r.shadowGaps = walls.length ? walls : undefined
+      const lit = f.symbols.some((s) => s.room === r.id && s.type === 'gap-light')
+      const want = walls.length > 0 && (light ?? (lit || !had))
+      if (want && !lit) f.symbols.push({ ...newSymbol('gap-light', 0, 0), room: r.id })
+      if (!want && lit) {
+        f.symbols = f.symbols.filter((s) => !(s.room === r.id && s.type === 'gap-light'))
+        pruneControls(f)
+      }
     })
   return (
     <div className="space-y-3">
@@ -298,8 +316,32 @@ export function CeilingSection({ room, units }: { room: Room; units: Units }) {
           units={units}
           tone="dark"
           label="Walls with a shadow gap"
-          onChange={(walls) => set((r) => void (r.shadowGaps = walls.length ? walls : undefined))}
+          onChange={(walls) => setGaps(walls)}
         />
+        {!!room.shadowGaps?.length && (
+          <>
+            <label className="flex items-center justify-between gap-2 text-sm">
+              <span className="flex items-center gap-1.5">
+                <Lightbulb className="size-4" /> LED light in the gap
+              </span>
+              <Switch size="sm" checked={!!gapLight} onCheckedChange={(on) => setGaps(room.shadowGaps ?? [], on)} />
+            </label>
+            {gapLight && (
+              <Button
+                variant="outline"
+                size="sm"
+                className="w-full"
+                onClick={() => {
+                  const st = useEditor.getState()
+                  if (st.layer !== 'lighting') st.setLayer('lighting')
+                  st.select({ kind: 'symbol', id: gapLight.id })
+                }}
+              >
+                <SlidersHorizontal /> Color, brightness and switches
+              </Button>
+            )}
+          </>
+        )}
       </div>
     </div>
   )
@@ -454,7 +496,7 @@ export function SwitchSection({ sym }: { sym: PlanSymbol }) {
   const lights = (sym.controls ?? []).map((id) => byId.get(id)).filter((s): s is PlanSymbol => !!s)
   const wiring = useEditor((s) => s.tool === 'wire' && s.wireSwitch === sym.id)
   const name = (s: PlanSymbol) => {
-    if (s.room) return `Hidden LED · ${floor.rooms.find((r) => r.id === s.room)?.name ?? 'room'}`
+    if (s.room) return `${s.type === 'gap-light' ? 'Shadow gap light' : 'Hidden LED'} · ${floor.rooms.find((r) => r.id === s.room)?.name ?? 'room'}`
     return SYMBOL_MAP.get(s.type)?.name ?? s.type
   }
   const startWiring = () => {

@@ -20,6 +20,7 @@ export type FixtureKind =
   | 'profile'
   | 'track'
   | 'cove'
+  | 'gap'
   | 'pendant'
   | 'linear-pendant'
   | 'chandelier'
@@ -52,6 +53,10 @@ export interface SymbolDef {
   frames?: FrameColor[]
   /** Other words it's found by in the library search. */
   keywords?: string
+  /** Always floor to ceiling (columns): its height follows the floor's. */
+  fullHeight?: boolean
+  /** Not offered in the library (added from elsewhere, e.g. a room's settings). */
+  hidden?: boolean
   /** Draw the symbol centered at the origin: x ∈ [-w/2, w/2], y ∈ [-d/2, d/2]. */
   render: (w: number, d: number, t: PlanTheme, sym?: PlanSymbol) => ReactNode
 }
@@ -941,6 +946,27 @@ export const SYMBOLS: SymbolDef[] = [
     },
   },
 
+  {
+    type: 'shower-quadrant',
+    name: 'Curved corner shower',
+    keywords: 'quadrant round shower',
+    category: 'Bathroom',
+    width: 90,
+    depth: 90,
+    height: 200,
+    render: (w, d, t) => {
+      const k = kit(t)
+      // Walls along the back and left; a quarter-round glass front with sliding doors.
+      return (
+        <>
+          <path d={`M${-w / 2},${-d / 2} L${w / 2},${-d / 2} A${w},${d} 0 0 1 ${-w / 2},${d / 2} Z`} {...k.s()} />
+          <path d={`M${w / 2 - 7},${-d / 2} A${w - 7},${d - 7} 0 0 1 ${-w / 2},${d / 2 - 7}`} {...k.thin} strokeDasharray="4 3" />
+          <circle cx={-w / 2 + w * 0.35} cy={-d / 2 + d * 0.35} r={4} {...k.s()} />
+        </>
+      )
+    },
+  },
+
   // ---------- Electrical ----------
   {
     type: 'outlet',
@@ -1105,6 +1131,20 @@ export const SYMBOLS: SymbolDef[] = [
     ),
   },
   {
+    // The LED in a room's shadow gaps; added from the room's ceiling settings.
+    type: 'gap-light',
+    name: 'Shadow gap light',
+    category: 'Lighting',
+    width: 90,
+    depth: 70,
+    height: 1,
+    fixture: 'gap',
+    hidden: true,
+    render: (w, d, _t, sym) => (
+      <rect x={-w / 2} y={-d / 2} width={w} height={d} fill="none" stroke={glow(sym)} strokeWidth={2.5} strokeDasharray="3 3" vectorEffect="non-scaling-stroke" />
+    ),
+  },
+  {
     type: 'pendant',
     name: 'Pendant light',
     category: 'Lighting',
@@ -1263,10 +1303,25 @@ export const SYMBOLS: SymbolDef[] = [
   {
     type: 'column',
     name: 'Column',
+    keywords: 'pillar post',
     category: 'Other',
     width: 30,
     depth: 30,
     height: 250,
+    fullHeight: true,
+    render: (w, d, t) => kit(t).box(w, d, 0, t.wall),
+  },
+  {
+    // A column partly built into a wall, standing out of it into the room.
+    type: 'wall-post',
+    name: 'Column in a wall',
+    keywords: 'post pillar pilaster wall column',
+    category: 'Other',
+    width: 30,
+    depth: 20,
+    height: 250,
+    wallMount: true,
+    fullHeight: true,
     render: (w, d, t) => kit(t).box(w, d, 0, t.wall),
   },
   {

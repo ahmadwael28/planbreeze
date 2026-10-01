@@ -48,7 +48,7 @@ import {
   useSelectedRoom,
   useSelectedSymbol,
 } from '@/store/editor'
-import { boxGaps, centeredPosition, wallGaps } from '@/model/guides'
+import { boxGaps, centeredPosition, openSides, wallGaps } from '@/model/guides'
 import { isRound, resized, sizeRule } from '@/model/sizes'
 import type { Dim } from '@/model/sizes'
 import { useUi } from '@/store/ui'
@@ -319,6 +319,25 @@ function updateSymbol(id: string, recipe: (s: PlanSymbol) => void) {
 function CoveProps({ sym, units }: { sym: PlanSymbol; units: Units }) {
   const floor = useFloor()
   const room = floor.rooms.find((r) => r.id === sym.room)
+  if (sym.type === 'gap-light') {
+    return (
+      <>
+        <Section title="Shadow gap light">
+          <p className="text-sm text-muted-foreground">
+            An LED strip in the shadow gap of <b className="text-foreground">{room?.name ?? 'the room'}</b>, washing the walls below. Choose
+            the walls with a gap in the room's ceiling settings.
+          </p>
+          <LightSection sym={sym} units={units} />
+        </Section>
+        <Separator />
+        <Section>
+          <Button variant="destructive" size="sm" onClick={deleteSelection}>
+            <Trash2 /> Delete
+          </Button>
+        </Section>
+      </>
+    )
+  }
   return (
     <>
       <Section title="Cove / hidden light">
@@ -379,6 +398,48 @@ function DimensionProps({ dim, units }: { dim: Dimension; units: Units }) {
 }
 
 /** Several items selected: what they are, and what can be done with all of them. */
+/** Which sides of a shower have glass: by default the ones not against a wall, or chosen. */
+function ShowerGlass({ sym }: { sym: PlanSymbol }) {
+  const floor = useFloor()
+  const auto = !sym.screens
+  const sides = sym.screens ?? openSides(sym, floor.rooms)
+  return (
+    <Field label="Glass on">
+      {(id) => (
+        <div className="space-y-1">
+          <ToggleGroup
+            id={id}
+            type="multiple"
+            variant="outline"
+            size="sm"
+            className="w-full"
+            value={sides}
+            onValueChange={(v) => updateSymbol(sym.id, (s) => void (s.screens = v as NonNullable<PlanSymbol['screens']>))}
+          >
+            {(['front', 'left', 'right', 'back'] as const).map((s) => (
+              <ToggleGroupItem key={s} value={s} className="flex-1 capitalize">
+                {s}
+              </ToggleGroupItem>
+            ))}
+          </ToggleGroup>
+          <p className="text-xs text-muted-foreground">
+            {auto ? (
+              'Glass where there is no wall.'
+            ) : (
+              <>
+                Chosen by hand.{' '}
+                <button className="underline underline-offset-2 hover:text-foreground" onClick={() => updateSymbol(sym.id, (s) => void delete s.screens)}>
+                  Follow the walls
+                </button>
+              </>
+            )}
+          </p>
+        </div>
+      )}
+    </Field>
+  )
+}
+
 /** Swatches for the frame finishes an item comes in, plus any custom color. */
 function FramePicker({ sym, frames }: { sym: PlanSymbol; frames: FrameColor[] }) {
   const current = frameOf(sym) ?? frames[0]
@@ -730,7 +791,7 @@ function SymbolProps({ sym, units }: { sym: PlanSymbol; units: Units }) {
           [
             ['width', isRound(sym.type) ? 'Diameter' : 'Width', true],
             ['depth', isLabel ? 'Text size' : 'Depth', !sym.wall && !isRound(sym.type)],
-            ['height', sym.type === 'gypsum-box' ? 'Drop' : def?.fixture === 'switch' ? 'Mount height' : 'Height', !isLabel],
+            ['height', sym.type === 'gypsum-box' ? 'Drop' : def?.fixture === 'switch' ? 'Mount height' : 'Height', !isLabel && !def?.fullHeight],
           ] as [Dim, string, boolean][]
         ).map(([dim, label, shown]) => {
           if (!shown) return null
@@ -764,6 +825,8 @@ function SymbolProps({ sym, units }: { sym: PlanSymbol; units: Units }) {
             </Field>
           )
         })}
+        {def?.fullHeight && <p className="text-xs text-muted-foreground">Floor to ceiling, whatever the room's height.</p>}
+        {sym.type === 'shower' && <ShowerGlass sym={sym} />}
         {def?.frames && <FramePicker sym={sym} frames={def.frames} />}
         {def?.sill !== undefined && (
           <Field label="Sill height">

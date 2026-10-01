@@ -94,6 +94,12 @@ export function wallGaps(sym: PlanSymbol, rooms: Room[]): Partial<Record<Side, n
   return out
 }
 
+/** The sides of a piece that aren't against a wall (within `near` cm of one), e.g. where a shower needs glass. */
+export function openSides(sym: PlanSymbol, rooms: Room[], near = 8): Side[] {
+  const gaps = wallGaps(sym, rooms)
+  return (['front', 'back', 'left', 'right'] as const).filter((s) => gaps[s] === undefined || gaps[s]! > near)
+}
+
 /**
  * Where a free-standing piece's center goes to sit midway between the walls on either side:
  * side to side (across its width), front to back, or both.

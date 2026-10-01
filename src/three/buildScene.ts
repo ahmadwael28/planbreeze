@@ -273,7 +273,7 @@ export function buildProjectGroup(project: Project, opts: BuildOptions): THREE.G
       if (sym.type === 'gypsum-box' || def?.ceilingStyle) continue
       const pose = symbolPose(sym, floor.rooms)
       const hl = isSelected(sel, 'symbol', sym.id)
-      const obj = symbolModel(sym, mats, hl, pose.wallThickness ?? sym.depth, floor.height, !!def)
+      const obj = symbolModel(sym, mats, hl, pose.wallThickness ?? sym.depth, floor.height, !!def, floor.rooms)
       if (!obj.children.length) continue
       const elevation = def?.wall ? (sym.elevation ?? def.sill ?? 0) : (sym.elevation ?? 0)
       obj.position.set(pose.x, floorBase + elevation, pose.y)

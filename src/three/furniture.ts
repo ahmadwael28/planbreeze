@@ -12,6 +12,8 @@ import * as THREE from 'three'
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js'
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js'
 import { inwardNormal, signedArea } from '@/model/geometry'
+import { openSides } from '@/model/guides'
+import type { Side } from '@/model/guides'
 import { chairsAlong, frameOf, seatsAlong, SOFA } from '@/model/symbols'
 import type { PlanSymbol, Point, Room } from '@/model/types'
 
@@ -715,27 +717,111 @@ function bathtub(k: Kit, w: number, d: number, h: number) {
   return g
 }
 
-function shower(k: Kit, w: number, d: number, h: number, glass: Mat) {
+/** A shower with glass on the given sides (model frame: +x right, +z front); the others are walls. */
+function shower(k: Kit, w: number, d: number, h: number, glass: Mat, sides: Set<Side>) {
   const g = new THREE.Group()
   const tray = 5
   g.add(rbox(w, tray, d, 1.5, 0, 0, 0, k.q(COLORS.ceramic, 'gloss')))
   g.add(cylinder(4, 0.3, 0, tray, 0, k.q(COLORS.metal, 'metal')))
   const metal = k.q(COLORS.metal, 'metal')
-  // Glass on the open front and side, in slim frames.
-  g.add(box(w, h - tray, 0.8, 0, tray, d / 2 - 1, glass))
-  g.add(box(0.8, h - tray, d, w / 2 - 1, tray, 0, glass))
-  g.add(box(w, 2, 2, 0, h - 2, d / 2 - 1, metal))
-  g.add(box(2, 2, d, w / 2 - 1, h - 2, 0, metal))
-  g.add(box(2, h - tray, 2, w / 2 - 1, tray, d / 2 - 1, metal))
-  g.add(box(1.2, 30, 2.5, -w / 2 + w * 0.35, 90, d / 2 + 1, k.q(COLORS.chrome, 'chrome'))) // door pull
-  // Rain head on an arm from the back wall, and a mixer.
   const chrome = k.q(COLORS.chrome, 'chrome')
+  // Each side: its middle, and which way is into the shower.
+  const at: Record<Side, { x: number; z: number; nx: number; nz: number; len: number }> = {
+    front: { x: 0, z: d / 2, nx: 0, nz: -1, len: w },
+    back: { x: 0, z: -d / 2, nx: 0, nz: 1, len: w },
+    right: { x: w / 2, z: 0, nx: -1, nz: 0, len: d },
+    left: { x: -w / 2, z: 0, nx: 1, nz: 0, len: d },
+  }
+  // Glass on the open sides, in slim frames.
+  for (const s of sides) {
+    const { x, z, nx, nz, len } = at[s]
+    const along = nz !== 0
+    g.add(box(along ? len : 0.8, h - tray, along ? 0.8 : len, x + nx, tray, z + nz, glass))
+    g.add(box(along ? len : 2, 2, along ? 2 : len, x + nx, h - 2, z + nz, metal))
+  }
+  // Posts at the corners where glass ends.
+  const corner = (a: Side, b: Side, sx: number, sz: number) => {
+    if (sides.has(a) || sides.has(b)) g.add(box(2, h - tray, 2, sx * (w / 2 - 1), tray, sz * (d / 2 - 1), metal))
+  }
+  corner('right', 'front', 1, 1)
+  corner('left', 'front', -1, 1)
+  corner('right', 'back', 1, -1)
+  corner('left', 'back', -1, -1)
+  // The door, with a pull: in the front if it has glass.
+  const door = (['front', 'right', 'left', 'back'] as const).find((s) => sides.has(s))
+  if (door) {
+    const { x, z, nx, nz, len } = at[door]
+    const off = -len / 2 + len * 0.35
+    g.add(box(nz !== 0 ? 1.2 : 2.5, 30, nz !== 0 ? 2.5 : 1.2, x - nx + (nz !== 0 ? off : 0), 90, z - nz + (nz !== 0 ? 0 : off), chrome))
+  }
+  // Rain head on an arm from a wall, and a mixer; with no wall at all, hanging from the frame.
+  const wall = (['back', 'left', 'right', 'front'] as const).find((s) => !sides.has(s))
+  if (wall) {
+    const { x, z, nx, nz } = at[wall]
+    const arm = cylinder(1.1, 25, 0, 0, 0, chrome, 1, 1.1, 12)
+    if (nz !== 0) arm.rotation.x = Math.PI / 2
+    else arm.rotation.z = Math.PI / 2
+    arm.position.set(x + nx * 12.5, h - 10, z + nz * 12.5)
+    g.add(arm)
+    g.add(cylinder(11, 1.6, x + nx * 25, h - 12, z + nz * 25, chrome))
+    g.add(rbox(nz !== 0 ? 14 : 4, 8, nz !== 0 ? 4 : 14, 2, x + nx * 2, 105, z + nz * 2, chrome))
+  } else {
+    g.add(cylinder(1.1, 10, 0, h - 10.4, 0, chrome, 1, 1.1, 12))
+    g.add(cylinder(11, 1.6, 0, h - 12, 0, chrome))
+  }
+  return g
+}
+
+/** A curved corner shower: walls on the back and left, a quarter-round glass front with sliding doors. */
+function quadrantShower(k: Kit, w: number, d: number, h: number, glass: Mat) {
+  const g = new THREE.Group()
+  const tray = 5
+  const shape = new THREE.Shape()
+  shape.moveTo(0, 0)
+  shape.lineTo(w, 0)
+  shape.absellipse(0, 0, w, d, 0, Math.PI / 2, false)
+  shape.lineTo(0, 0)
+  const trayGeo = new THREE.ExtrudeGeometry(shape, { depth: tray, bevelEnabled: false, curveSegments: 24 })
+  trayGeo.rotateX(Math.PI / 2)
+  trayGeo.translate(-w / 2, tray, -d / 2)
+  g.add(mesh(trayGeo, k.q(COLORS.ceramic, 'gloss')))
+  g.add(cylinder(4, 0.3, -w / 2 + w * 0.35, tray, -d / 2 + d * 0.35, k.q(COLORS.metal, 'metal')))
+  const metal = k.q(COLORS.metal, 'metal')
+  const chrome = k.q(COLORS.chrome, 'chrome')
+  // Curved glass and its rails: a quarter of a cylinder around the corner, stretched to the tray.
+  const curve = (height: number, y: number, mat: Mat, inset: number) => {
+    const m = mesh(new THREE.CylinderGeometry(1, 1, height, 32, 1, true, 0, Math.PI / 2), mat)
+    m.scale.set(w - inset, 1, d - inset)
+    m.position.set(-w / 2, y + height / 2, -d / 2)
+    return m
+  }
+  g.add(curve(h - tray - 4, tray + 2, glass, 1.5))
+  g.add(curve(2.5, tray, metal, 1))
+  g.add(curve(2.5, h - 2.5, metal, 1))
+  g.add(box(2.5, h - tray, 2.5, w / 2 - 1.25, tray, -d / 2 + 1.25, metal))
+  g.add(box(2.5, h - tray, 2.5, -w / 2 + 1.25, tray, d / 2 - 1.25, metal))
+  // Pulls on the two sliding doors, meeting in the middle of the curve.
+  for (const a of [Math.PI / 4 - 0.12, Math.PI / 4 + 0.12]) {
+    g.add(box(1.4, 30, 1.4, -w / 2 + (w + 1) * Math.cos(a), 90, -d / 2 + (d + 1) * Math.sin(a), chrome))
+  }
+  // Rain head on an arm from the back wall, near the corner, and a mixer.
+  const hx = -w / 2 + w * 0.32
   const arm = cylinder(1.1, 25, 0, 0, 0, chrome, 1, 1.1, 12)
   arm.rotation.x = Math.PI / 2
-  arm.position.set(0, h - 10, -d / 2 + 12.5)
+  arm.position.set(hx, h - 10, -d / 2 + 12.5)
   g.add(arm)
-  g.add(cylinder(11, 1.6, 0, h - 12, -d / 2 + 25, chrome))
-  g.add(rbox(14, 8, 4, 2, 0, 105, -d / 2 + 2, chrome))
+  g.add(cylinder(11, 1.6, hx, h - 12, -d / 2 + 25, chrome))
+  g.add(rbox(14, 8, 4, 2, hx, 105, -d / 2 + 2, chrome))
+  return g
+}
+
+/** A column built into a wall, floor to ceiling, with skirting along its three exposed faces. */
+function wallPost(k: Kit, w: number, d: number, floorH: number) {
+  const g = new THREE.Group()
+  g.add(box(w, floorH, d, 0, 0, 0, k.q(COLORS.wall)))
+  const skirt = k.q(COLORS.white, 'satin')
+  g.add(box(w + 2.4, 8, 1.2, 0, 0, d / 2 + 0.6, skirt))
+  for (const s of [-1, 1]) g.add(box(1.2, 8, d, s * (w / 2 + 0.6), 0, 0, skirt))
   return g
 }
 
@@ -1060,7 +1146,7 @@ export function railingModel(room: Room, runs: { a: Point; b: Point }[], mats: M
 // ---------------------------------------------------------------------------
 
 /** The 3D model for a symbol (not light fixtures), in its local frame. Empty for symbols without one. */
-export function symbolModel(sym: PlanSymbol, mats: Materials, hl: boolean, wallT: number, floorH: number, hasDef: boolean): THREE.Group {
+export function symbolModel(sym: PlanSymbol, mats: Materials, hl: boolean, wallT: number, floorH: number, hasDef: boolean, rooms: Room[] = []): THREE.Group {
   const k: Kit = { q: (color, finish) => mats.get(color, hl, finish), glass: () => mats.glass() }
   const w = sym.width
   const d = sym.depth
@@ -1152,8 +1238,18 @@ export function symbolModel(sym: PlanSymbol, mats: Materials, hl: boolean, wallT
     case 'bathtub':
       g = bathtub(k, w, d, h)
       break
-    case 'shower':
-      g = shower(k, w, d, h, k.glass())
+    case 'shower': {
+      // Glass where chosen, or on the sides not against a wall; the model is mirrored by flips, the sides with it.
+      const flip = (s: Side): Side =>
+        sym.flipX && (s === 'left' || s === 'right') ? (s === 'left' ? 'right' : 'left') : sym.flipY && (s === 'front' || s === 'back') ? (s === 'front' ? 'back' : 'front') : s
+      g = shower(k, w, d, h, k.glass(), new Set((sym.screens ?? openSides(sym, rooms)).map(flip)))
+      break
+    }
+    case 'shower-quadrant':
+      g = quadrantShower(k, w, d, h, k.glass())
+      break
+    case 'wall-post':
+      g = wallPost(k, w, d, floorH)
       break
     case 'toilet':
       g = toilet(k, w, d, h)

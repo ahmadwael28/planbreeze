@@ -115,6 +115,8 @@ export interface PlanSymbol {
   controls?: string[]
   /** Cove / hidden lights: the room whose ceiling they run around. */
   room?: string
+  /** Showers: the sides with glass (front, back, left, right); left out, the sides not against a wall. */
+  screens?: ('front' | 'back' | 'left' | 'right')[]
   /** Frame / trim color (hex) for items that come in several finishes: spots, tracks, aluminium doors. */
   frame?: string
   /** Magnetic tracks: the modules clipped into them. */

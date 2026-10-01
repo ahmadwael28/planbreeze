@@ -343,7 +343,7 @@ export function applyCeiling(roomId: string, style: CeilingStyle | null) {
     const band = room.ceiling?.band && style !== 'flat' ? room.ceiling.band : defaults.band
     room.ceiling = { style, drop: room.ceiling?.drop ?? defaults.drop, band }
     // Cove and floating ceilings come with their hidden LED.
-    if ((style === 'cove' || style === 'floating') && !f.symbols.some((s) => s.room === room.id)) {
+    if ((style === 'cove' || style === 'floating') && !f.symbols.some((s) => s.room === room.id && s.type === 'cove-light')) {
       const c = labelPoint(room.points)
       f.symbols.push({ ...newSymbol('cove-light', c.x, c.y), room: room.id })
     }

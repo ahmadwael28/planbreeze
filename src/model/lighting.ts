@@ -75,10 +75,21 @@ export function ceilingHeightAt(floor: Floor, p: Point): number {
 }
 
 /**
+ * How far below the ceiling slab a room's shadow gap LED sits (cm), and the gap's mouth: with a gypsum ceiling the
+ * groove goes up from it; with none it's just a dark strip at the ceiling.
+ */
+export function gapDrops(room: Room): { led: number; mouth: number } {
+  const c = room.ceiling
+  const mouth = c && c.style !== 'floating' ? c.drop : 0.2
+  return { led: Math.max(mouth - SHADOW_GAP.depth + 1, 0.3), mouth }
+}
+
+/**
  * Where a room's hidden light runs (one point per wall, so edge i follows wall i), and whether it
- * shines up (into a cove or tray) or down (along the walls).
+ * shines up (into a cove or tray) or down (along the walls). A shadow gap light runs in the groove.
  */
 export function covePath(room: Room, sym?: PlanSymbol): { path: Point[]; up: boolean; drop: number } {
+  if (sym?.type === 'gap-light') return { path: inset(room, SHADOW_GAP.width / 2), up: false, drop: gapDrops(room).led }
   const c = room.ceiling
   if (c?.style === 'cove') return { path: inset(room, c.band - COVE_WIDTH / 2), up: true, drop: c.drop - 4 }
   if (c?.style === 'floating') return { path: inset(room, c.band + 4), up: true, drop: c.drop - 6 }
@@ -91,11 +102,14 @@ export function covePath(room: Room, sym?: PlanSymbol): { path: Point[]; up: boo
   return { path: inset(room, 6), up: false, drop: (c?.drop ?? 0) + 3 }
 }
 
-/** The lit runs of a room's hidden light: one per wall that isn't switched off. */
+/** The lit runs of a room's hidden light: one per wall that isn't switched off (a shadow gap light: that has a gap). */
 export function coveRuns(room: Room, sym?: PlanSymbol): { runs: { a: Point; b: Point; edge: number }[]; up: boolean; drop: number } {
   const { path, up, drop } = covePath(room, sym)
+  const gaps = sym?.type === 'gap-light' ? new Set(room.shadowGaps ?? []) : null
   const off = new Set(sym?.cove?.off ?? [])
-  const runs = path.map((a, i) => ({ a, b: path[(i + 1) % path.length], edge: i })).filter((r) => !off.has(r.edge))
+  const runs = path
+    .map((a, i) => ({ a, b: path[(i + 1) % path.length], edge: i }))
+    .filter((r) => (gaps ? gaps.has(r.edge) : !off.has(r.edge)))
   return { runs, up, drop }
 }
 
