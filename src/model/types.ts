@@ -37,6 +37,12 @@ export interface Room {
   curtainPockets?: number[]
   /** How wide the curtain pockets are (cm). */
   pocketWidth?: number
+  /**
+   * Worked out by `ceilingRoom`, not saved: walls where the gypsum ceiling stops short of the wall for its hidden
+   * light, and how far.
+   */
+  hiddenGaps?: number[]
+  hiddenGapWidth?: number
   /** An outdoor space: a railing (or nothing) instead of walls, none where it meets the building, and no ceiling. */
   kind?: OutdoorKind
   railing?: Railing
@@ -62,6 +68,8 @@ export interface CoveSettings {
   off?: number[]
   /** At a column built into a wall: go around it (default) or stop at it. */
   columns?: 'wrap' | 'stop'
+  /** Along the walls of a gypsum ceiling: how wide the gap between the gypsum and the wall it's in (cm). */
+  gap?: number
 }
 
 export type LightColor = 'warm' | 'white' | 'cool'

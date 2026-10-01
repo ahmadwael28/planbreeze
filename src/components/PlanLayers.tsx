@@ -135,8 +135,8 @@ function CoveLight({ sym, room, scale, forPrint }: { sym: PlanSymbol; room: Room
 
 /** Shadow gaps: a dark groove along the walls where they meet the ceiling (ceiling plan). */
 function ShadowGaps({ room, theme }: { room: Room; theme: PlanTheme }) {
-  // A curtain pocket on the same wall takes its place.
-  const pockets = new Set(room.ceiling && room.ceiling.style !== 'floating' ? (room.curtainPockets ?? []) : [])
+  // A curtain pocket, or a hidden light's gap, on the same wall takes its place.
+  const pockets = new Set([...(room.ceiling && room.ceiling.style !== 'floating' ? (room.curtainPockets ?? []) : []), ...(room.hiddenGaps ?? [])])
   const gaps = room.shadowGaps?.filter((i) => !pockets.has(i))
   if (!gaps?.length) return null
   const pts = room.points
@@ -158,13 +158,22 @@ function ShadowGaps({ room, theme }: { room: Room; theme: PlanTheme }) {
 /** Curtain pockets: a strip along the wall where the gypsum ceiling stops short, with the curtain track in it. */
 function CurtainPockets({ room, theme }: { room: Room; theme: PlanTheme }) {
   const pockets = room.ceiling && room.ceiling.style !== 'floating' ? room.curtainPockets : undefined
-  if (!pockets?.length) return null
+  // A hidden light's gap too, where there's no pocket.
+  const hidden = (room.hiddenGaps ?? []).filter((i) => !pockets?.includes(i))
+  if (!pockets?.length && !hidden.length) return null
   const pts = room.points
   const sa = signedArea(pts)
-  const w = pocketWidth(room)
   return (
     <g pointerEvents="none">
-      {pockets.map((i) => {
+      {hidden.map((i) => {
+        const a = pts[i]
+        const b = pts[(i + 1) % pts.length]
+        if (!a || !b) return null
+        const n = mul(inwardNormal(a, b, sa), room.hiddenGapWidth ?? 10)
+        return <path key={`h${i}`} d={polygonPath([a, b, add(b, n), add(a, n)])} fill={theme.paper} stroke={theme.ink} strokeWidth={1} vectorEffect="non-scaling-stroke" />
+      })}
+      {(pockets ?? []).map((i) => {
+        const w = pocketWidth(room)
         const a = pts[i]
         const b = pts[(i + 1) % pts.length]
         if (!a || !b) return null

@@ -8,7 +8,7 @@ import * as THREE from 'three'
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js'
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js'
 import { inwardNormal, offsetEdges, pointInPolygon, projectOnSegment, signedArea } from '@/model/geometry'
-import { bandInset, ceilingHeightAt, ceilingLight, ceilingOutline, ceilingRoom, ceilingZones, COVE_WIDTH, coveRuns, gapDrops, LIGHT_COLORS, SHADOW_GAP } from '@/model/lighting'
+import { bandInset, ceilingHeightAt, ceilingLight, ceilingOutline, ceilingRoom, ceilingZones, COVE_WIDTH, coveRuns, gapDrops, hiddenLightInGap, LIGHT_COLORS, SHADOW_GAP } from '@/model/lighting'
 import { symbolPose } from '@/model/project'
 import { frameOf, styleOf } from '@/model/symbols'
 import type { FixtureKind } from '@/model/symbols'
@@ -90,7 +90,8 @@ export function buildCeilings(floor: Floor, base: number): THREE.Object3D[] {
     // further short, leaving a pocket up to the slab for the curtain track.
     const gaps = room.shadowGaps?.filter((i) => i < room.points.length) ?? []
     const wallCeiling = !c || c.style === 'floating' ? 'structure' : 'gypsum'
-    const pockets = wallCeiling === 'gypsum' ? (room.curtainPockets?.filter((i) => i < room.points.length) ?? []) : []
+    // Curtain pockets and a hidden light's gap: open up to the slab.
+    const pockets = wallCeiling === 'gypsum' ? [...new Set([...(room.curtainPockets ?? []), ...(room.hiddenGaps ?? [])])].filter((i) => i < room.points.length) : []
     const cut = wallCeiling === 'gypsum' ? ceilingOutline(room) : gaps.length ? offsetEdges(room.points, room.points.map((_, i) => (gaps.includes(i) ? -SHADOW_GAP.width : undefined))) : room.points
     geos.push(ceilingPlane(wallCeiling === 'structure' ? cut : room.points, undefined, H - 0.2))
     if (gaps.length) {
@@ -278,17 +279,17 @@ function quad(p: THREE.Vector3[]) {
 }
 
 /**
- * A room's hidden LED strip, whichever it is (cove, shadow gap or curtain pocket light): the same strip and output,
- * and a soft wash on what it lights (the ceiling above when it shines up, the wall below when it shines down), so it
- * shows lit from anywhere, whether or not it has one of the few real lights at the moment (see lightPool).
+ * A room's hidden LED strip, whichever it is (cove, hidden light, shadow gap or curtain pocket light): the same strip
+ * and output, and when it shines down, a soft wash down the wall below, so it shows lit from anywhere, whether or not
+ * it has one of the few real lights at the moment (see lightPool).
  */
 function stripFixture(ctx: Ctx, room: Room, floor: Floor, base: number, sym: PlanSymbol): THREE.Group {
   const g = new THREE.Group()
   const { runs, up, drop } = coveRuns(room, sym)
   const H = base + floor.height
   const y = H - drop
-  // From a gap or pocket the light comes out at its mouth.
-  const inGroove = sym.type === 'gap-light' || sym.type === 'pocket-light'
+  // From a gap or pocket (or a hidden light's gap) the light comes out at its mouth.
+  const inGroove = sym.type === 'gap-light' || sym.type === 'pocket-light' || hiddenLightInGap(room, sym)
   const mouth = inGroove ? gapDrops(room, sym).mouth : drop
   const pts = room.points
   const sa = signedArea(pts)
@@ -312,11 +313,7 @@ function stripFixture(ctx: Ctx, room: Room, floor: Floor, base: number, sym: Pla
     if (!wa || !wb) continue
     const n = inwardNormal(wa, wb, sa)
     const V = (p: { x: number; y: number }, h: number, out = 0) => new THREE.Vector3(p.x + n.x * out, h, p.y + n.y * out)
-    if (up) {
-      // Across the ceiling above, from the strip toward the middle of the room.
-      const reach = 70
-      g.add(new THREE.Mesh(quad([V(a, H - 0.4), V(b, H - 0.4), V(b, H - 0.4, reach), V(a, H - 0.4, reach)]), washMat()))
-    } else {
+    if (!up) {
       // Down the wall below, from where the light comes out.
       const pa = projectOnSegment(a, wa, wb).point
       const pb = projectOnSegment(b, wa, wb).point

@@ -7,7 +7,7 @@ import { Slider } from '@/components/ui/slider'
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
 import { cn } from '@/lib/utils'
 import { bbox, dist, polygonPath } from '@/model/geometry'
-import { bandAt, bandInset, CEILING_STYLES, ceilingRoom, hasTrayEdge, LIGHT_COLORS, pocketWidth, pruneControls, roomColumns, switchesFor, WIRE_COLORS } from '@/model/lighting'
+import { bandAt, bandInset, CEILING_STYLES, ceilingRoom, HIDDEN_GAP, hasTrayEdge, hiddenLightInGap, LIGHT_COLORS, pocketWidth, pruneControls, roomColumns, switchesFor, WIRE_COLORS } from '@/model/lighting'
 import { newSymbol, uid } from '@/model/project'
 import { SYMBOL_MAP } from '@/model/symbols'
 import { formatLength } from '@/model/units'
@@ -271,7 +271,7 @@ export function HiddenLightControls({ room, sym, units }: { room: Room; sym: Pla
           <p className="text-xs text-muted-foreground">
             {sym.cove?.at === 'inner'
               ? 'On top of the lowered band, hidden behind its edge, washing the raised middle with light.'
-              : 'Just below the ceiling along the walls, washing them with light.'}
+              : 'In a gap between the gypsum and the walls, washing them with light.'}
           </p>
         </div>
       )}
@@ -288,6 +288,22 @@ export function HiddenLightControls({ room, sym, units }: { room: Room; sym: Pla
           })
         }
       />
+      {hiddenLightInGap(room, sym) && (
+        <div className="space-y-1">
+          <Row label="Gap to the wall">
+            <LengthInput
+              value={sym.cove?.gap ?? HIDDEN_GAP}
+              units={units}
+              min={4}
+              onChange={(v) => updateSymbol(sym.id, (s) => void (s.cove = { ...s.cove, gap: Math.min(30, v) }))}
+            />
+          </Row>
+          <p className="text-xs text-muted-foreground">
+            The gypsum stops this far from the walls with light; the LED sits up in the gap, throwing light down the wall, like in a
+            curtain pocket.
+          </p>
+        </div>
+      )}
       {columns && (
         <AtColumns value={sym.cove?.columns ?? 'wrap'} onChange={(v) => updateSymbol(sym.id, (s) => void (s.cove = { ...s.cove, columns: v === 'stop' ? 'stop' : undefined }))} />
       )}

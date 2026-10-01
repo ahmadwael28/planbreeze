@@ -115,6 +115,18 @@ export function ceilingRoom(room: Room, floor: Floor): Room {
       shapes.set(out, { parent, face })
     }
   }
+  // Its hidden light along the walls: the gypsum stops short of the walls it lights.
+  const hidden = floor.symbols.find((s) => s.room === room.id && s.type === 'cove-light')
+  if (hidden && hiddenLightInGap(room, hidden)) {
+    const light = ceilingLight(hidden, out)
+    const off = new Set(light.cove?.off ?? [])
+    const lit = out.points.map((_, i) => i).filter((i) => !off.has(i))
+    if (lit.length) {
+      const info = shapes.get(out)
+      out = { ...out, hiddenGaps: lit, hiddenGapWidth: hidden.cove?.gap ?? HIDDEN_GAP }
+      if (info) shapes.set(out, info)
+    }
+  }
   ceilingRooms.set(room, { symbols: floor.symbols, room: out })
   return out
 }
@@ -135,6 +147,18 @@ export function ceilingLight(sym: PlanSymbol, croom: Room): PlanSymbol {
 /** Usual width of a curtain pocket (cm). */
 export const POCKET_WIDTH = 15
 
+/** Usual width of the gap a hidden light along the walls sits in, between a gypsum ceiling and the wall (cm). */
+export const HIDDEN_GAP = 10
+
+/**
+ * Whether a room's hidden light sits in a gap between its gypsum ceiling and the walls (like a curtain pocket, the LED
+ * up in it, lighting the wall below): along the walls of a flat, tray or stepped gypsum ceiling.
+ */
+export function hiddenLightInGap(room: Room, sym: PlanSymbol) {
+  const style = room.ceiling?.style
+  return sym.type === 'cove-light' && sym.cove?.at !== 'inner' && (style === 'flat' || style === 'tray' || style === 'stepped')
+}
+
 export const pocketWidth = (room: Room) => room.pocketWidth ?? POCKET_WIDTH
 
 /** The ceiling's band width along wall i: its own, or the ceiling's. */
@@ -153,10 +177,13 @@ export function bandInset(room: Room, k = 1, extra = 0): Point[] {
 export function ceilingOutline(room: Room): Point[] {
   const gaps = new Set(room.shadowGaps ?? [])
   const pockets = new Set(room.ceiling && room.ceiling.style !== 'floating' ? (room.curtainPockets ?? []) : [])
-  if (!gaps.size && !pockets.size) return room.points
+  const hidden = new Set(room.hiddenGaps ?? [])
+  if (!gaps.size && !pockets.size && !hidden.size) return room.points
   return offsetEdges(
     room.points,
-    room.points.map((_, i) => (pockets.has(i) ? -pocketWidth(room) : gaps.has(i) ? -SHADOW_GAP.width : undefined)),
+    room.points.map((_, i) =>
+      pockets.has(i) ? -pocketWidth(room) : hidden.has(i) ? -(room.hiddenGapWidth ?? HIDDEN_GAP) : gaps.has(i) ? -SHADOW_GAP.width : undefined,
+    ),
   )
 }
 
@@ -222,8 +249,8 @@ export function ceilingHeightAt(floor: Floor, p: Point): number {
 export function gapDrops(room: Room, sym?: PlanSymbol): { led: number; mouth: number } {
   const c = room.ceiling
   const mouth = c && c.style !== 'floating' ? c.drop : 0.2
-  // A curtain pocket goes up to the slab: its LED sits at the top, lighting the curtain below.
-  if (sym?.type === 'pocket-light') return { led: 3, mouth }
+  // A curtain pocket, or a hidden light's gap, goes up to the slab: its LED sits at the top, lighting what's below.
+  if (sym?.type === 'pocket-light' || (sym && hiddenLightInGap(room, sym))) return { led: 3, mouth }
   return { led: Math.max(mouth - SHADOW_GAP.depth + 1, 0.3), mouth }
 }
 
@@ -234,6 +261,8 @@ export function gapDrops(room: Room, sym?: PlanSymbol): { led: number; mouth: nu
 export function covePath(room: Room, sym?: PlanSymbol): { path: Point[]; up: boolean; drop: number } {
   if (sym?.type === 'gap-light') return { path: inset(room, SHADOW_GAP.width / 2), up: false, drop: gapDrops(room).led }
   if (sym?.type === 'pocket-light') return { path: inset(room, pocketWidth(room) / 2), up: false, drop: gapDrops(room, sym).led }
+  // A hidden light along the walls of a gypsum ceiling: up in its gap between the gypsum and the wall.
+  if (sym && hiddenLightInGap(room, sym)) return { path: inset(room, (sym.cove?.gap ?? HIDDEN_GAP) / 2), up: false, drop: gapDrops(room, sym).led }
   const c = room.ceiling
   if (c?.style === 'cove') return { path: bandInset(room, 1, -COVE_WIDTH / 2), up: true, drop: c.drop - 4 }
   if (c?.style === 'floating') return { path: bandInset(room, 1, 4), up: true, drop: c.drop - 6 }
