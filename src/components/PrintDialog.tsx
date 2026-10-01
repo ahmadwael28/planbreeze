@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react'
 import type { ReactNode } from 'react'
-import { FileDown, Loader2 } from 'lucide-react'
+import { FileDown } from 'lucide-react'
+import { Loader } from '@/components/ui/loader'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
@@ -251,7 +252,7 @@ export function PrintDialog() {
                 Cancel
               </Button>
               <Button onClick={download} disabled={busy || layout.empty}>
-                {busy ? <Loader2 className="animate-spin" /> : <FileDown />} Download PDF
+                {busy ? <Loader label="Making the PDF" /> : <FileDown />} Download PDF
               </Button>
             </div>
           </div>

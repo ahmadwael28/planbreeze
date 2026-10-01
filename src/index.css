@@ -245,3 +245,23 @@
   stroke-width: 3;
   vector-effect: non-scaling-stroke;
 }
+
+/* The loader's breeze (components/ui/loader.tsx): drawn in through the doorway, then trailing out of the open corner. */
+@keyframes pb-breeze {
+    0% { stroke-dashoffset: 100; }
+    55% { stroke-dashoffset: 0; }
+    100% { stroke-dashoffset: -100; }
+}
+@keyframes pb-breeze-pulse {
+    50% { opacity: 0.35; }
+}
+.pb-loader-breeze {
+    stroke-dasharray: 100;
+    animation: pb-breeze 1.6s cubic-bezier(0.45, 0, 0.55, 1) infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+    .pb-loader-breeze {
+        stroke-dasharray: none;
+        animation: pb-breeze-pulse 2s ease-in-out infinite;
+    }
+}

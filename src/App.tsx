@@ -1,5 +1,6 @@
 import { lazy, Suspense, useEffect, useState } from 'react'
-import { LayoutGrid, Lightbulb, Loader2 } from 'lucide-react'
+import { LayoutGrid, Lightbulb } from 'lucide-react'
+import { Loader } from '@/components/ui/loader'
 import { toast } from 'sonner'
 import { Canvas } from '@/components/Canvas'
 import { EmptyState } from '@/components/EmptyState'
@@ -287,8 +288,9 @@ export default function App() {
             <div className={viewMode === '3d' ? 'h-full' : 'hidden'}>
               <Suspense
                 fallback={
-                  <div className="grid h-full place-items-center text-muted-foreground">
-                    <Loader2 className="size-6 animate-spin" />
+                  <div className="grid h-full place-content-center justify-items-center gap-3 text-sm text-muted-foreground">
+                    <Loader brand className="size-14 text-foreground" label="Opening the 3D view" />
+                    Opening the 3D view…
                   </div>
                 }
               >

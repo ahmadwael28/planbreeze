@@ -1,5 +1,6 @@
 import { useState } from 'react'
-import { Check, Cloud, CloudUpload, FilePlus2, HardDrive, Loader2, Pencil, Trash2 } from 'lucide-react'
+import { Check, Cloud, CloudUpload, FilePlus2, HardDrive, Pencil, Trash2 } from 'lucide-react'
+import { Loader } from '@/components/ui/loader'
 import { toast } from 'sonner'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -152,7 +153,7 @@ export function ProjectsDialog() {
             </Button>
             {user && localOnly.length > 0 && (
               <Button variant="outline" onClick={uploadAll} disabled={uploading}>
-                {uploading ? <Loader2 className="animate-spin" /> : <CloudUpload />}
+                {uploading ? <Loader label="Uploading" /> : <CloudUpload />}
                 Upload {localOnly.length} plan{localOnly.length === 1 ? '' : 's'} from this device
               </Button>
             )}
@@ -200,7 +201,7 @@ export function ProjectsDialog() {
                 >
                   <span className="flex w-full min-w-0 items-center gap-2">
                     <span className="truncate text-sm font-medium">{p.name}</span>
-                    {busyId === p.id && <Loader2 className="size-3.5 shrink-0 animate-spin" />}
+                    {busyId === p.id && <Loader className="size-4" label="Opening" />}
                   </span>
                   <span className="flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
                     {p.id === current.id ? 'Open now · ' : ''}
@@ -226,7 +227,7 @@ export function ProjectsDialog() {
             ))}
             {loadingCloud && (
               <li className="flex items-center gap-2 px-3 py-2.5 text-xs text-muted-foreground">
-                <Loader2 className="size-3.5 animate-spin" /> Loading plans from your account…
+                <Loader className="size-4" label="Loading plans" /> Loading plans from your account…
               </li>
             )}
           </ul>

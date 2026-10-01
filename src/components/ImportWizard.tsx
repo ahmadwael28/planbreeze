@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { DragEvent, PointerEvent as RPointerEvent, ReactNode } from 'react'
-import { Camera, ImageUp, Lightbulb, Loader2, PenLine, ScanLine, Sparkles, Wand2 } from 'lucide-react'
+import { Camera, ImageUp, Lightbulb, PenLine, ScanLine, Sparkles, Wand2 } from 'lucide-react'
+import { Loader } from '@/components/ui/loader'
 import { toast } from 'sonner'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -582,7 +583,7 @@ export function ImportWizard() {
               onDrop={onDrop}
             >
               <div className="grid size-14 place-items-center rounded-2xl bg-primary/10 text-primary">
-                {loading ? <Loader2 className="size-7 animate-spin" /> : <ImageUp className="size-7" />}
+                {loading ? <Loader className="size-8" label="Opening your drawing" /> : <ImageUp className="size-7" />}
               </div>
               <div>
                 <p className="font-medium">Drop an image here, paste it, or choose a file</p>
@@ -674,7 +675,7 @@ export function ImportWizard() {
               </div>
               {detecting && (
                 <div className="absolute top-3 right-3 flex items-center gap-1.5 rounded-full bg-background/90 px-2.5 py-1 text-xs shadow">
-                  <Loader2 className="size-3.5 animate-spin" /> Detecting…
+                  <Loader className="size-4" label="Detecting" /> Detecting…
                 </div>
               )}
             </div>
@@ -812,7 +813,7 @@ export function ImportWizard() {
                     {ai.status === 'running' ? (
                       <div className="flex items-center gap-2">
                         <Button disabled className="flex-1">
-                          <Loader2 className="animate-spin" /> Reading your drawing…
+                          <Loader label="Reading your drawing" /> Reading your drawing…
                         </Button>
                         <Button variant="outline" onClick={() => abortRef.current?.abort()}>
                           Cancel

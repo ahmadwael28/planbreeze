@@ -4,7 +4,7 @@ import * as THREE from 'three'
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
 import { RectAreaLightUniformsLib } from 'three/addons/lights/RectAreaLightUniformsLib.js'
 import { toast } from 'sonner'
-import { Aperture, BookmarkPlus, Camera, DoorClosed, DoorOpen, Loader2, Keyboard, Lightbulb, LightbulbOff, Moon, RotateCcw, SquareDashed, Sun, X } from 'lucide-react'
+import { Aperture, BookmarkPlus, Camera, DoorClosed, DoorOpen, Keyboard, Lightbulb, LightbulbOff, Moon, RotateCcw, SquareDashed, Sun, X } from 'lucide-react'
 import { ViewpointBar, ViewpointMarkers } from '@/components/Viewpoints'
 import {
   DropdownMenu,
@@ -15,6 +15,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { Kbd } from '@/components/ui/kbd'
+import { Loader } from '@/components/ui/loader'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { Button } from '@/components/ui/button'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
@@ -1060,8 +1061,9 @@ export default function Viewer3D() {
       )}
       {compiling && (
         <div className="absolute inset-0 z-20 grid place-items-center bg-background/80 backdrop-blur-sm">
-          <div className="flex items-center gap-2 text-sm text-muted-foreground">
-            <Loader2 className="size-5 animate-spin" /> Preparing the 3D view…
+          <div className="flex flex-col items-center gap-3 text-sm text-muted-foreground">
+            <Loader brand className="size-14 text-foreground" label="Preparing the 3D view" />
+            Preparing the 3D view…
           </div>
         </div>
       )}

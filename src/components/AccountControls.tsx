@@ -1,5 +1,7 @@
 import { useEffect, useState } from 'react'
-import { CloudAlert, CloudCheck, CloudOff, HardDrive, Loader2, LogIn, LogOut, RefreshCw, TriangleAlert } from 'lucide-react'
+import { CloudAlert, CloudCheck, CloudOff, HardDrive, LogIn, LogOut, RefreshCw, TriangleAlert } from 'lucide-react'
+import type { ComponentType } from 'react'
+import { Loader } from '@/components/ui/loader'
 import { Button } from '@/components/ui/button'
 import {
   DropdownMenu,
@@ -24,9 +26,9 @@ function ago(t: number | null, now: number) {
   return m < 60 ? `${m} min ago` : new Date(t).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
 }
 
-const STATES: Record<SaveState, { icon: typeof CloudCheck; label: string; className?: string }> = {
+const STATES: Record<SaveState, { icon: ComponentType<{ className?: string }>; label: string; className?: string }> = {
   local: { icon: HardDrive, label: 'Saved on this device' },
-  saving: { icon: Loader2, label: 'Saving…', className: '[&>svg]:animate-spin' },
+  saving: { icon: (p) => <Loader label="Saving" {...p} />, label: 'Saving…' },
   saved: { icon: CloudCheck, label: 'Saved' },
   offline: { icon: CloudOff, label: 'Offline', className: 'text-amber-600 dark:text-amber-400' },
   error: { icon: CloudAlert, label: 'Not saved', className: 'text-destructive' },

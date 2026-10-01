@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import type { FormEvent } from 'react'
-import { Loader2, Mail, MailCheck } from 'lucide-react'
+import { Mail, MailCheck } from 'lucide-react'
+import { Loader } from '@/components/ui/loader'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
@@ -85,11 +86,11 @@ export function SignInDialog() {
         ) : (
           <div className="space-y-3">
             <Button variant="outline" className="h-10 w-full" disabled={!!busy} onClick={() => withProvider('google')}>
-              {busy === 'google' ? <Loader2 className="animate-spin" /> : <GoogleIcon className="size-4" />}
+              {busy === 'google' ? <Loader label="Signing in" /> : <GoogleIcon className="size-4" />}
               Continue with Google
             </Button>
             <Button variant="outline" className="h-10 w-full" disabled={!!busy} onClick={() => withProvider('github')}>
-              {busy === 'github' ? <Loader2 className="animate-spin" /> : <GitHubIcon className="size-4" />}
+              {busy === 'github' ? <Loader label="Signing in" /> : <GitHubIcon className="size-4" />}
               Continue with GitHub
             </Button>
             <div className="flex items-center gap-3 text-xs text-muted-foreground">
@@ -107,7 +108,7 @@ export function SignInDialog() {
                 aria-label="Email address"
               />
               <Button type="submit" className="h-10 w-full" disabled={!!busy}>
-                {busy === 'email' ? <Loader2 className="animate-spin" /> : <Mail />}
+                {busy === 'email' ? <Loader label="Sending" /> : <Mail />}
                 Email me a sign-in link
               </Button>
             </form>

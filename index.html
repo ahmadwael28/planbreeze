@@ -14,9 +14,38 @@
         document.documentElement.classList.toggle('dark', dark)
       } catch {}
     </script>
+    <style>
+      /* Shown until the app starts: the loader (see src/components/ui/loader.tsx). */
+      .boot { position: fixed; inset: 0; display: grid; place-content: center; justify-items: center; gap: 14px; background: #fff; color: #18181b; font: 500 14px/1.4 system-ui, sans-serif; }
+      .dark .boot { background: #09090b; color: #fafafa; }
+      .boot span { opacity: 0.6; letter-spacing: 0.01em; }
+      .boot svg { width: 64px; height: 64px; }
+      .boot .breeze { stroke-dasharray: 100; animation: boot-breeze 1.6s cubic-bezier(0.45, 0, 0.55, 1) infinite; }
+      @keyframes boot-breeze { 0% { stroke-dashoffset: 100; } 55% { stroke-dashoffset: 0; } 100% { stroke-dashoffset: -100; } }
+      @media (prefers-reduced-motion: reduce) { .boot .breeze { stroke-dasharray: none; animation: boot-pulse 2s ease-in-out infinite; } }
+      @keyframes boot-pulse { 50% { opacity: 0.35; } }
+    </style>
   </head>
   <body>
-    <div id="root"></div>
+    <div id="root">
+      <div class="boot" role="status" aria-label="Loading Planbreeze">
+        <svg viewBox="0 0 64 64" fill="none" aria-hidden="true">
+          <defs>
+            <linearGradient id="boot-breeze" x1="18" y1="35" x2="52" y2="16" gradientUnits="userSpaceOnUse">
+              <stop offset="0" stop-color="#22C3EE" />
+              <stop offset="0.55" stop-color="#3B82F6" />
+              <stop offset="1" stop-color="#4F46E5" />
+            </linearGradient>
+          </defs>
+          <g stroke="currentColor" stroke-width="5.5" stroke-linecap="round" stroke-linejoin="round" opacity="0.9">
+            <path d="M38 16H14V48H48V35" />
+            <path d="M30 16V24M30 48V40" />
+          </g>
+          <path class="breeze" pathLength="100" stroke="url(#boot-breeze)" stroke-width="5" stroke-linecap="round" d="M19.5 35C24.5 35 26 32 31 32C36.5 32 38.5 27.5 44 27C48.4 26.6 51.6 24.3 51.6 21C51.6 18.3 49.6 16.4 47.1 16.4C45 16.4 43.5 17.9 43.4 19.8" />
+        </svg>
+        <span>Planbreeze</span>
+      </div>
+    </div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>
