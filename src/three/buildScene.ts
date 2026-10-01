@@ -1,13 +1,14 @@
 import * as THREE from 'three'
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js'
-import { add, bbox, dist, dot, inwardNormal, labelPoint, mul, normalize, offsetPolygon, pointInPolygon, signedArea, sub } from '@/model/geometry'
+import { add, bbox, dist, dot, inwardNormal, labelPoint, mul, normalize, offsetPolygon, pointInPolygon, projectOnSegment, signedArea, sub } from '@/model/geometry'
 import { isSelected } from '@/model/items'
 import { isOutdoor, railingRuns, roomOuter, symbolPose } from '@/model/project'
 import { SYMBOL_MAP } from '@/model/symbols'
 import type { PlanTheme } from '@/model/theme'
 import type { Floor, Point, Project, Room, Selection } from '@/model/types'
 import { cabinetLeds, COLORS, Materials, railingModel, symbolModel } from './furniture'
-import { ceilingHeightAt } from '@/model/lighting'
+import type { CurtainWash } from './furniture'
+import { ceilingHeightAt, ceilingLight, ceilingRoom, coveRuns, LIGHT_COLORS, pocketWidth } from '@/model/lighting'
 import { bakeGlows, buildCeilings, buildFixture, cabinetLights } from './lighting3d'
 import type { LightHandle, SwitchHandle } from './lighting3d'
 import type { PoolRoom } from './lightPool'
@@ -174,6 +175,7 @@ export function buildProjectGroup(project: Project, opts: BuildOptions): THREE.G
   const handles: { lights: LightHandle[]; switches: SwitchHandle[] } = { lights: [], switches: [] }
   const walls: THREE.Mesh[] = []
   const poolRooms: PoolRoom[] = []
+  const curtainWashes: { floorId: string; lightId: string; m: THREE.MeshStandardMaterial; base: number }[] = []
   const currentIdx = Math.max(
     0,
     project.floors.findIndex((f) => f.id === opts.floorId),
@@ -263,6 +265,24 @@ export function buildProjectGroup(project: Project, opts: BuildOptions): THREE.G
       for (const obj of buildCeilings(floor, floorBase)) group.add(obj)
     }
 
+    // Curtains hang under lit curtain pockets: where each pocket light runs.
+    const pocketRuns = floor.symbols
+      .filter((s) => s.type === 'pocket-light' && s.room)
+      .flatMap((s) => {
+        const plain = floor.rooms.find((r) => r.id === s.room)
+        if (!plain) return []
+        const room = ceilingRoom(plain, floor)
+        return coveRuns(room, ceilingLight(s, room)).runs.map((r) => ({ light: s, room, ...r }))
+      })
+    const washFor = (at: Point): CurtainWash | undefined => {
+      const run = pocketRuns.find((r) => projectOnSegment(at, r.a, r.b).dist < pocketWidth(r.room) + 6 && pointInPolygon(at, r.room.points))
+      if (!run) return undefined
+      return {
+        color: new THREE.Color(LIGHT_COLORS[run.light.light?.color ?? 'warm'].hex),
+        add: (m) => curtainWashes.push({ floorId: floor.id, lightId: run.light.id, m, base: 0.55 * (run.light.light?.brightness ?? 1) }),
+      }
+    }
+
     // Doors, windows, furniture and light fixtures.
     for (const sym of floor.symbols) {
       const def = SYMBOL_MAP.get(sym.type)
@@ -276,7 +296,17 @@ export function buildProjectGroup(project: Project, opts: BuildOptions): THREE.G
       const hl = isSelected(sel, 'symbol', sym.id)
       // Curtains and blinds hang from the ceiling above them (up in a curtain pocket if there's one).
       const hangs = sym.type === 'curtain' || sym.type === 'blind'
-      const obj = symbolModel(sym, mats, hl, pose.wallThickness ?? sym.depth, floor.height, !!def, floor.rooms, hangs ? ceilingHeightAt(floor, pose) : floor.height)
+      const obj = symbolModel(
+        sym,
+        mats,
+        hl,
+        pose.wallThickness ?? sym.depth,
+        floor.height,
+        !!def,
+        floor.rooms,
+        hangs ? ceilingHeightAt(floor, pose) : floor.height,
+        sym.type === 'curtain' ? washFor(pose) : undefined,
+      )
       if (!obj.children.length) continue
       const elevation = def?.wall ? (sym.elevation ?? def.sill ?? 0) : (sym.elevation ?? 0)
       obj.position.set(pose.x, floorBase + elevation, pose.y)
@@ -311,6 +341,7 @@ export function buildProjectGroup(project: Project, opts: BuildOptions): THREE.G
   root.userData.lightHandles = handles.lights
   root.userData.switchHandles = handles.switches
   root.userData.poolRooms = poolRooms
+  root.userData.curtainWashes = curtainWashes
   root.userData.dispose = () => {
     root.traverse((o) => {
       if (o instanceof THREE.Mesh) {

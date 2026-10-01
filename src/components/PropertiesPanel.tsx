@@ -25,7 +25,7 @@ import { usePlanTheme } from '@/hooks/use-plan-theme'
 import { cn } from '@/lib/utils'
 import { area, dist, perimeter } from '@/model/geometry'
 import { DEFAULT_RAILING, isOutdoor, OUTDOOR, RAILING_THICKNESS, ROOM_COLORS, roomOuter, setWallLength, symbolPose } from '@/model/project'
-import { CABINETS, curtainLayers, frameOf, hasGlass, PENDANT_STYLES, SYMBOL_MAP } from '@/model/symbols'
+import { CABINETS, curtainLayers, frameOf, hasGlass, STYLES, styleOf, SYMBOL_MAP } from '@/model/symbols'
 import type { FrameColor } from '@/model/symbols'
 import { formatArea, formatLength } from '@/model/units'
 import type { Dimension, ItemRef, OutdoorKind, PlanSymbol, RailingStyle, Room, SavedView, Units } from '@/model/types'
@@ -53,7 +53,7 @@ import { isRound, resized, sizeRule } from '@/model/sizes'
 import type { Dim } from '@/model/sizes'
 import { useUi } from '@/store/ui'
 import { LengthInput, NumberInput, TextInput } from './LengthInput'
-import { CeilingSection, HiddenLightControls, LightSection, SwitchSection } from './LightingProps'
+import { CeilingSection, GrooveLightWalls, HiddenLightControls, LightSection, SwitchSection } from './LightingProps'
 
 function Section({ title, children, className }: { title?: ReactNode; children: ReactNode; className?: string }) {
   return (
@@ -326,9 +326,10 @@ function CoveProps({ sym, units }: { sym: PlanSymbol; units: Units }) {
         <Section title={gap ? 'Shadow gap light' : 'Curtain pocket light'}>
           <p className="text-sm text-muted-foreground">
             An LED strip in the {gap ? 'shadow gap' : 'curtain pocket'} of <b className="text-foreground">{room?.name ?? 'the room'}</b>,{' '}
-            {gap ? 'washing the walls below' : 'lighting the curtains'}. Choose the walls with a {gap ? 'gap' : 'pocket'} in the room's ceiling
-            settings.
+            {gap ? 'washing the walls below' : 'lighting the curtains'}. The room's ceiling settings choose the walls with a{' '}
+            {gap ? 'gap' : 'pocket'}; here, which of them have light.
           </p>
+          {room && <GrooveLightWalls room={room} sym={sym} units={units} />}
           <LightSection sym={sym} units={units} />
         </Section>
         <Separator />
@@ -454,6 +455,30 @@ function FabricControls({ sym }: { sym: PlanSymbol }) {
               </ToggleGroup>
               <p className="text-xs text-muted-foreground">Any of them together, from the window out: sheer, blackout, curtain.</p>
             </div>
+          )}
+        </Field>
+      )}
+      {!isBlind && (
+        <Field label="Opens to">
+          {() => (
+            <ToggleGroup
+              type="single"
+              size="sm"
+              variant="outline"
+              value={sym.openSide ?? 'both'}
+              onValueChange={(v) => v && updateSymbol(sym.id, (s) => void (s.openSide = v === 'both' ? undefined : (v as 'left' | 'right')))}
+              className="w-full"
+            >
+              <ToggleGroupItem value="left" className="flex-1">
+                Left
+              </ToggleGroupItem>
+              <ToggleGroupItem value="both" className="flex-1">
+                Both sides
+              </ToggleGroupItem>
+              <ToggleGroupItem value="right" className="flex-1">
+                Right
+              </ToggleGroupItem>
+            </ToggleGroup>
           )}
         </Field>
       )}
@@ -918,18 +943,20 @@ function SymbolProps({ sym, units }: { sym: PlanSymbol; units: Units }) {
         })}
         {def?.fullHeight && <p className="text-xs text-muted-foreground">Floor to ceiling, whatever the room's height.</p>}
         {sym.type === 'shower' && <ShowerGlass sym={sym} />}
-        {sym.type === 'pendant' && (
+        {STYLES[sym.type] && (
           <Field label="Style">
             {(id) => (
-              <Select value={sym.style ?? PENDANT_STYLES[0].id} onValueChange={(v) => updateSymbol(sym.id, (s) => void (s.style = v))}>
+              <Select value={styleOf(sym)} onValueChange={(v) => updateSymbol(sym.id, (s) => void (s.style = v))}>
                 <SelectTrigger id={id} size="sm" className="w-full">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  {(['Modern', 'Classic', 'Industrial'] as const).map((kind) => (
+                  {(['Modern', 'Classic', 'Industrial'] as const)
+                    .filter((kind) => STYLES[sym.type].some((p) => p.kind === kind))
+                    .map((kind) => (
                     <SelectGroup key={kind}>
                       <SelectLabel>{kind}</SelectLabel>
-                      {PENDANT_STYLES.filter((p) => p.kind === kind).map((p) => (
+                      {STYLES[sym.type].filter((p) => p.kind === kind).map((p) => (
                         <SelectItem key={p.id} value={p.id}>
                           {p.name}
                         </SelectItem>

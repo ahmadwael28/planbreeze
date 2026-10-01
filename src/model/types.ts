@@ -141,6 +141,8 @@ export interface PlanSymbol {
   layers?: ('sheer' | 'curtain' | 'blackout')[]
   /** Curtains and blinds: how far open (0 closed … 1 drawn back, or a blind rolled up). */
   open?: number
+  /** Curtains: which way they open, to both sides (two panels) or to one side (one panel across). */
+  openSide?: 'both' | 'left' | 'right'
   /** Showers: the sides with glass (front, back, left, right); left out, the sides not against a wall. */
   screens?: ('front' | 'back' | 'left' | 'right')[]
   /** Frame / trim color (hex) for items that come in several finishes: spots, tracks, aluminium doors. */

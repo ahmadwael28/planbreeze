@@ -4,7 +4,6 @@ import { Cable, Lightbulb, Plus, SlidersHorizontal, Trash2, X } from 'lucide-rea
 import { Button } from '@/components/ui/button'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Slider } from '@/components/ui/slider'
-import { Switch } from '@/components/ui/switch'
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
 import { cn } from '@/lib/utils'
 import { bbox, dist, polygonPath } from '@/model/geometry'
@@ -68,6 +67,7 @@ export function WallPicker({
   units,
   tone,
   label,
+  only,
 }: {
   room: Room
   on: number[]
@@ -75,6 +75,8 @@ export function WallPicker({
   units: Units
   tone: 'light' | 'dark'
   label: string
+  /** Only these walls can be picked (the others are greyed out). */
+  only?: number[]
 }) {
   const pts = room.points
   const b = bbox(pts)
@@ -83,7 +85,10 @@ export function WallPicker({
   const pad = Math.max(w, h) * 0.08
   const color = tone === 'light' ? '#f59e0b' : 'var(--foreground)'
   const set = new Set(on)
-  const toggle = (i: number) => onChange(set.has(i) ? on.filter((x) => x !== i) : [...on, i].sort((p, q) => p - q))
+  const pickable = new Set(only ?? pts.map((_, i) => i))
+  const toggle = (i: number) => {
+    if (pickable.has(i)) onChange(set.has(i) ? on.filter((x) => x !== i) : [...on, i].sort((p, q) => p - q))
+  }
   return (
     <div className="space-y-1.5">
       <svg
@@ -134,10 +139,11 @@ export function WallPicker({
       </svg>
       <div className="flex items-center justify-between gap-2 text-xs text-muted-foreground">
         <span>
-          {on.length === pts.length ? 'All walls' : on.length ? `${on.length} of ${pts.length} walls` : 'No walls'} · click a wall to switch it
+          {on.length === pickable.size ? (only ? 'All of them' : 'All walls') : on.length ? `${on.length} of ${pickable.size} walls` : 'No walls'} · click a
+          wall to switch it
         </span>
         <span className="flex gap-2">
-          <button className="underline-offset-2 hover:text-foreground hover:underline" onClick={() => onChange(pts.map((_, i) => i))}>
+          <button className="underline-offset-2 hover:text-foreground hover:underline" onClick={() => onChange([...pickable].sort((p, q) => p - q))}>
             All
           </button>
           <button className="underline-offset-2 hover:text-foreground hover:underline" onClick={() => onChange([])}>
@@ -150,6 +156,75 @@ export function WallPicker({
 }
 
 /** Where a room's hidden LED strip runs: in a tray, along the walls or inside; and which walls it's on. */
+/**
+ * Which of its walls a curtain pocket or shadow gap light runs along (of those with a pocket or gap), like a hidden
+ * LED's walls.
+ */
+export function GrooveLightWalls({ room, sym, units }: { room: Room; sym: PlanSymbol; units: Units }) {
+  const walls = (sym.type === 'pocket-light' ? room.curtainPockets : room.shadowGaps) ?? []
+  const off = new Set(sym.cove?.off ?? [])
+  return (
+    <WallPicker
+      room={room}
+      on={walls.filter((i) => !off.has(i))}
+      only={walls}
+      units={units}
+      tone="light"
+      label="Walls with light"
+      onChange={(lit) =>
+        updateSymbol(sym.id, (s) => {
+          const next = walls.filter((i) => !lit.includes(i))
+          s.cove = { ...s.cove, off: next.length ? next : undefined }
+        })
+      }
+    />
+  )
+}
+
+/**
+ * The LED in a room's curtain pockets or shadow gaps, set up like its hidden LED strip: added or removed, the walls
+ * it runs along, and its color, brightness and switches.
+ */
+function GrooveLight({ room, sym, label, hint, units, onToggle }: { room: Room; sym?: PlanSymbol; label: string; hint: string; units: Units; onToggle: (on: boolean) => void }) {
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center justify-between gap-2">
+        <span className="flex items-center gap-1.5 text-sm font-medium">
+          <Lightbulb className="size-4" /> {label}
+        </span>
+        {sym ? (
+          <Button variant="ghost" size="xs" className="text-destructive hover:text-destructive" onClick={() => onToggle(false)}>
+            <Trash2 /> Remove
+          </Button>
+        ) : (
+          <Button variant="outline" size="xs" onClick={() => onToggle(true)}>
+            <Plus /> Add
+          </Button>
+        )}
+      </div>
+      {sym ? (
+        <>
+          <GrooveLightWalls room={room} sym={sym} units={units} />
+          <Button
+            variant="outline"
+            size="sm"
+            className="w-full"
+            onClick={() => {
+              const st = useEditor.getState()
+              if (st.layer !== 'lighting') st.setLayer('lighting')
+              st.select({ kind: 'symbol', id: sym.id })
+            }}
+          >
+            <SlidersHorizontal /> Color, brightness and switches
+          </Button>
+        </>
+      ) : (
+        <p className="text-xs text-muted-foreground">{hint}</p>
+      )}
+    </div>
+  )
+}
+
 /** Going around columns built into the walls, or stopping at them. */
 function AtColumns({ value, onChange }: { value: 'wrap' | 'stop'; onChange: (v: 'wrap' | 'stop') => void }) {
   return (
@@ -339,11 +414,6 @@ export function CeilingSection({ room, units }: { room: Room; units: Units }) {
         pruneControls(f)
       }
     })
-  const selectLight = (id: string) => {
-    const st = useEditor.getState()
-    if (st.layer !== 'lighting') st.setLayer('lighting')
-    st.select({ kind: 'symbol', id })
-  }
   /** Shadow gaps on these walls; the first ones come with their LED, and with none left it goes. */
   const setGaps = (walls: number[], light?: boolean) =>
     useEditor.getState().commit((d) => {
@@ -461,17 +531,14 @@ export function CeilingSection({ room, units }: { room: Room; units: Units }) {
                     onChange={(v) => set((r) => void (r.pocketWidth = Math.min(40, v)))}
                   />
                 </Row>
-                <label className="flex items-center justify-between gap-2 text-sm">
-                  <span className="flex items-center gap-1.5">
-                    <Lightbulb className="size-4" /> LED light in the pocket
-                  </span>
-                  <Switch size="sm" checked={!!pocketLight} onCheckedChange={(on) => setPockets(room.curtainPockets ?? [], on)} />
-                </label>
-                {pocketLight && (
-                  <Button variant="outline" size="sm" className="w-full" onClick={() => selectLight(pocketLight.id)}>
-                    <SlidersHorizontal /> Color, brightness and switches
-                  </Button>
-                )}
+                <GrooveLight
+                  room={room}
+                  sym={pocketLight}
+                  label="LED light in the pocket"
+                  hint="An LED strip up in the pocket, lighting the curtains like a hidden LED strip."
+                  units={units}
+                  onToggle={(on) => setPockets(room.curtainPockets ?? [], on)}
+                />
               </>
             )}
           </>
@@ -495,26 +562,14 @@ export function CeilingSection({ room, units }: { room: Room; units: Units }) {
             {roomColumns(room, floor).length > 0 && (
               <AtColumns value={room.gapsAtColumns ?? 'wrap'} onChange={(v) => set((r) => void (r.gapsAtColumns = v === 'stop' ? 'stop' : undefined))} />
             )}
-            <label className="flex items-center justify-between gap-2 text-sm">
-              <span className="flex items-center gap-1.5">
-                <Lightbulb className="size-4" /> LED light in the gap
-              </span>
-              <Switch size="sm" checked={!!gapLight} onCheckedChange={(on) => setGaps(room.shadowGaps ?? [], on)} />
-            </label>
-            {gapLight && (
-              <Button
-                variant="outline"
-                size="sm"
-                className="w-full"
-                onClick={() => {
-                  const st = useEditor.getState()
-                  if (st.layer !== 'lighting') st.setLayer('lighting')
-                  st.select({ kind: 'symbol', id: gapLight.id })
-                }}
-              >
-                <SlidersHorizontal /> Color, brightness and switches
-              </Button>
-            )}
+            <GrooveLight
+              room={room}
+              sym={gapLight}
+              label="LED light in the gap"
+              hint="An LED strip in the gap, washing the walls below like a hidden LED strip."
+              units={units}
+              onToggle={(on) => setGaps(room.shadowGaps ?? [], on)}
+            />
           </>
         )}
       </div>

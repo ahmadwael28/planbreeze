@@ -14,7 +14,7 @@ import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js'
 import { inwardNormal, signedArea } from '@/model/geometry'
 import { openSides } from '@/model/guides'
 import type { Side } from '@/model/guides'
-import { chairsAlong, cornerArm, curtainLayers, curtainPanel, frameOf, hasGlass, seatsAlong, SOFA, startsShut } from '@/model/symbols'
+import { chairsAlong, cornerArm, curtainLayers, curtainPanels, frameOf, hasGlass, panelWidth, seatsAlong, SOFA, startsShut, styleOf } from '@/model/symbols'
 import type { PlanSymbol, Point, Room } from '@/model/types'
 
 export const COLORS = {
@@ -262,7 +262,7 @@ function compactModel(g: THREE.Group): THREE.Group {
 export interface DoorPart {
   angle?: number
   slide?: number
-  gather?: { half: number; fabric: number; openTo: number }
+  gather?: { span: number; fabric: number; openTo: number }
   roll?: { full: number; openTo: number; bar?: boolean; y0?: number }
   /** Starts shut (curtains and blinds drawn so as designed); doors start open. */
   startOpen?: boolean
@@ -280,10 +280,10 @@ export function poseDoor(o: THREE.Object3D, open: number) {
   if (d.angle !== undefined) o.rotation.y = (1 - open) * d.angle
   if (d.slide !== undefined) o.position.x = open * d.slide
   if (d.gather) {
-    const { half, fabric, openTo } = d.gather
-    const wp = curtainPanel(half * 2, open * openTo)
-    o.scale.x = wp / half
-    o.scale.z = drapeAmp(fabric, wp) / drapeAmp(fabric, half)
+    const { span, fabric, openTo } = d.gather
+    const wp = panelWidth(span, open * openTo)
+    o.scale.x = wp / span
+    o.scale.z = drapeAmp(fabric, wp) / drapeAmp(fabric, span)
   }
   if (d.roll) {
     const { full, openTo, bar, y0 = 0 } = d.roll
@@ -690,8 +690,121 @@ function sideboard(k: Kit, sym: PlanSymbol, w: number, d: number, h: number) {
   return g
 }
 
+/** An espresso machine with its portafilter and a cup, and a grinder beside it, on a counter at height y. */
+function espresso(k: Kit, g: THREE.Group, x: number, y: number, z: number, body = '#d4d4d8') {
+  const chrome = k.q(COLORS.chrome, 'chrome')
+  const black = k.q('#27272a', 'satin')
+  g.add(rbox(32, 34, 30, 2, x, y, z, k.q(body, 'metal')))
+  g.add(box(30, 2, 12, x, y, z + 19, chrome))
+  g.add(cylinder(4, 6, x, y + 18, z + 18, chrome, 1, 3, 16))
+  const handle = box(1.6, 1.6, 14, x + 6, y + 19, z + 24, black)
+  handle.rotation.y = 0.5
+  g.add(handle)
+  g.add(cylinder(3, 6, x, y + 2, z + 18, k.q('#f5f5f4', 'ceramic'), 1, 2.6, 16))
+  g.add(rbox(13, 22, 18, 2, x + 26, y, z, black))
+  g.add(cylinder(6, 14, x + 26, y + 22, z, k.tinted(), 1, 3, 18))
+}
+
+/** Cups with saucers, and jars of coffee, along a shelf from x0 to x1 at height y, centered at depth z. */
+function cupsAndJars(k: Kit, g: THREE.Group, rand: () => number, x0: number, x1: number, y: number, z: number) {
+  for (let x = x0; x < x1; x += 9 + rand() * 4) {
+    if (rand() < 0.35) {
+      g.add(cylinder(3.6, 12, x + 3.6, y, z, k.glass(), 1, 3.6, 18))
+      g.add(cylinder(3.2, 7, x + 3.6, y + 0.2, z, k.q('#3b2416', 'matte'), 1, 3.2, 14))
+      g.add(cylinder(3.8, 1.2, x + 3.6, y + 12, z, k.q('#27272a', 'satin'), 1, 3.8, 18))
+      x += 3
+    } else {
+      g.add(cylinder(5, 0.6, x + 4, y, z, k.q('#f5f5f4', 'ceramic'), 1, 5, 20))
+      g.add(cylinder(3.4, 6.5, x + 4, y + 0.6, z, k.q(rand() < 0.5 ? '#f5f5f4' : '#1f2937', 'ceramic'), 1, 2.8, 18))
+    }
+  }
+}
+
+/** A modern coffee niche: handleless cabinets below and above, a black counter, a stone back with a floating shelf. */
+function coffeeModern(k: Kit, sym: PlanSymbol, w: number, d: number, h: number) {
+  const g = new THREE.Group()
+  const rand = random(sym.id)
+  const counter = 90
+  const lacquer = k.q('#d6d3d1', 'satin')
+  const side = 2.5
+  g.add(box(w - 4, 10, d - 6, 0, 0, -2, k.q(COLORS.dark, 'satin')))
+  g.add(box(w, counter - 14, d - 2, 0, 10, -1, lacquer))
+  const n = Math.max(2, Math.round(w / 50))
+  const dw = w / n
+  for (let i = 0; i < n; i++) {
+    front(k, g, dw - 0.6, counter - 16, -w / 2 + dw * (i + 0.5), 11, d / 2 - 1, '#e7e5e4', 'none')
+    g.add(box(dw - 6, 1.2, 1, -w / 2 + dw * (i + 0.5), counter - 10, d / 2 + 0.4, k.q('#a8a29e', 'satin'))) // finger groove
+  }
+  g.add(box(w + 1, 3, d + 1, 0, counter - 4, 0, k.q('#1c1917', 'gloss')))
+  // Tall sides framing the niche, the upper cabinet, and the stone back.
+  const upper = Math.max(counter + 70, h - 55)
+  for (const s of [-1, 1]) g.add(box(side, h - counter + 1, d, s * (w / 2 - side / 2), counter - 1, 0, lacquer))
+  g.add(box(w, h - upper, d - 8, 0, upper, -4, lacquer))
+  for (let i = 0; i < n; i++) front(k, g, dw - 0.6, h - upper - 1, -w / 2 + dw * (i + 0.5), upper + 0.5, d / 2 - 4 + 0.9, '#e7e5e4', 'none')
+  g.add(box(w - 2 * side, upper - counter, 1.5, 0, counter, -d / 2 + 0.75, k.q('#efece6', 'gloss')))
+  const shelfY = counter + (upper - counter) * 0.58
+  g.add(box(w - 2 * side, 2.5, 22, 0, shelfY, -d / 2 + 12.5, k.q(COLORS.woodDark, 'wood')))
+  cupsAndJars(k, g, rand, -w / 2 + 10, w / 2 - 12, shelfY + 2.5, -d / 2 + 12)
+  espresso(k, g, -w / 2 + 24, counter, -d / 2 + 18, '#3f3f46')
+  return g
+}
+
+/** Industrial coffee shelves: a black steel frame, wood shelves, mugs hanging from a rail. */
+function coffeeIndustrial(k: Kit, sym: PlanSymbol, w: number, d: number, h: number) {
+  const g = new THREE.Group()
+  const rand = random(sym.id)
+  const steel = k.q('#1f1f22', 'metal')
+  const wood = k.q('#8a5a3b', 'wood')
+  for (const [sx, sz] of CORNERS) g.add(box(2.5, h, 2.5, sx * (w / 2 - 1.25), 0, sz * (d / 2 - 1.25), steel))
+  const levels = [12, 90, 135, 175].filter((y) => y < h - 4)
+  for (const y of levels) {
+    g.add(box(w, 3.5, d, 0, y, 0, wood))
+    for (const sz of [-1, 1]) g.add(box(w, 2, 2, 0, y - 2, sz * (d / 2 - 1), steel))
+  }
+  espresso(k, g, -w / 2 + 22, 93.5, -d / 2 + 18)
+  // Baskets underneath, cups and jars up top, mugs on hooks under the top shelf.
+  for (let x = -w / 2 + 6; x < w / 2 - 30; x += 32) g.add(rbox(28, 22, d - 10, 2, x + 14, 15.5, 0, k.q('#c8b28e', 'fabric')))
+  if (levels[2]) cupsAndJars(k, g, rand, -w / 2 + 6, w / 2 - 10, levels[2] + 3.5, 0)
+  const top = levels[levels.length - 1]
+  const railY = top - 6
+  const rail = cylinder(0.7, w - 8, 0, 0, 0, steel, 1, 0.7, 8)
+  rail.rotation.z = Math.PI / 2
+  rail.position.set(0, railY, d / 2 - 8)
+  g.add(rail)
+  for (let x = -w / 2 + 10; x < w / 2 - 8; x += 12) g.add(cylinder(3.5, 8, x, railY - 11, d / 2 - 8, k.q(rand() < 0.5 ? '#f5f5f4' : '#7c2d12', 'ceramic'), 1, 3, 16))
+  return g
+}
+
+/** A two-tier bar cart on wheels, the machine and cups on top. */
+function coffeeCart(k: Kit, sym: PlanSymbol, w: number, d: number, h: number) {
+  const g = new THREE.Group()
+  const rand = random(sym.id)
+  const gold = k.q('#b08d57', 'metal')
+  const ch = Math.min(h, 88)
+  for (const [sx, sz] of CORNERS) {
+    g.add(box(1.8, ch - 6, 1.8, sx * (w / 2 - 1), 6, sz * (d / 2 - 1), gold))
+    g.add(cylinder(3, 2.5, sx * (w / 2 - 1), 0.5, sz * (d / 2 - 1), k.q('#27272a', 'satin'), 1, 3, 14).rotateX(Math.PI / 2))
+  }
+  for (const y of [22, ch - 3]) {
+    g.add(box(w - 2, 1.2, d - 2, 0, y, 0, k.glass()))
+    g.add(box(w, 2.5, 1.2, 0, y, d / 2 - 0.6, gold))
+    g.add(box(w, 2.5, 1.2, 0, y, -d / 2 + 0.6, gold))
+  }
+  const bar = cylinder(1, d - 4, 0, 0, 0, gold, 1, 1, 10)
+  bar.rotation.x = Math.PI / 2
+  bar.position.set(w / 2 + 4, ch + 4, 0)
+  g.add(bar)
+  espresso(k, g, -w / 2 + 20, ch - 1.8, -d / 2 + 16)
+  cupsAndJars(k, g, rand, -w / 2 + 4, w / 2 - 6, 23.2, 0)
+  return g
+}
+
 /** A coffee corner: a base cabinet with a stone counter, an espresso machine and grinder, shelves of cups and jars. */
 function coffeeCorner(k: Kit, sym: PlanSymbol, w: number, d: number, h: number) {
+  const style = styleOf(sym)
+  if (style === 'modern') return coffeeModern(k, sym, w, d, h)
+  if (style === 'industrial') return coffeeIndustrial(k, sym, w, d, h)
+  if (style === 'cart') return coffeeCart(k, sym, w, d, h)
   const g = new THREE.Group()
   const rand = random(sym.id)
   const counter = 90
@@ -773,6 +886,19 @@ export function cabinetLeds(sym: PlanSymbol): CabinetLeds | null {
     // Inside under the top behind glass; under the cabinet (onto the floor) when the doors are solid.
     if (hasGlass(sym)) return { strips: [{ x: 0, y: h - 5, z: d / 2 - 5, len: w - 6, axis: 'x' }], spots: [{ x: 0, y: h - 6, z: 0, angle: 1.2, intensity: 5 }] }
     return { strips: [{ x: 0, y: 13.5, z: d / 2 - 6, len: w - 10, axis: 'x' }], spots: [{ x: 0, y: 13, z: 0, angle: 1.3, intensity: 3 }] }
+  }
+  if (sym.type === 'coffee-corner' && styleOf(sym) === 'modern') {
+    // Along the top of the niche, under the upper cabinet.
+    const upper = Math.max(90 + 70, h - 55)
+    return { strips: [{ x: 0, y: upper - 1, z: d / 2 - 8, len: w - 10, axis: 'x' }], spots: [{ x: 0, y: upper - 2, z: 0, angle: 1.1, intensity: 7 }] }
+  }
+  if (sym.type === 'coffee-corner' && styleOf(sym) === 'industrial') {
+    const ys = [135, 175].filter((y) => y < h - 4)
+    return { strips: ys.map((y) => ({ x: 0, y: y - 0.4, z: d / 2 - 4, len: w - 8, axis: 'x' as const })), spots: [{ x: 0, y: (ys[0] ?? 135) - 1, z: 0, angle: 1.1, intensity: 6 }] }
+  }
+  if (sym.type === 'coffee-corner' && styleOf(sym) === 'cart') {
+    const ch = Math.min(h, 88)
+    return { strips: [{ x: 0, y: ch - 4, z: d / 2 - 3, len: w - 6, axis: 'x' }], spots: [{ x: 0, y: ch - 5, z: 0, angle: 1.2, intensity: 3 }] }
   }
   if (sym.type === 'coffee-corner') {
     // Under each shelf, lighting the counter and the cups below.
@@ -1210,10 +1336,40 @@ function drape(x0: number, x1: number, z: number, top: number, fabric: number, m
 }
 
 /**
- * Curtains on tracks near the ceiling, a layer on each: from the window out, a sheer, a blackout and a curtain, two
- * panels each. Their panels gather toward the ends as they open (see poseDoor); a sheer stays drawn unless it's alone.
+ * A vertical gradient, bright at the top and fading down: a strip light's wash on what it lights (walls, ceilings
+ * and curtains), as a color map or an emissive one.
  */
-function curtain(k: Kit, sym: PlanSymbol, w: number, d: number, top: number) {
+let washTexture: THREE.Texture | null = null
+export function washMap() {
+  if (washTexture) return washTexture
+  const c = document.createElement('canvas')
+  c.width = 2
+  c.height = 128
+  const ctx = c.getContext('2d')!
+  const grad = ctx.createLinearGradient(0, 0, 0, 128)
+  grad.addColorStop(0, 'rgb(255,255,255)')
+  grad.addColorStop(0.12, 'rgb(190,190,190)')
+  grad.addColorStop(0.4, 'rgb(70,70,70)')
+  grad.addColorStop(1, 'rgb(0,0,0)')
+  ctx.fillStyle = grad
+  ctx.fillRect(0, 0, 2, 128)
+  washTexture = new THREE.CanvasTexture(c)
+  washTexture.colorSpace = THREE.SRGBColorSpace
+  return washTexture
+}
+
+/** Curtains lit from a curtain pocket above: the light's color, and who to tell about the glowing fabric. */
+export interface CurtainWash {
+  color: THREE.Color
+  add: (m: THREE.MeshStandardMaterial) => void
+}
+
+/**
+ * Curtains on tracks near the ceiling, a layer on each: from the window out, a sheer, a blackout and a curtain, two
+ * panels each, or one across for curtains that open to one side. Their panels gather toward the ends as they open
+ * (see poseDoor); a sheer stays drawn unless it's alone. Lit from a curtain pocket, the fabric glows from the top.
+ */
+function curtain(k: Kit, sym: PlanSymbol, w: number, d: number, top: number, wash?: CurtainWash) {
   const g = new THREE.Group()
   const color = frameOf(sym)?.hex ?? '#d9cfbf'
   const layers = curtainLayers(sym)
@@ -1223,14 +1379,22 @@ function curtain(k: Kit, sym: PlanSymbol, w: number, d: number, top: number) {
   layers.forEach((l, i) => {
     const z = -d / 2 + 3 + step * (i + 0.5)
     g.add(box(w, 2.5, 2.5, 0, top - 2.5, z, k.q('#d4d4d8', 'metal')))
-    const mat = l === 'sheer' ? k.sheer(i === layers.length - 1 && layers.length === 1 ? color : '#f8f6f1', 0.34) : k.q(l === 'blackout' && layers.includes('curtain') ? '#8b8378' : color, 'cloth')
+    let mat = l === 'sheer' ? k.sheer(i === layers.length - 1 && layers.length === 1 ? color : '#f8f6f1', 0.34) : k.q(l === 'blackout' && layers.includes('curtain') ? '#8b8378' : color, 'cloth')
+    if (wash) {
+      const lit = (mat as THREE.MeshStandardMaterial).clone()
+      lit.emissive = wash.color.clone()
+      lit.emissiveMap = washMap()
+      lit.emissiveIntensity = 0
+      wash.add(lit)
+      mat = lit
+    }
     const moves = l !== 'sheer' || layers.length === 1
-    for (const side of [-1, 1]) {
-      // Built shut, hanging from its end of the track toward the middle; the part gathers it toward the end.
+    for (const { end, span } of curtainPanels(sym, w)) {
+      // Built shut, hanging from its end of the track toward the other; the part gathers it toward its end.
       const part = new THREE.Group()
-      part.position.set(side * (w / 2), 0, z)
-      part.add(drape(0, -side * (w / 2), 0, top - 3, w, mat))
-      if (moves) part.userData.door = { gather: { half: w / 2, fabric: w, openTo }, startOpen: !startsShut(sym) } satisfies DoorPart
+      part.position.set((end * w) / 2, 0, z)
+      part.add(drape(0, -end * span, 0, top - 3, span * 2, mat))
+      if (moves) part.userData.door = { gather: { span, fabric: span * 2, openTo }, startOpen: !startsShut(sym) } satisfies DoorPart
       g.add(part)
     }
   })
@@ -1601,6 +1765,7 @@ export function symbolModel(
   hasDef: boolean,
   rooms: Room[] = [],
   ceilingH = floorH,
+  wash?: CurtainWash,
 ): THREE.Group {
   const k: Kit = {
     q: (color, finish) => mats.get(color, hl, finish),
@@ -1712,7 +1877,7 @@ export function symbolModel(
       g = wallPost(k, w, d, floorH)
       break
     case 'curtain':
-      g = curtain(k, sym, w, d, ceilingH)
+      g = curtain(k, sym, w, d, ceilingH, wash)
       break
     case 'display-cabinet':
       g = displayCabinet(k, sym, w, d, h)

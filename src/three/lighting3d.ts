@@ -7,12 +7,13 @@
 import * as THREE from 'three'
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js'
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js'
-import { offsetEdges, pointInPolygon, signedArea } from '@/model/geometry'
-import { bandInset, ceilingHeightAt, ceilingLight, ceilingOutline, ceilingRoom, ceilingZones, COVE_WIDTH, coveRuns, gapDrops, LIGHT_COLORS, pocketWidth, SHADOW_GAP } from '@/model/lighting'
+import { inwardNormal, offsetEdges, pointInPolygon, projectOnSegment, signedArea } from '@/model/geometry'
+import { bandInset, ceilingHeightAt, ceilingLight, ceilingOutline, ceilingRoom, ceilingZones, COVE_WIDTH, coveRuns, gapDrops, LIGHT_COLORS, SHADOW_GAP } from '@/model/lighting'
 import { symbolPose } from '@/model/project'
-import { frameOf } from '@/model/symbols'
+import { frameOf, styleOf } from '@/model/symbols'
 import type { FixtureKind } from '@/model/symbols'
 import type { Floor, PlanSymbol, Point, Room } from '@/model/types'
+import { washMap } from './furniture'
 import type { VirtualLight } from './lightPool'
 
 const CM = 0.01 // RectAreaLight sizes ignore parent scale, so they're given in meters
@@ -28,6 +29,8 @@ export interface LightHandle {
   glows: THREE.Sprite[]
   glowAt: number[]
   glowColors: THREE.Color[]
+  /** Soft washes of light on what it lights (strip lights), and how strong at full brightness. */
+  washes?: { m: THREE.Material; base: number }[]
 }
 
 export interface SwitchHandle {
@@ -262,20 +265,64 @@ function rod(a: THREE.Vector3, b: THREE.Vector3, r: number, mat: THREE.Material)
 }
 
 /** A shadow gap's LED: high in the groove where the ceiling stops short of the walls, washing the walls below. */
-function gapFixture(ctx: Ctx, room: Room, floor: Floor, base: number, sym: PlanSymbol): THREE.Group {
+/** How bright every hidden LED strip is (cove, shadow gap, curtain pocket), and its wash. */
+const STRIP_OUTPUT = 18
+const STRIP_WASH = 0.45
+
+/** A quad with corners p0…p3 (world), its texture's top (v = 1) along p0–p1. */
+function quad(p: THREE.Vector3[]) {
+  const geo = new THREE.BufferGeometry()
+  geo.setAttribute('position', new THREE.Float32BufferAttribute([p[0], p[1], p[2], p[0], p[2], p[3]].flatMap((v) => [v.x, v.y, v.z]), 3))
+  geo.setAttribute('uv', new THREE.Float32BufferAttribute([0, 1, 1, 1, 1, 0, 0, 1, 1, 0, 0, 0], 2))
+  return geo
+}
+
+/**
+ * A room's hidden LED strip, whichever it is (cove, shadow gap or curtain pocket light): the same strip and output,
+ * and a soft wash on what it lights (the ceiling above when it shines up, the wall below when it shines down), so it
+ * shows lit from anywhere, whether or not it has one of the few real lights at the moment (see lightPool).
+ */
+function stripFixture(ctx: Ctx, room: Room, floor: Floor, base: number, sym: PlanSymbol): THREE.Group {
   const g = new THREE.Group()
-  const { runs, drop } = coveRuns(room, sym)
-  const { mouth } = gapDrops(room, sym)
-  const y = base + floor.height - drop
-  for (const { a, b } of runs) {
+  const { runs, up, drop } = coveRuns(room, sym)
+  const H = base + floor.height
+  const y = H - drop
+  // From a gap or pocket the light comes out at its mouth.
+  const inGroove = sym.type === 'gap-light' || sym.type === 'pocket-light'
+  const mouth = inGroove ? gapDrops(room, sym).mouth : drop
+  const pts = room.points
+  const sa = signedArea(pts)
+  const washes = (ctx.handle.washes ??= [])
+  const washMat = () => {
+    const m = new THREE.MeshBasicMaterial({ color: ctx.color, map: washMap(), transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide })
+    washes.push({ m, base: STRIP_WASH * ctx.brightness })
+    return m
+  }
+  for (const { a, b, edge } of runs) {
     const len = Math.hypot(b.x - a.x, b.y - a.y)
     if (len < 5) continue
     const seg = new THREE.Group()
     seg.position.set((a.x + b.x) / 2, y, (a.y + b.y) / 2)
     seg.rotation.y = -Math.atan2(b.y - a.y, b.x - a.x)
-    seg.add(lens(ctx, new THREE.BoxGeometry(len, 0.8, 1.2)))
-    areaLight(ctx, seg, len, sym.type === 'pocket-light' ? pocketWidth(room) - 4 : SHADOW_GAP.width - 1, 0, drop - mouth - 0.3, 0, 25)
+    seg.add(lens(ctx, new THREE.BoxGeometry(len, 1, 1.5)))
+    areaLight(ctx, seg, len, 4, 0, up ? 1 : -(mouth - drop) - 1, 0, STRIP_OUTPUT, up)
     g.add(seg)
+    const wa = pts[edge]
+    const wb = pts[(edge + 1) % pts.length]
+    if (!wa || !wb) continue
+    const n = inwardNormal(wa, wb, sa)
+    const V = (p: { x: number; y: number }, h: number, out = 0) => new THREE.Vector3(p.x + n.x * out, h, p.y + n.y * out)
+    if (up) {
+      // Across the ceiling above, from the strip toward the middle of the room.
+      const reach = 70
+      g.add(new THREE.Mesh(quad([V(a, H - 0.4), V(b, H - 0.4), V(b, H - 0.4, reach), V(a, H - 0.4, reach)]), washMat()))
+    } else {
+      // Down the wall below, from where the light comes out.
+      const pa = projectOnSegment(a, wa, wb).point
+      const pb = projectOnSegment(b, wa, wb).point
+      const top = H - mouth
+      g.add(new THREE.Mesh(quad([V(pa, top, 0.5), V(pb, top, 0.5), V(pb, top - 75, 0.5), V(pa, top - 75, 0.5)]), washMat()))
+    }
   }
   return g
 }
@@ -408,23 +455,6 @@ function pendant(ctx: Ctx, g: THREE.Group, style: string, r: number, h: number, 
   }
 }
 
-function coveFixture(ctx: Ctx, room: Room, floor: Floor, base: number, sym: PlanSymbol): THREE.Group {
-  const g = new THREE.Group()
-  const { runs, up, drop } = coveRuns(room, sym)
-  const y = base + floor.height - drop
-  for (const { a, b } of runs) {
-    const len = Math.hypot(b.x - a.x, b.y - a.y)
-    if (len < 5) continue
-    const seg = new THREE.Group()
-    seg.position.set((a.x + b.x) / 2, y, (a.y + b.y) / 2)
-    seg.rotation.y = -Math.atan2(b.y - a.y, b.x - a.x)
-    seg.add(lens(ctx, new THREE.BoxGeometry(len, 1, 1.5)))
-    areaLight(ctx, seg, len, 4, 0, up ? 1 : -1, 0, 18, up)
-    g.add(seg)
-  }
-  return g
-}
-
 /**
  * A light fixture (or switch) with its three.js lights. Returns the object in world position,
  * or null for things that have no 3D form.
@@ -468,7 +498,7 @@ export function buildFixture(
     const plain = floor.rooms.find((r) => r.id === sym.room)
     if (!plain) return null
     const room = ceilingRoom(plain, floor)
-    const g = (kind === 'gap' ? gapFixture : coveFixture)(ctx, room, floor, base, ceilingLight(sym, room))
+    const g = stripFixture(ctx, room, floor, base, ceilingLight(sym, room))
     g.traverse((o) => (o.userData.pick = pick))
     return g
   }
@@ -539,6 +569,11 @@ export function buildFixture(
     }
     case 'chandelier': {
       const h = sym.height || 60
+      const style = styleOf(sym)
+      if (style !== 'classic') {
+        chandelier(ctx, g, style, w / 2, h, hang, top)
+        break
+      }
       const r = (w / 2) * 0.75
       const brass = new THREE.MeshStandardMaterial({ color: '#b08d57', metalness: 0.8, roughness: 0.3 })
       g.add(mesh(new THREE.CylinderGeometry(0.6, 0.6, Math.max(1, top - (hang + h)), 8), brass, 0, (top + hang + h) / 2, 0))
@@ -615,6 +650,148 @@ export function cabinetLights(
   }
   for (const p of leds.spots) spotLight(ctx, g, p.x, p.y, p.z, p.intensity, p.angle)
   return g
+}
+
+/**
+ * A chandelier in one of its other styles (see CHANDELIER_STYLES): radius r, h tall, its bottom at `hang`. Many small
+ * parts (crystals, tubes) are merged into one mesh each, to keep it cheap to draw.
+ */
+function chandelier(ctx: Ctx, g: THREE.Group, style: string, r: number, h: number, hang: number, top: number) {
+  const chrome = new THREE.MeshStandardMaterial({ color: '#d4d4d8', metalness: 0.9, roughness: 0.2 })
+  const gold = brass()
+  const black = dark()
+  const merged = (geos: THREE.BufferGeometry[], mat: THREE.Material) => {
+    const geo = mergeGeometries(geos.map((x) => (x.index ? x.toNonIndexed() : x)))
+    geos.forEach((x) => x.dispose())
+    return new THREE.Mesh(geo!, mat)
+  }
+  const at = (geo: THREE.BufferGeometry, x: number, y: number, z: number) => geo.translate(x, y, z)
+  switch (style) {
+    case 'crystal': {
+      // Tiers of crystal drops hanging from chrome rings, candle bulbs on top.
+      g.add(mesh(new THREE.CylinderGeometry(6, 6, 2, 24), chrome, 0, top - 1, 0))
+      g.add(mesh(new THREE.CylinderGeometry(0.5, 0.5, Math.max(1, top - (hang + h)), 8), chrome, 0, (top + hang + h) / 2, 0))
+      g.add(mesh(new THREE.CylinderGeometry(0.8, 0.8, h, 8), chrome, 0, hang, 0))
+      const crystal = new THREE.MeshStandardMaterial({ color: '#f8fafc', metalness: 0.1, roughness: 0.02, transparent: true, opacity: 0.75, emissive: '#ffffff', emissiveIntensity: 0.15 })
+      const drops: THREE.BufferGeometry[] = []
+      const tiers = [
+        [1, h * 0.75],
+        [0.72, h * 0.45],
+        [0.42, h * 0.15],
+      ] as const
+      for (const [f, y] of tiers) {
+        const rr = r * f
+        g.add(ring(rr, 0.5, chrome, 0, hang + y, 0))
+        const n = Math.max(10, Math.round(rr * 0.9))
+        for (let i = 0; i < n; i++) {
+          const a = (i / n) * Math.PI * 2
+          const len = 6 + (i % 3) * 3
+          drops.push(at(new THREE.OctahedronGeometry(1.4), Math.cos(a) * rr, hang + y - len, Math.sin(a) * rr))
+          drops.push(at(new THREE.CylinderGeometry(0.15, 0.15, len, 4), Math.cos(a) * rr, hang + y - len / 2, Math.sin(a) * rr))
+        }
+      }
+      g.add(merged(drops, crystal))
+      for (let i = 0; i < 6; i++) {
+        const a = (i / 6) * Math.PI * 2
+        const x = Math.cos(a) * r
+        const z = Math.sin(a) * r
+        g.add(mesh(new THREE.CylinderGeometry(1.2, 1.2, 6, 10), chrome, x, hang + h * 0.75 + 3, z))
+        g.add(lens(ctx, new THREE.SphereGeometry(2.2, 10, 8)).translateX(x).translateY(hang + h * 0.75 + 8).translateZ(z))
+        g.add(glow(ctx, 14, x, hang + h * 0.75 + 8, z))
+      }
+      pointLight(ctx, g, 0, hang + h * 0.5, 0, 9)
+      break
+    }
+    case 'led-rings':
+    case 'led-tilted': {
+      // Glowing rings on thin wires: stacked level, or tilted around one another.
+      g.add(mesh(new THREE.CylinderGeometry(7, 7, 1.5, 32), black, 0, top - 0.75, 0))
+      const rings = [
+        [1, 0, 0, 0],
+        [0.72, h * 0.35, 0.5, 0.2],
+        [0.46, h * 0.65, -0.4, 0.6],
+      ] as const
+      rings.forEach(([f, dy, tx, tz], i) => {
+        const rr = r * f
+        const y = hang + (style === 'led-rings' ? dy : h * 0.4)
+        const holder = new THREE.Group()
+        holder.position.y = y
+        if (style === 'led-tilted') holder.rotation.set(tx, i * 1.1, tz)
+        const band = new THREE.Mesh(new THREE.TorusGeometry(rr, 1.1, 10, 72), gold)
+        band.rotation.x = Math.PI / 2
+        holder.add(band)
+        const lit = lens(ctx, new THREE.TorusGeometry(rr, 0.7, 8, 72))
+        lit.rotation.x = Math.PI / 2
+        lit.position.y = -0.9
+        holder.add(lit)
+        g.add(holder)
+        // Wires up to the canopy from three points of the ring.
+        holder.updateMatrix()
+        for (let k = 0; k < 3; k++) {
+          const a = (k / 3) * Math.PI * 2 + i
+          const p = new THREE.Vector3(Math.cos(a) * rr, 0, Math.sin(a) * rr).applyMatrix4(holder.matrix)
+          g.add(rod(new THREE.Vector3(Math.cos(a) * 5, top - 1, Math.sin(a) * 5), p, 0.08, black))
+        }
+      })
+      g.add(glow(ctx, r * 2.4, 0, hang + h * 0.3, 0))
+      pointLight(ctx, g, 0, hang + h * 0.3, 0, 6)
+      spotLight(ctx, g, 0, hang, 0, 8, 1.1)
+      break
+    }
+    case 'led-cascade': {
+      // Glowing tubes of different lengths hanging from a round plate, in a spiral.
+      g.add(mesh(new THREE.CylinderGeometry(r, r, 2, 48), gold, 0, top - 1, 0))
+      const n = Math.max(12, Math.round(r * 0.6))
+      const tubes: THREE.BufferGeometry[] = []
+      const wires: THREE.BufferGeometry[] = []
+      const span = top - hang
+      for (let i = 0; i < n; i++) {
+        const a = i * 2.4
+        const rr = r * 0.9 * Math.sqrt((i + 0.5) / n)
+        const x = Math.cos(a) * rr
+        const z = Math.sin(a) * rr
+        // Longest in the middle, shorter outward.
+        const len = Math.max(20, h * (1 - rr / r) + 15)
+        const bottom = top - Math.min(span, h + 20) + (h - len) * 0.6
+        tubes.push(at(new THREE.CylinderGeometry(0.9, 0.9, len, 8), x, bottom + len / 2, z))
+        wires.push(at(new THREE.CylinderGeometry(0.06, 0.06, top - 2 - (bottom + len), 3), x, (top - 2 + bottom + len) / 2, z))
+      }
+      const lit = lens(ctx, new THREE.BufferGeometry())
+      lit.geometry = mergeGeometries(tubes.map((t) => t.toNonIndexed()))!
+      tubes.forEach((t) => t.dispose())
+      g.add(lit)
+      g.add(merged(wires, black))
+      g.add(glow(ctx, r * 2.2, 0, hang + h * 0.5, 0))
+      pointLight(ctx, g, 0, hang + h * 0.5, 0, 7)
+      spotLight(ctx, g, 0, hang, 0, 7, 1.1)
+      break
+    }
+    default: {
+      // Sputnik: rods out in all directions from a ball, a bulb on each end.
+      const cy = hang + h / 2
+      g.add(mesh(new THREE.CylinderGeometry(6, 6, 2, 24), gold, 0, top - 1, 0))
+      g.add(mesh(new THREE.CylinderGeometry(0.6, 0.6, Math.max(1, top - cy), 8), gold, 0, (top + cy) / 2, 0))
+      g.add(mesh(new THREE.SphereGeometry(4, 20, 14), gold, 0, cy, 0))
+      const rods: THREE.BufferGeometry[] = []
+      const n = 14
+      for (let i = 0; i < n; i++) {
+        // Spread evenly over a sphere.
+        const yy = 1 - (2 * (i + 0.5)) / n
+        const rad = Math.sqrt(1 - yy * yy) * 0.9
+        const a = i * 2.4
+        const dir = new THREE.Vector3(Math.cos(a) * rad, yy * 0.6, Math.sin(a) * rad).normalize()
+        const end = dir.clone().multiplyScalar(r - 4).add(new THREE.Vector3(0, cy, 0))
+        const geo = new THREE.CylinderGeometry(0.4, 0.4, r - 6, 6)
+        geo.applyQuaternion(new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir))
+        const mid = dir.clone().multiplyScalar((r - 6) / 2).add(new THREE.Vector3(0, cy, 0))
+        rods.push(at(geo, mid.x, mid.y, mid.z))
+        g.add(lens(ctx, new THREE.SphereGeometry(2.2, 10, 8)).translateX(end.x).translateY(end.y).translateZ(end.z))
+      }
+      g.add(merged(rods, gold))
+      g.add(glow(ctx, r * 2.2, 0, cy, 0))
+      pointLight(ctx, g, 0, cy, 0, 8)
+    }
+  }
 }
 
 /** Within this distance of the camera (m), spots show their trim and housing. */
@@ -712,6 +889,18 @@ export function applyLightState(
   if (cloud && colors) {
     colors.needsUpdate = true
     cloud.material.uniforms.opacity.value = glowOpacity
+  }
+  // Strip lights' washes, and curtains lit from a pocket: stronger at night.
+  const night = 0.35 + 0.65 * (1 - daylight)
+  for (const h of lights) {
+    const on = isOn(h.floorId, h.id)
+    for (const w of h.washes ?? []) {
+      ;(w.m as THREE.MeshBasicMaterial).opacity = on ? w.base * night : 0
+      w.m.visible = on
+    }
+  }
+  for (const w of (root.userData.curtainWashes ?? []) as { floorId: string; lightId: string; m: THREE.MeshStandardMaterial; base: number }[]) {
+    w.m.emissiveIntensity = isOn(w.floorId, w.lightId) ? w.base * night : 0
   }
   for (const s of switches) {
     const on = switchOn(s.id)

@@ -125,9 +125,9 @@ export function ceilingRoom(room: Room, floor: Floor): Room {
  */
 export function ceilingLight(sym: PlanSymbol, croom: Room): PlanSymbol {
   const info = shapes.get(croom)
-  if (!info || sym.type !== 'cove-light') return sym
+  if (!info || !sym.room) return sym
   const off = new Set(sym.cove?.off ?? [])
-  const stop = sym.cove?.columns === 'stop'
+  const stop = sym.type === 'cove-light' && sym.cove?.columns === 'stop'
   const mapped = info.parent.map((_, i) => i).filter((i) => off.has(info.parent[i]) || (stop && info.face[i]))
   return { ...sym, cove: { ...sym.cove, off: mapped } }
 }
@@ -252,7 +252,7 @@ export function coveRuns(room: Room, sym?: PlanSymbol): { runs: { a: Point; b: P
   const off = new Set(sym?.cove?.off ?? [])
   const runs = path
     .map((a, i) => ({ a, b: path[(i + 1) % path.length], edge: i }))
-    .filter((r) => (gaps ? gaps.has(r.edge) : !off.has(r.edge)))
+    .filter((r) => (!gaps || gaps.has(r.edge)) && !off.has(r.edge))
   return { runs, up, drop }
 }
 

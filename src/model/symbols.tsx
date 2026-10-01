@@ -67,8 +67,14 @@ export interface SymbolDef {
 export const CABINETS = new Set(['display-cabinet', 'sideboard', 'coffee-corner'])
 export const hasGlass = (sym: PlanSymbol) => sym.glass ?? sym.type === 'display-cabinet'
 
+export interface ItemStyle {
+  id: string
+  name: string
+  kind: 'Modern' | 'Classic' | 'Industrial'
+}
+
 /** Pendant light styles; the first is the default. */
-export const PENDANT_STYLES: { id: string; name: string; kind: 'Modern' | 'Classic' | 'Industrial' }[] = [
+export const PENDANT_STYLES: ItemStyle[] = [
   { id: 'cone', name: 'Cone', kind: 'Industrial' },
   { id: 'dome', name: 'Dome', kind: 'Modern' },
   { id: 'globe', name: 'Glass globe', kind: 'Modern' },
@@ -78,6 +84,31 @@ export const PENDANT_STYLES: { id: string; name: string; kind: 'Modern' | 'Class
   { id: 'lantern', name: 'Lantern', kind: 'Classic' },
   { id: 'bell', name: 'Glass bell', kind: 'Classic' },
 ]
+
+export const CHANDELIER_STYLES: ItemStyle[] = [
+  { id: 'classic', name: 'Classic arms', kind: 'Classic' },
+  { id: 'crystal', name: 'Crystal tiers', kind: 'Classic' },
+  { id: 'led-rings', name: 'LED rings', kind: 'Modern' },
+  { id: 'led-tilted', name: 'Tilted LED rings', kind: 'Modern' },
+  { id: 'led-cascade', name: 'LED cascade', kind: 'Modern' },
+  { id: 'sputnik', name: 'Sputnik', kind: 'Modern' },
+]
+
+export const COFFEE_STYLES: ItemStyle[] = [
+  { id: 'classic', name: 'Classic wood', kind: 'Classic' },
+  { id: 'modern', name: 'Modern niche', kind: 'Modern' },
+  { id: 'industrial', name: 'Industrial shelves', kind: 'Industrial' },
+  { id: 'cart', name: 'Bar cart', kind: 'Classic' },
+]
+
+/** Items that come in styles, and theirs (the first is the default). */
+export const STYLES: Record<string, ItemStyle[]> = {
+  pendant: PENDANT_STYLES,
+  chandelier: CHANDELIER_STYLES,
+  'coffee-corner': COFFEE_STYLES,
+}
+
+export const styleOf = (sym: PlanSymbol) => sym.style ?? STYLES[sym.type]?.[0].id
 
 /** A corner wardrobe's depth: a standard 60 cm, less if it's small. */
 export const cornerArm = (w: number, d: number) => Math.min(60, w * 0.45, d * 0.45)
@@ -177,10 +208,23 @@ export function startsShut(sym: PlanSymbol) {
   return false
 }
 
-/** How far a curtain's panels reach in from each end: gathered at the ends when open, meeting in the middle when closed. */
-export function curtainPanel(w: number, open: number) {
-  const stack = Math.min(w / 2, Math.max(14, w * 0.1))
-  return stack + (w / 2 - stack) * (1 - open)
+/**
+ * How far a curtain panel reaches from its end of the track, covering `span` when closed (half the track for a pair,
+ * all of it for one opening to one side): gathered at the end when open.
+ */
+export function panelWidth(span: number, open: number) {
+  const stack = Math.min(span, Math.max(14, span * 0.2))
+  return stack + (span - stack) * (1 - open)
+}
+
+/** A curtain's panels: each its end of the track (-1 left, +1 right) and the width it covers closed. */
+export function curtainPanels(sym: PlanSymbol, w: number): { end: -1 | 1; span: number }[] {
+  if (sym.openSide === 'left') return [{ end: -1, span: w }]
+  if (sym.openSide === 'right') return [{ end: 1, span: w }]
+  return [
+    { end: -1, span: w / 2 },
+    { end: 1, span: w / 2 },
+  ]
 }
 
 /** The frame finish an item has: one of its type's, or a custom color. Null for items without a frame choice. */
@@ -509,12 +553,13 @@ export const SYMBOLS: SymbolDef[] = [
         <>
           {layers.map((l, i) => {
             const y = -d / 2 + ((i + 1) * d) / (layers.length + 1)
-            const wp = curtainPanel(w, l === 'sheer' && layers.length > 1 ? 0 : (sym?.open ?? 0.7))
+            const open = l === 'sheer' && layers.length > 1 ? 0 : (sym?.open ?? 0.7)
             const style = l === 'sheer' ? k.thin : k.line
             return (
               <g key={l}>
-                <path d={folds(-w / 2, -w / 2 + wp, y)} {...style} strokeDasharray={l === 'sheer' ? '3 2' : undefined} />
-                <path d={folds(w / 2, w / 2 - wp, y)} {...style} strokeDasharray={l === 'sheer' ? '3 2' : undefined} />
+                {(sym ? curtainPanels(sym, w) : curtainPanels({ openSide: 'both' } as PlanSymbol, w)).map(({ end, span }) => (
+                  <path key={end} d={folds((end * w) / 2, (end * w) / 2 - end * panelWidth(span, open), y)} {...style} strokeDasharray={l === 'sheer' ? '3 2' : undefined} />
+                ))}
               </g>
             )
           })}
@@ -770,16 +815,30 @@ export const SYMBOLS: SymbolDef[] = [
   {
     type: 'coffee-corner',
     name: 'Coffee corner',
-    keywords: 'coffee station bar espresso machine',
+    keywords: 'coffee station bar espresso machine cart',
     category: 'Kitchen',
     width: 120,
     depth: 50,
     height: 220,
-    render: (w, d, t) => {
+    render: (w, d, t, sym) => {
       const k = kit(t)
+      const style = sym ? styleOf(sym) : 'classic'
+      if (style === 'cart') {
+        return (
+          <>
+            <rect x={-w / 2} y={-d / 2} width={w} height={d} rx={4} {...k.s()} />
+            <rect x={-w / 2 + 4} y={-d / 2 + 4} width={w - 8} height={d - 8} rx={3} {...k.thin} fill="none" />
+            {[-1, 1].map((s) => (
+              <line key={s} x1={s * (w / 2 + 4)} y1={-d / 2 + 6} x2={s * (w / 2 + 4)} y2={d / 2 - 6} {...k.line} />
+            ))}
+          </>
+        )
+      }
       return (
         <>
           {k.box(w, d, 1)}
+          {style === 'industrial' && [-1, 1].flatMap((sx) => [-1, 1].map((sy) => <circle key={`${sx}${sy}`} cx={sx * (w / 2 - 2)} cy={sy * (d / 2 - 2)} r={1.6} {...k.s(t.ink)} />))}
+          {style === 'modern' && <line x1={-w / 2 + 4} y1={d / 2 - 3} x2={w / 2 - 4} y2={d / 2 - 3} {...k.thin} />}
           <rect x={-w / 2 + 6} y={-d / 2 + 4} width={30} height={Math.min(30, d - 10)} rx={3} {...k.s(t.fill2)} />
           <circle cx={-w / 2 + 21} cy={-d / 2 + 4 + Math.min(30, d - 10) / 2} r={4} {...k.thin} fill="none" />
           <circle cx={w / 6} cy={0} r={3.5} {...k.thin} fill="none" />
@@ -1494,9 +1553,52 @@ export const SYMBOLS: SymbolDef[] = [
     height: 60,
     elevation: 190,
     fixture: 'chandelier',
+    keywords: 'crystal led rings cascade sputnik',
     render: (w, _d, t, sym) => {
       const k = kit(t)
       const r = w / 2
+      const style = sym ? styleOf(sym) : 'classic'
+      if (style === 'led-rings' || style === 'led-tilted') {
+        return (
+          <>
+            {[1, 0.72, 0.46].map((f, i) =>
+              style === 'led-rings' ? (
+                <circle key={i} cx={0} cy={0} r={r * f} fill="none" stroke={glow(sym)} strokeWidth={2.5} vectorEffect="non-scaling-stroke" />
+              ) : (
+                <ellipse key={i} cx={0} cy={0} rx={r * f} ry={r * f * 0.45} transform={`rotate(${i * 60})`} fill="none" stroke={glow(sym)} strokeWidth={2.5} vectorEffect="non-scaling-stroke" />
+              ),
+            )}
+          </>
+        )
+      }
+      if (style === 'led-cascade' || style === 'crystal') {
+        return (
+          <>
+            <circle cx={0} cy={0} r={r} {...k.thin} strokeDasharray="4 3" />
+            {Array.from({ length: 14 }, (_, i) => {
+              const a = i * 2.4
+              const rr = r * (0.2 + 0.75 * ((i + 1) / 14))
+              return <circle key={i} cx={Math.cos(a) * rr} cy={Math.sin(a) * rr} r={r * 0.06} {...k.s(style === 'crystal' ? t.fill : glow(sym))} />
+            })}
+          </>
+        )
+      }
+      if (style === 'sputnik') {
+        return (
+          <>
+            {Array.from({ length: 12 }, (_, i) => {
+              const a = (i / 12) * Math.PI * 2
+              return (
+                <g key={i}>
+                  <line x1={0} y1={0} x2={Math.cos(a) * r * 0.9} y2={Math.sin(a) * r * 0.9} {...k.line} />
+                  <circle cx={Math.cos(a) * r * 0.9} cy={Math.sin(a) * r * 0.9} r={r * 0.09} {...k.s(glow(sym))} />
+                </g>
+              )
+            })}
+            <circle cx={0} cy={0} r={r * 0.12} {...k.s()} />
+          </>
+        )
+      }
       return (
         <>
           <circle cx={0} cy={0} r={r} {...k.thin} strokeDasharray="4 3" />
