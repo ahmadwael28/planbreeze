@@ -16,7 +16,7 @@ import {
   sub,
 } from '@/model/geometry'
 import { toast } from 'sonner'
-import { covePath, coveRuns } from '@/model/lighting'
+import { ceilingLight, ceilingRoom, covePath, coveRuns } from '@/model/lighting'
 import { dimensionPoints, findWallSnap, floorBounds, moveWall, roomOuter, symbolPose, wallMountPose } from '@/model/project'
 import { SYMBOL_MAP } from '@/model/symbols'
 import { formatLength, gridSpacing, parseLength, snapStep } from '@/model/units'
@@ -373,7 +373,7 @@ export function Canvas() {
       if (sym && fixture === 'switch') {
         st.setWireSwitch(sym.id)
         st.select({ kind: 'symbol', id: sym.id })
-      } else if (sym && fixture) {
+      } else if (sym && (fixture || sym.led)) {
         if (st.wireSwitch) toggleWire(st.wireSwitch, sym.id)
         else toast('Click a switch first, then the lights it should control.')
       } else {
@@ -1007,11 +1007,16 @@ export function Canvas() {
 
         {/* selected cove light: its path */}
         {selCoveRoom &&
-          (selSym?.type === 'gap-light' || selSym?.type === 'pocket-light' ? (
-            <path d={coveRuns(selCoveRoom, selSym).runs.map(({ a, b }) => `M${a.x},${a.y}L${b.x},${b.y}`).join('')} className="sel-outline" />
-          ) : (
-            <path d={polygonPath(covePath(selCoveRoom, selSym).path)} className="sel-outline" />
-          ))}
+          selSym &&
+          (() => {
+            const room = ceilingRoom(selCoveRoom, floor)
+            const light = ceilingLight(selSym, room)
+            return light.type === 'gap-light' || light.type === 'pocket-light' ? (
+              <path d={coveRuns(room, light).runs.map(({ a, b }) => `M${a.x},${a.y}L${b.x},${b.y}`).join('')} className="sel-outline" />
+            ) : (
+              <path d={polygonPath(covePath(room, light).path)} className="sel-outline" />
+            )
+          })()}
 
         {/* selected symbol: bounds, rotate & resize handles */}
         {selSym && !selSym.room && (() => {

@@ -11,7 +11,7 @@ import {
   signedArea,
   sub,
 } from '@/model/geometry'
-import { ceilingZones, covePath, coveRuns, pocketWidth, SHADOW_GAP, WIRE_COLORS } from '@/model/lighting'
+import { ceilingLight, ceilingRoom, ceilingZones, covePath, coveRuns, pocketWidth, SHADOW_GAP, WIRE_COLORS } from '@/model/lighting'
 import { dimensionPoints, isOutdoor, railingRuns, roomOuter, symbolPose } from '@/model/project'
 import { SYMBOL_MAP } from '@/model/symbols'
 import type { PlanTheme } from '@/model/theme'
@@ -121,7 +121,7 @@ function Railings({ room, rooms, theme }: { room: Room; rooms: Room[]; theme: Pl
 
 /** A hidden LED running around its room's ceiling (only along the walls it's on for). */
 function CoveLight({ sym, room, scale, forPrint }: { sym: PlanSymbol; room: Room; scale: number; forPrint?: boolean }) {
-  const { runs } = coveRuns(room, sym)
+  const { runs } = coveRuns(room, ceilingLight(sym, room))
   const color = sym.light?.color === 'cool' ? '#60a5fa' : sym.light?.color === 'white' ? '#eab308' : '#f59e0b'
   const d = runs.map(({ a, b }) => `M${a.x},${a.y}L${b.x},${b.y}`).join('')
   if (!d) return null
@@ -266,9 +266,10 @@ function CeilingZones({ room, theme }: { room: Room; theme: PlanTheme }) {
 /** Where a wire should end on a light: its center, or for cove lights the nearest point of the strip. */
 function wireEnd(sym: PlanSymbol, floor: Floor, from: Point): Point {
   if (sym.room) {
-    const room = floor.rooms.find((r) => r.id === sym.room)
-    if (room) {
-      const { path } = covePath(room, sym)
+    const plain = floor.rooms.find((r) => r.id === sym.room)
+    if (plain) {
+      const room = ceilingRoom(plain, floor)
+      const { path } = covePath(room, ceilingLight(sym, room))
       let best = path[0]
       for (const p of path) if (dist(p, from) < dist(best, from)) best = p
       return best
@@ -461,13 +462,13 @@ export function PlanLayers({
       {lighting && (
         <g>
           {floor.rooms.map((r) => (
-            <CeilingZones key={r.id} room={r} theme={theme} />
+            <CeilingZones key={r.id} room={ceilingRoom(r, floor)} theme={theme} />
           ))}
           {floor.rooms.map((r) => (
-            <CurtainPockets key={r.id} room={r} theme={theme} />
+            <CurtainPockets key={r.id} room={ceilingRoom(r, floor)} theme={theme} />
           ))}
           {floor.rooms.map((r) => (
-            <ShadowGaps key={r.id} room={r} theme={theme} />
+            <ShadowGaps key={r.id} room={ceilingRoom(r, floor)} theme={theme} />
           ))}
         </g>
       )}
@@ -504,7 +505,7 @@ export function PlanLayers({
         <g opacity={fadedSet.has('Lighting') ? FADE : undefined} pointerEvents={fadedSet.has('Lighting') ? 'none' : undefined}>
           {coves.map((s) => {
             const room = roomById.get(s.room!)
-            return room ? <CoveLight key={s.id} sym={s} room={room} scale={scale} forPrint={forPrint} /> : null
+            return room ? <CoveLight key={s.id} sym={s} room={ceilingRoom(room, floor)} scale={scale} forPrint={forPrint} /> : null
           })}
         </g>
       )}

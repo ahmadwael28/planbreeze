@@ -31,6 +31,8 @@ export interface Room {
   ceiling?: Ceiling
   /** Walls (edge indices) with a shadow gap: a recessed groove where the wall meets the ceiling. */
   shadowGaps?: number[]
+  /** At a column built into a wall, shadow gaps go around it (default) or stop at it. */
+  gapsAtColumns?: 'wrap' | 'stop'
   /** Walls with a curtain pocket: the gypsum ceiling stops short of them, so curtain tracks hide up in the gap. */
   curtainPockets?: number[]
   /** How wide the curtain pockets are (cm). */
@@ -58,6 +60,8 @@ export interface CoveSettings {
   at?: 'walls' | 'inner'
   /** Walls (edge indices) left without light. */
   off?: number[]
+  /** At a column built into a wall: go around it (default) or stop at it. */
+  columns?: 'wrap' | 'stop'
 }
 
 export type LightColor = 'warm' | 'white' | 'cool'
@@ -123,12 +127,18 @@ export interface PlanSymbol {
   room?: string
   /** Showers and wardrobes: hinged or sliding doors (each has its default). */
   doors?: 'hinged' | 'sliding'
-  /** Wardrobes: glass doors. */
+  /** Wardrobes and cabinets: glass doors. */
   glass?: boolean
+  /** Cabinets (display cabinet, sideboard, coffee corner): LED lighting inside, set like a light (`light`). */
+  led?: boolean
+  /** A style of an item that comes in several (pendant lights: see PENDANT_STYLES). */
+  style?: string
   /** Curtains and blinds: the fabric (sheer, curtain or blackout; a blind's screen or blackout). */
   fabric?: 'sheer' | 'curtain' | 'blackout' | 'screen'
-  /** Curtains: a sheer layer behind. */
+  /** Curtains: a sheer layer behind (older plans; now in `layers`). */
   sheer?: boolean
+  /** Curtains: which layers hang on the track, any of sheer, blackout and curtain. */
+  layers?: ('sheer' | 'curtain' | 'blackout')[]
   /** Curtains and blinds: how far open (0 closed … 1 drawn back, or a blind rolled up). */
   open?: number
   /** Showers: the sides with glass (front, back, left, right); left out, the sides not against a wall. */

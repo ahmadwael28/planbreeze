@@ -26,7 +26,7 @@ import { cn } from '@/lib/utils'
 import { bbox, labelPoint, pointInPolygon } from '@/model/geometry'
 import { isLightOn, LIGHT_COLORS, OTHER_LIGHTS, switchesFor, WIRE_COLORS } from '@/model/lighting'
 import { symbolPose, uid } from '@/model/project'
-import { SYMBOL_MAP } from '@/model/symbols'
+import { startsShut, SYMBOL_MAP } from '@/model/symbols'
 import { refsOf } from '@/model/items'
 import type { LightColor, Selection } from '@/model/types'
 import { currentFloor, draftFloor, useEditor, useFloor } from '@/store/editor'
@@ -95,6 +95,23 @@ const movingRatio = () => Math.max(0.75, fullRatio() * 0.5)
 
 /** Hand out the real lights again, when the camera has moved or lights changed (at most every so often). */
 const POOL_EVERY_MS = 150
+
+/** Whether a door, curtain or blind is shut now: as toggled in 3D, or else as designed. */
+function isShut(id: string) {
+  const st = useEditor.getState()
+  const known = st.doorsClosed[id]
+  if (known !== undefined) return known
+  const sym = st.project.floors.flatMap((f) => f.symbols).find((s) => s.id === id)
+  return !!sym && startsShut(sym)
+}
+
+/** What Space would do to a door, curtain or blind. */
+function nearLabel(id: string, shut: boolean) {
+  const type = currentFloor(useEditor.getState()).symbols.find((s) => s.id === id)?.type
+  if (type === 'curtain') return shut ? 'Open the curtains' : 'Close the curtains'
+  if (type === 'blind') return shut ? 'Raise the blind' : 'Lower the blind'
+  return shut ? 'Open the door' : 'Close the door'
+}
 
 /** Swing or slide these doors open or shut. */
 function swingDoors(ctx: Ctx | null, ids: string[], closed: boolean) {
@@ -950,7 +967,7 @@ export default function Viewer3D() {
     const closed = useEditor.getState().doorsClosed
     ctx.doorAnims = []
     ctx.content.traverse((o) => {
-      if (o.userData.door) poseDoor(o, closed[pickedId(o)] ? 0 : 1)
+      if (o.userData.door) poseDoor(o, (closed[pickedId(o)] ?? o.userData.door.startOpen === false) ? 0 : 1)
     })
     ctx.renderer.shadowMap.needsUpdate = true
     ctx.dirty = true
@@ -960,7 +977,7 @@ export default function Viewer3D() {
   const moveDoors = (ids: string[], closed: boolean) => swingDoors(ctxRef.current, ids, closed)
   const doorsClosed = useEditor((s) => s.doorsClosed)
   const doorIds = useMemo(
-    () => project.floors.flatMap((f) => f.symbols.filter((s) => SYMBOL_MAP.get(s.type)?.opens).map((s) => s.id)),
+    () => project.floors.flatMap((f) => f.symbols.filter((s) => SYMBOL_MAP.get(s.type)?.opens && SYMBOL_MAP.get(s.type)?.wall).map((s) => s.id)),
     [project],
   )
   const anyOpen = doorIds.some((id) => !doorsClosed[id])
@@ -983,7 +1000,7 @@ export default function Viewer3D() {
       const id = ctxRef.current?.nearDoor
       if (!id) return
       e.preventDefault()
-      swingDoors(ctxRef.current, [id], !useEditor.getState().doorsClosed[id])
+      swingDoors(ctxRef.current, [id], !isShut(id))
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
@@ -1026,7 +1043,7 @@ export default function Viewer3D() {
     }
     // A door opens or shuts (Alt + click selects it instead).
     if (sym && SYMBOL_MAP.get(sym.type)?.opens && !e.altKey) {
-      moveDoors([sym.id], !st.doorsClosed[sym.id])
+      moveDoors([sym.id], !isShut(sym.id))
       return
     }
     st.select({ kind: pick.kind, id: pick.id })
@@ -1038,7 +1055,7 @@ export default function Viewer3D() {
       {nearDoor && !compiling && (
         <div className="pointer-events-none absolute bottom-20 left-1/2 z-10 flex -translate-x-1/2 items-center gap-2 rounded-full bg-foreground/85 px-3 py-1.5 text-xs text-background shadow">
           <Kbd className="bg-background/20 text-background">Space</Kbd>
-          {doorsClosed[nearDoor] ? 'Open the door' : 'Close the door'}
+          {nearLabel(nearDoor, isShut(nearDoor))}
         </div>
       )}
       {compiling && (

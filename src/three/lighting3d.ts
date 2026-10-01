@@ -8,7 +8,7 @@ import * as THREE from 'three'
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js'
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js'
 import { offsetEdges, pointInPolygon, signedArea } from '@/model/geometry'
-import { bandInset, ceilingHeightAt, ceilingOutline, ceilingZones, COVE_WIDTH, coveRuns, gapDrops, LIGHT_COLORS, pocketWidth, SHADOW_GAP } from '@/model/lighting'
+import { bandInset, ceilingHeightAt, ceilingLight, ceilingOutline, ceilingRoom, ceilingZones, COVE_WIDTH, coveRuns, gapDrops, LIGHT_COLORS, pocketWidth, SHADOW_GAP } from '@/model/lighting'
 import { symbolPose } from '@/model/project'
 import { frameOf } from '@/model/symbols'
 import type { FixtureKind } from '@/model/symbols'
@@ -77,9 +77,11 @@ export function buildCeilings(floor: Floor, base: number): THREE.Object3D[] {
   const H = base + floor.height
   const geos: THREE.BufferGeometry[] = []
   const gapGeos: THREE.BufferGeometry[] = []
-  for (const room of floor.rooms) {
+  for (const plain of floor.rooms) {
     // Balconies are open to the sky.
-    if (room.points.length < 3 || room.kind) continue
+    if (plain.points.length < 3 || plain.kind) continue
+    // Around the columns in its walls.
+    const room = ceilingRoom(plain, floor)
     const c = room.ceiling
     // Shadow gaps: the ceiling that meets the wall stops short of it, leaving a dark groove. Curtain pockets: it stops
     // further short, leaving a pocket up to the slab for the curtain track.
@@ -278,6 +280,134 @@ function gapFixture(ctx: Ctx, room: Room, floor: Floor, base: number, sym: PlanS
   return g
 }
 
+const brass = () => new THREE.MeshStandardMaterial({ color: '#b08d57', metalness: 0.8, roughness: 0.3 })
+const twoSided = <T extends THREE.Mesh>(m: T) => {
+  ;(m.material as THREE.Material).side = THREE.DoubleSide
+  return m
+}
+
+/** A pendant light in one of its styles (see PENDANT_STYLES): radius r, shade height h, its bottom at `hang`. */
+function pendant(ctx: Ctx, g: THREE.Group, style: string, r: number, h: number, hang: number, top: number) {
+  const cord = (y: number, x = 0, z = 0) => g.add(mesh(new THREE.CylinderGeometry(0.3, 0.3, Math.max(1, top - y), 6), dark(), x, (top + y) / 2, z))
+  const metal = style === 'drum' || style === 'lantern' || style === 'bell' ? brass() : dark()
+  g.add(mesh(new THREE.CylinderGeometry(5, 5, 2, 24), metal, 0, top - 1, 0)) // ceiling canopy
+  switch (style) {
+    case 'dome': {
+      // A smooth metal half sphere, open at the bottom.
+      cord(hang + h)
+      const shell = twoSided(mesh(new THREE.SphereGeometry(r, 40, 14, 0, Math.PI * 2, 0, Math.PI / 2), metal, 0, hang, 0))
+      shell.scale.y = h / r
+      g.add(shell)
+      g.add(lens(ctx, new THREE.SphereGeometry(3.5, 16, 12)).translateY(hang + h * 0.3))
+      g.add(glow(ctx, r * 2.2, 0, hang + 1, 0))
+      spotLight(ctx, g, 0, hang + h * 0.25, 0, 10, 0.8)
+      pointLight(ctx, g, 0, hang + h * 0.3, 0, 2)
+      break
+    }
+    case 'globe': {
+      // A frosted glass sphere glowing all over, on a small cap.
+      cord(hang + 2 * r)
+      g.add(mesh(new THREE.CylinderGeometry(2.5, 3.5, 3, 20), brass(), 0, hang + 2 * r - 1, 0))
+      g.add(lens(ctx, new THREE.SphereGeometry(r, 32, 20)).translateY(hang + r))
+      g.add(glow(ctx, r * 3, 0, hang + r, 0))
+      pointLight(ctx, g, 0, hang + r, 0, 5)
+      break
+    }
+    case 'ring': {
+      // A glowing ring on three thin wires.
+      for (let i = 0; i < 3; i++) {
+        const a = (i / 3) * Math.PI * 2
+        g.add(rod(new THREE.Vector3(0, top - 2, 0), new THREE.Vector3(Math.cos(a) * (r - 1.5), hang + 1.5, Math.sin(a) * (r - 1.5)), 0.12, dark()))
+      }
+      g.add(ring(r - 1.5, 1.6, dark(), 0, hang + 1.5, 0))
+      const glowRing = lens(ctx, new THREE.TorusGeometry(r - 1.5, 0.9, 10, 64))
+      glowRing.rotation.x = Math.PI / 2
+      glowRing.position.y = hang + 0.6
+      g.add(glowRing)
+      g.add(glow(ctx, r * 2.4, 0, hang, 0))
+      spotLight(ctx, g, 0, hang, 0, 10, 1)
+      pointLight(ctx, g, 0, hang + 1, 0, 3)
+      break
+    }
+    case 'cluster': {
+      // Small globes on cords of different lengths.
+      const drops = [0, 14, 6, 22, 10]
+      drops.forEach((drop, i) => {
+        const a = (i / drops.length) * Math.PI * 2
+        const x = Math.cos(a) * r * 0.55
+        const z = Math.sin(a) * r * 0.55
+        const b = Math.max(6, r * 0.25)
+        const y = hang + drop
+        cord(y + 2 * b, x, z)
+        g.add(lens(ctx, new THREE.SphereGeometry(b, 20, 14)).translateX(x).translateY(y + b).translateZ(z))
+        g.add(glow(ctx, b * 3, x, y + b, z))
+      })
+      pointLight(ctx, g, 0, hang + 15, 0, 5)
+      spotLight(ctx, g, 0, hang + 5, 0, 6, 1)
+      break
+    }
+    case 'drum': {
+      // A fabric drum shade lit from inside, with rims at the top and bottom.
+      cord(hang + h)
+      g.add(twoSided(lens(ctx, new THREE.CylinderGeometry(r, r, h, 48, 1, true)).translateY(hang + h / 2)))
+      for (const y of [hang, hang + h]) g.add(ring(r, 0.4, metal, 0, y, 0))
+      g.add(glow(ctx, r * 2.6, 0, hang + h / 2, 0))
+      pointLight(ctx, g, 0, hang + h / 2, 0, 4)
+      spotLight(ctx, g, 0, hang + 2, 0, 7, 0.9)
+      break
+    }
+    case 'lantern': {
+      // A square frame with glass panes and a pointed cap, a light inside.
+      cord(hang + h + 8)
+      const s = r * 1.6
+      for (const [x, z] of [
+        [-1, -1],
+        [1, -1],
+        [1, 1],
+        [-1, 1],
+      ]) {
+        g.add(mesh(new THREE.BoxGeometry(1.2, h, 1.2), metal, (x * s) / 2, hang + h / 2, (z * s) / 2))
+      }
+      g.add(mesh(new THREE.BoxGeometry(s + 2, 1.5, s + 2), metal, 0, hang, 0))
+      const cap = mesh(new THREE.ConeGeometry(s * 0.78, 9, 4), metal, 0, hang + h + 4.5, 0)
+      cap.rotation.y = Math.PI / 4
+      g.add(cap)
+      g.add(lens(ctx, new THREE.BoxGeometry(s - 1.5, h - 3, s - 1.5)).translateY(hang + h / 2))
+      g.add(glow(ctx, s * 2, 0, hang + h / 2, 0))
+      pointLight(ctx, g, 0, hang + h / 2, 0, 4)
+      break
+    }
+    case 'bell': {
+      // A glass bell with a brass cap, the bulb showing through.
+      cord(hang + h + 3)
+      const profile = [
+        [r, 0],
+        [r * 0.96, h * 0.12],
+        [r * 0.78, h * 0.4],
+        [r * 0.5, h * 0.75],
+        [r * 0.32, h * 0.95],
+        [r * 0.3, h],
+      ].map(([x, y]) => new THREE.Vector2(x, y))
+      g.add(twoSided(lens(ctx, new THREE.LatheGeometry(profile, 40)).translateY(hang)))
+      g.add(mesh(new THREE.CylinderGeometry(r * 0.3, r * 0.34, 4, 24), metal, 0, hang + h + 1, 0))
+      g.add(ring(r, 0.35, metal, 0, hang, 0))
+      g.add(glow(ctx, r * 2.4, 0, hang + h * 0.4, 0))
+      spotLight(ctx, g, 0, hang + h * 0.4, 0, 9, 0.85)
+      pointLight(ctx, g, 0, hang + h * 0.45, 0, 3)
+      break
+    }
+    default: {
+      // Cone: an industrial metal cone, the bulb inside.
+      cord(hang + h)
+      g.add(twoSided(mesh(new THREE.CylinderGeometry(4, r, h, 32, 1, true), dark(), 0, hang + h / 2, 0)))
+      g.add(lens(ctx, new THREE.SphereGeometry(4, 16, 12)).translateY(hang + h * 0.35))
+      g.add(glow(ctx, r * 2.2, 0, hang + 2, 0))
+      spotLight(ctx, g, 0, hang + h * 0.3, 0, 10, 0.75)
+      pointLight(ctx, g, 0, hang + h * 0.3, 0, 2.5)
+    }
+  }
+}
+
 function coveFixture(ctx: Ctx, room: Room, floor: Floor, base: number, sym: PlanSymbol): THREE.Group {
   const g = new THREE.Group()
   const { runs, up, drop } = coveRuns(room, sym)
@@ -335,9 +465,10 @@ export function buildFixture(
   handles.lights.push(handle)
 
   if (kind === 'cove' || kind === 'gap') {
-    const room = floor.rooms.find((r) => r.id === sym.room)
-    if (!room) return null
-    const g = (kind === 'gap' ? gapFixture : coveFixture)(ctx, room, floor, base, sym)
+    const plain = floor.rooms.find((r) => r.id === sym.room)
+    if (!plain) return null
+    const room = ceilingRoom(plain, floor)
+    const g = (kind === 'gap' ? gapFixture : coveFixture)(ctx, room, floor, base, ceilingLight(sym, room))
     g.traverse((o) => (o.userData.pick = pick))
     return g
   }
@@ -392,19 +523,9 @@ export function buildFixture(
       }
       break
     }
-    case 'pendant': {
-      const h = sym.height || 30
-      g.add(mesh(new THREE.CylinderGeometry(5, 5, 2, 24), dark(), 0, top - 1, 0)) // ceiling canopy
-      g.add(mesh(new THREE.CylinderGeometry(0.3, 0.3, Math.max(1, top - (hang + h)), 6), dark(), 0, (top + hang + h) / 2, 0))
-      const shade = mesh(new THREE.CylinderGeometry(4, w / 2, h, 32, 1, true), dark(), 0, hang + h / 2, 0)
-      ;(shade.material as THREE.MeshStandardMaterial).side = THREE.DoubleSide
-      g.add(shade)
-      g.add(lens(ctx, new THREE.SphereGeometry(4, 16, 12)).translateY(hang + h * 0.35))
-      g.add(glow(ctx, w * 1.1, 0, hang + 2, 0))
-      spotLight(ctx, g, 0, hang + h * 0.3, 0, 10, 0.75)
-      pointLight(ctx, g, 0, hang + h * 0.3, 0, 2.5)
+    case 'pendant':
+      pendant(ctx, g, sym.style ?? 'cone', w / 2, sym.height || 30, hang, top)
       break
-    }
     case 'linear-pendant': {
       const h = sym.height || 8
       for (const x of [-w / 2 + 10, w / 2 - 10]) {
@@ -470,6 +591,29 @@ export function buildFixture(
     })
     g.userData.details = details
   }
+  return g
+}
+
+/**
+ * A cabinet's LED lighting (display cabinet, sideboard, coffee corner): lit strips and the spot lights they make, in
+ * the cabinet's frame, switched like any light (see applyLightState).
+ */
+export function cabinetLights(
+  sym: PlanSymbol,
+  leds: { strips: { x: number; y: number; z: number; len: number; axis: 'x' | 'y' }[]; spots: { x: number; y: number; z: number; angle: number; intensity: number }[] },
+  floor: Floor,
+  room: string | undefined,
+  handles: { lights: LightHandle[] },
+): THREE.Group {
+  const handle: LightHandle = { floorId: floor.id, id: sym.id, lights: [], emissive: [], glows: [], glowAt: [], glowColors: [] }
+  const ctx: Ctx = { color: new THREE.Color(LIGHT_COLORS[sym.light?.color ?? 'warm'].hex), brightness: sym.light?.brightness ?? 1, handle, room }
+  handles.lights.push(handle)
+  const g = new THREE.Group()
+  for (const s of leds.strips) {
+    const geo = s.axis === 'x' ? new THREE.BoxGeometry(s.len, 0.6, 1) : new THREE.BoxGeometry(1, s.len, 0.6)
+    g.add(lens(ctx, geo).translateX(s.x).translateY(s.y).translateZ(s.z))
+  }
+  for (const p of leds.spots) spotLight(ctx, g, p.x, p.y, p.z, p.intensity, p.angle)
   return g
 }
 

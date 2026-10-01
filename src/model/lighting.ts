@@ -1,4 +1,5 @@
-import { offsetEdges, offsetPolygon, pointInPolygon, projectOnSegment } from './geometry'
+import polygonClipping from 'polygon-clipping'
+import { offsetEdges, offsetPolygon, pointInPolygon, projectOnSegment, signedArea } from './geometry'
 import type { Ceiling, CeilingStyle, Floor, LightColor, PlanSymbol, Point, Room } from './types'
 
 export const LIGHT_COLORS: Record<LightColor, { label: string; kelvin: number; hex: string }> = {
@@ -31,6 +32,104 @@ export const WIRE_COLORS = ['#f97316', '#8b5cf6', '#10b981', '#ec4899', '#0ea5e9
 
 export function inset(room: Room, by: number): Point[] {
   return by === 0 ? room.points : offsetPolygon(room.points, -by)
+}
+
+/** Footprints of the columns built into a room's walls, reaching a little into the wall so cutting them out is clean. */
+export function roomColumns(room: Room, floor: Floor): Point[][] {
+  const out: Point[][] = []
+  for (const s of floor.symbols) {
+    if (s.type !== 'wall-post' || !pointInPolygon(s, room.points)) continue
+    const r = (s.rotation * Math.PI) / 180
+    const c = Math.cos(r)
+    const sn = Math.sin(r)
+    // Its back (local -y) is against the wall.
+    const corners: [number, number][] = [
+      [-s.width / 2, -s.depth / 2 - 3],
+      [s.width / 2, -s.depth / 2 - 3],
+      [s.width / 2, s.depth / 2],
+      [-s.width / 2, s.depth / 2],
+    ]
+    out.push(corners.map(([x, y]) => ({ x: s.x + x * c - y * sn, y: s.y + x * sn + y * c })))
+  }
+  return out
+}
+
+/** How each edge of a room as its ceiling sees it came about: the room's wall it's along, and whether it's a column's side. */
+const shapes = new WeakMap<Room, { parent: number[]; face: boolean[] }>()
+const ceilingRooms = new WeakMap<Room, { symbols: PlanSymbol[]; room: Room }>()
+
+/**
+ * The room as its ceiling sees it: columns built into its walls cut out of it, so the gypsum, cove lights, shadow gaps
+ * and curtain pockets go around them. Per-wall settings carry over: each piece of the outline takes its wall's, and a
+ * column's sides take those of the wall it stands on (shadow gaps not if they stop at columns; pockets never).
+ */
+export function ceilingRoom(room: Room, floor: Floor): Room {
+  const hit = ceilingRooms.get(room)
+  if (hit && hit.symbols === floor.symbols) return hit.room
+  let out = room
+  const cols = roomColumns(room, floor)
+  if (cols.length && room.points.length >= 3) {
+    const ring = (pts: Point[]) => [pts.map((p) => [p.x, p.y] as [number, number])]
+    const parts = polygonClipping.difference(ring(room.points), ...cols.map(ring))
+    const outer = parts.map((poly) => poly[0]).sort((a, b) => Math.abs(signedArea(b.map(([x, y]) => ({ x, y })))) - Math.abs(signedArea(a.map(([x, y]) => ({ x, y })))))[0]
+    if (outer && outer.length > 3) {
+      let pts = outer.slice(0, -1).map(([x, y]) => ({ x, y }))
+      if (Math.sign(signedArea(pts)) !== Math.sign(signedArea(room.points))) pts = pts.reverse()
+      const n = room.points.length
+      const parent: number[] = []
+      const face: boolean[] = []
+      pts.forEach((a, i) => {
+        const b = pts[(i + 1) % pts.length]
+        const along = room.points.findIndex((p, k) => {
+          const q = room.points[(k + 1) % n]
+          return projectOnSegment(a, p, q).dist < 0.5 && projectOnSegment(b, p, q).dist < 0.5
+        })
+        if (along >= 0) {
+          parent.push(along)
+          face.push(false)
+          return
+        }
+        const m = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 }
+        let best = 0
+        room.points.forEach((p, k) => {
+          const q = room.points[(k + 1) % n]
+          const bp = room.points[best]
+          if (projectOnSegment(m, p, q).dist < projectOnSegment(m, bp, room.points[(best + 1) % n]).dist) best = k
+        })
+        parent.push(best)
+        face.push(true)
+      })
+      const map = (edges: number[] | undefined, onFaces: boolean) => {
+        if (!edges?.length) return edges
+        const on = new Set(edges)
+        const mapped = pts.map((_, i) => i).filter((i) => on.has(parent[i]) && (onFaces || !face[i]))
+        return mapped.length ? mapped : undefined
+      }
+      out = {
+        ...room,
+        points: pts,
+        shadowGaps: map(room.shadowGaps, room.gapsAtColumns !== 'stop'),
+        curtainPockets: map(room.curtainPockets, false),
+        ceiling: room.ceiling && { ...room.ceiling, bands: room.ceiling.bands && pts.map((_, i) => room.ceiling!.bands![parent[i]] ?? null) },
+      }
+      shapes.set(out, { parent, face })
+    }
+  }
+  ceilingRooms.set(room, { symbols: floor.symbols, room: out })
+  return out
+}
+
+/**
+ * A cove light's settings on the room as its ceiling sees it (see ceilingRoom): its dark walls carried over, and the
+ * columns' sides dark too if it stops at columns.
+ */
+export function ceilingLight(sym: PlanSymbol, croom: Room): PlanSymbol {
+  const info = shapes.get(croom)
+  if (!info || sym.type !== 'cove-light') return sym
+  const off = new Set(sym.cove?.off ?? [])
+  const stop = sym.cove?.columns === 'stop'
+  const mapped = info.parent.map((_, i) => i).filter((i) => off.has(info.parent[i]) || (stop && info.face[i]))
+  return { ...sym, cove: { ...sym.cove, off: mapped } }
 }
 
 /** Usual width of a curtain pocket (cm). */
@@ -98,9 +197,9 @@ export function ceilingZones(room: Room): { outer: Point[]; inner?: Point[]; dro
 /** Ceiling height (cm above the floor) at a point, taking gypsum ceilings and boxes into account. */
 export function ceilingHeightAt(floor: Floor, p: Point): number {
   let h = floor.height
-  for (const room of floor.rooms) {
-    if (!room.ceiling || !pointInPolygon(p, room.points)) continue
-    for (const z of ceilingZones(room)) {
+  for (const r of floor.rooms) {
+    if (!r.ceiling || !pointInPolygon(p, r.points)) continue
+    for (const z of ceilingZones(ceilingRoom(r, floor))) {
       if (pointInPolygon(p, z.outer) && !(z.inner && pointInPolygon(p, z.inner))) h = Math.min(h, floor.height - z.drop)
     }
   }

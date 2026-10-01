@@ -8,7 +8,7 @@ import { Switch } from '@/components/ui/switch'
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
 import { cn } from '@/lib/utils'
 import { bbox, dist, polygonPath } from '@/model/geometry'
-import { bandAt, bandInset, CEILING_STYLES, hasTrayEdge, LIGHT_COLORS, pocketWidth, pruneControls, switchesFor, WIRE_COLORS } from '@/model/lighting'
+import { bandAt, bandInset, CEILING_STYLES, ceilingRoom, hasTrayEdge, LIGHT_COLORS, pocketWidth, pruneControls, roomColumns, switchesFor, WIRE_COLORS } from '@/model/lighting'
 import { newSymbol, uid } from '@/model/project'
 import { SYMBOL_MAP } from '@/model/symbols'
 import { formatLength } from '@/model/units'
@@ -150,7 +150,26 @@ export function WallPicker({
 }
 
 /** Where a room's hidden LED strip runs: in a tray, along the walls or inside; and which walls it's on. */
+/** Going around columns built into the walls, or stopping at them. */
+function AtColumns({ value, onChange }: { value: 'wrap' | 'stop'; onChange: (v: 'wrap' | 'stop') => void }) {
+  return (
+    <div className="space-y-1.5">
+      <span className="text-sm text-muted-foreground">At columns in the walls</span>
+      <ToggleGroup type="single" size="sm" variant="outline" value={value} onValueChange={(v) => v && onChange(v as 'wrap' | 'stop')} className="w-full">
+        <ToggleGroupItem value="wrap" className="flex-1">
+          Go around
+        </ToggleGroupItem>
+        <ToggleGroupItem value="stop" className="flex-1">
+          Stop
+        </ToggleGroupItem>
+      </ToggleGroup>
+    </div>
+  )
+}
+
 export function HiddenLightControls({ room, sym, units }: { room: Room; sym: PlanSymbol; units: Units }) {
+  const floor = useFloor()
+  const columns = roomColumns(room, floor).length > 0
   const off = new Set(sym.cove?.off ?? [])
   const lit = room.points.map((_, i) => i).filter((i) => !off.has(i))
   const style = room.ceiling?.style
@@ -194,6 +213,9 @@ export function HiddenLightControls({ room, sym, units }: { room: Room; sym: Pla
           })
         }
       />
+      {columns && (
+        <AtColumns value={sym.cove?.columns ?? 'wrap'} onChange={(v) => updateSymbol(sym.id, (s) => void (s.cove = { ...s.cove, columns: v === 'stop' ? 'stop' : undefined }))} />
+      )}
     </div>
   )
 }
@@ -203,6 +225,7 @@ export function HiddenLightControls({ room, sym, units }: { room: Room; sym: Pla
 
 /** A different band width on some walls (e.g. deeper over a wardrobe): pick a wall on the little plan, set its width. */
 function WallBands({ room, units, set }: { room: Room; units: Units; set: (recipe: (r: Room) => void) => void }) {
+  const floor = useFloor()
   const [wall, setWall] = useState<number | null>(null)
   const c = room.ceiling!
   const pts = room.points
@@ -228,7 +251,7 @@ function WallBands({ room, units, set }: { room: Room; units: Units; set: (recip
         aria-label="Band width per wall"
       >
         <path d={polygonPath(pts)} className="fill-foreground/15" />
-        <path d={polygonPath(bandInset(room))} className="fill-background" />
+        <path d={polygonPath(bandInset(ceilingRoom(room, floor)))} className="fill-background" />
         {pts.map((a, i) => {
           const p = pts[(i + 1) % pts.length]
           const name = `Wall ${i + 1}, ${formatLength(dist(a, p), units)}: band ${formatLength(bandAt(room, i), units)}`
@@ -469,6 +492,9 @@ export function CeilingSection({ room, units }: { room: Room; units: Units }) {
         />
         {!!room.shadowGaps?.length && (
           <>
+            {roomColumns(room, floor).length > 0 && (
+              <AtColumns value={room.gapsAtColumns ?? 'wrap'} onChange={(v) => set((r) => void (r.gapsAtColumns = v === 'stop' ? 'stop' : undefined))} />
+            )}
             <label className="flex items-center justify-between gap-2 text-sm">
               <span className="flex items-center gap-1.5">
                 <Lightbulb className="size-4" /> LED light in the gap

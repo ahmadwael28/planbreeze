@@ -14,7 +14,7 @@ import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js'
 import { inwardNormal, signedArea } from '@/model/geometry'
 import { openSides } from '@/model/guides'
 import type { Side } from '@/model/guides'
-import { chairsAlong, cornerArm, curtainPanel, frameOf, seatsAlong, SOFA } from '@/model/symbols'
+import { chairsAlong, cornerArm, curtainLayers, curtainPanel, frameOf, hasGlass, seatsAlong, SOFA, startsShut } from '@/model/symbols'
 import type { PlanSymbol, Point, Room } from '@/model/types'
 
 export const COLORS = {
@@ -254,17 +254,43 @@ function compactModel(g: THREE.Group): THREE.Group {
   return out
 }
 
-/** A moving part of a door: a leaf turning about its hinge (`angle` to close it), or a panel sliding (`slide` along x to open it). */
+/**
+ * A moving part of a door, curtain or blind: a leaf turning about its hinge (`angle` to close it), a panel sliding
+ * (`slide` along x to open it), a curtain panel gathering toward its end of the track (`gather`), or a blind's fabric
+ * rolling up (`roll`; its bottom bar rising with it).
+ */
 export interface DoorPart {
   angle?: number
   slide?: number
+  gather?: { half: number; fabric: number; openTo: number }
+  roll?: { full: number; openTo: number; bar?: boolean; y0?: number }
+  /** Starts shut (curtains and blinds drawn so as designed); doors start open. */
+  startOpen?: boolean
 }
 
-/** Put a door part in place, from closed (0) to open (1). */
+/** How deep a panel of curtain folds: the same fabric over less width folds deeper. */
+function drapeAmp(fabric: number, width: number) {
+  const n = Math.max(2, Math.round(fabric / 14))
+  return Math.min(8, Math.max(1.2, Math.sqrt(Math.max(0, (fabric / n / 2) ** 2 - (width / n / 2) ** 2)) / 2))
+}
+
+/** Put a door, curtain or blind part in place, from shut (0) to open (1: a curtain or blind as far as it opens). */
 export function poseDoor(o: THREE.Object3D, open: number) {
   const d = o.userData.door as DoorPart
   if (d.angle !== undefined) o.rotation.y = (1 - open) * d.angle
   if (d.slide !== undefined) o.position.x = open * d.slide
+  if (d.gather) {
+    const { half, fabric, openTo } = d.gather
+    const wp = curtainPanel(half * 2, open * openTo)
+    o.scale.x = wp / half
+    o.scale.z = drapeAmp(fabric, wp) / drapeAmp(fabric, half)
+  }
+  if (d.roll) {
+    const { full, openTo, bar, y0 = 0 } = d.roll
+    const len = Math.max(1, full * (1 - open * openTo))
+    if (bar) o.position.y = y0 + (full - len)
+    else o.scale.y = len / full
+  }
   o.userData.open = open
 }
 
@@ -557,6 +583,207 @@ function wardrobe(k: Kit, w: number, d: number, h: number, o: WardrobeOpts) {
     for (let i = 0; i < n; i++) door(dw - 0.6, x0 + dw * (i + 0.5), d / 2 - 1.2, i % 2 === 0 ? 1 : -1)
   }
   return g
+}
+
+const ORNAMENT_COLORS = ['#f5f1ea', '#1e3a8a', '#c9a45c', '#9cbfa7', '#b4664a', '#e7e1d6', '#3f4b5b', '#7c2d12']
+
+/** Ornaments along a shelf from x0 to x1 at height y (up to maxH tall), in a cabinet `d` deep: vases, bowls, plates, figures. */
+function ornaments(k: Kit, g: THREE.Group, rand: () => number, x0: number, x1: number, y: number, d: number, maxH: number) {
+  let x = x0 + 3
+  while (x < x1 - 8) {
+    const kind = Math.floor(rand() * 4)
+    const mat = k.q(ORNAMENT_COLORS[Math.floor(rand() * ORNAMENT_COLORS.length)], 'ceramic')
+    const z = -d * 0.12 + (rand() - 0.5) * d * 0.15
+    if (kind === 0) {
+      // A vase.
+      const vh = Math.min(maxH - 2, 12 + rand() * 18)
+      const r = 2.5 + rand() * 3
+      g.add(lathe([[0.1, 0], [r * 0.7, 0], [r, vh * 0.35], [r * 0.5, vh * 0.8], [r * 0.6, vh], [0.1, vh]], x + r, y, z, mat, 20))
+      x += 2 * r + 4 + rand() * 4
+    } else if (kind === 1) {
+      // A bowl.
+      const r = 5 + rand() * 4
+      g.add(lathe([[0.1, 0], [r * 0.5, 0], [r, r * 0.5], [r * 0.95, r * 0.55], [0.1, 0.6]], x + r, y, z, mat, 24))
+      x += 2 * r + 4
+    } else if (kind === 2) {
+      // A plate on its edge, leaning on the back.
+      const r = Math.min(maxH / 2 - 1, 7 + rand() * 4)
+      const plate = cylinder(r, 0.8, 0, 0, 0, mat, 1, r, 28)
+      plate.rotation.x = Math.PI / 2 - 0.15
+      plate.position.set(x + r, y + r, -d / 2 + 5)
+      g.add(plate)
+      x += 2 * r + 3
+    } else {
+      // A small figure: a body and a head.
+      const r = 2 + rand() * 1.5
+      const fh = Math.min(maxH - 5, 8 + rand() * 8)
+      g.add(cylinder(r, fh, x + r, y, z, mat, 1, r * 1.2, 16))
+      g.add(mesh(new THREE.SphereGeometry(r * 0.9, 14, 10), mat).translateX(x + r).translateY(y + fh + r * 0.7).translateZ(z))
+      x += 2 * r + 5
+    }
+  }
+}
+
+/** Shelves of a cabinet with glass doors (or open), from y0 to y1: glass shelves with ornaments on each. */
+function showcase(k: Kit, g: THREE.Group, seed: string, w: number, d: number, y0: number, y1: number) {
+  const rand = random(seed)
+  const levels = Math.max(1, Math.round((y1 - y0) / 34))
+  const gap = (y1 - y0) / levels
+  for (let i = 0; i < levels; i++) {
+    const y = y0 + i * gap
+    if (i > 0) g.add(box(w - 4, 0.8, d - 5, 0, y - 0.8, -0.5, k.glass()))
+    ornaments(k, g, rand, -w / 2 + 2, w / 2 - 2, y, d - 4, gap - 3)
+  }
+}
+
+/** A display (China) cabinet: a cupboard below and a vitrine above, glass doors and shelves of ornaments unless solid. */
+function displayCabinet(k: Kit, sym: PlanSymbol, w: number, d: number, h: number) {
+  const g = new THREE.Group()
+  const wood = k.q(COLORS.woodDark, 'wood')
+  const plinth = 8
+  const lower = Math.min(85, h * 0.42)
+  g.add(box(w - 2, plinth, d - 4, 0, 0, -1, k.q(COLORS.dark, 'satin')))
+  g.add(box(w, h - plinth, 1.8, 0, plinth, -d / 2 + 0.9, wood))
+  for (const s of [-1, 1]) g.add(box(1.8, h - plinth, d, s * (w / 2 - 0.9), plinth, 0, wood))
+  g.add(box(w, 1.8, d, 0, plinth, 0, wood))
+  g.add(rbox(w + 3, 3.5, d + 2, 0.6, 0, h - 3.5, 0.5, wood)) // cornice
+  g.add(rbox(w + 1.5, 2.5, d + 1.5, 0.5, 0, lower, 0.6, wood)) // ledge between cupboard and vitrine
+  const n = Math.max(2, Math.round(w / 55))
+  const dw = w / n
+  for (let i = 0; i < n; i++) front(k, g, dw - 0.8, lower - plinth - 2.5, -w / 2 + dw * (i + 0.5), plinth + 1.5, d / 2 - 1, COLORS.woodLight, 'knob')
+  const y0 = lower + 2.5
+  const y1 = h - 3.5
+  const glass = hasGlass(sym)
+  if (glass) showcase(k, g, sym.id, w, d, y0, y1)
+  for (let i = 0; i < n; i++) {
+    const x = -w / 2 + dw * (i + 0.5)
+    if (glass) {
+      glassDoor(k, g, dw - 0.8, y1 - y0 - 1, x, y0 + 0.5, d / 2 - 1)
+      g.add(mesh(new THREE.SphereGeometry(1.2, 12, 8), k.q(COLORS.chrome, 'chrome')).translateX(x + (i % 2 ? -1 : 1) * (dw / 2 - 5)).translateY(y0 + 40).translateZ(d / 2 + 0.6))
+    } else front(k, g, dw - 0.8, y1 - y0 - 1, x, y0 + 0.5, d / 2 - 1, COLORS.woodLight, 'post', 'side', i % 2 ? -1 : 1)
+  }
+  return g
+}
+
+/** A sideboard (buffet) on legs: doors, wood or glass with ornaments behind. */
+function sideboard(k: Kit, sym: PlanSymbol, w: number, d: number, h: number) {
+  const g = new THREE.Group()
+  const wood = k.q(COLORS.wood, 'wood')
+  const legH = 14
+  for (const [sx, sz] of CORNERS) g.add(leg(sx * (w / 2 - 6), sz * (d / 2 - 5), legH, k.q(COLORS.dark, 'metal'), 1.4, 1))
+  const glass = hasGlass(sym)
+  const body = h - legH - 3
+  if (glass) {
+    g.add(box(w, body, 1.8, 0, legH, -d / 2 + 0.9, wood))
+    for (const s of [-1, 1]) g.add(box(1.8, body, d, s * (w / 2 - 0.9), legH, 0, wood))
+    g.add(box(w, 1.8, d, 0, legH, 0, wood))
+    showcase(k, g, sym.id, w, d, legH + 1.8, h - 3)
+  } else g.add(rbox(w, body, d - 2, 0.6, 0, legH, -1, wood))
+  g.add(rbox(w + 2, 3, d + 1.5, 0.8, 0, h - 3, 0, k.q(COLORS.woodDark, 'wood')))
+  const n = Math.max(2, Math.round(w / 50))
+  const dw = w / n
+  for (let i = 0; i < n; i++) {
+    const x = -w / 2 + dw * (i + 0.5)
+    if (glass) glassDoor(k, g, dw - 0.8, body - 1, x, legH + 0.5, d / 2 - 1)
+    else front(k, g, dw - 0.8, body - 1, x, legH + 0.5, d / 2 - 1, COLORS.woodLight, 'bar', 'top')
+  }
+  return g
+}
+
+/** A coffee corner: a base cabinet with a stone counter, an espresso machine and grinder, shelves of cups and jars. */
+function coffeeCorner(k: Kit, sym: PlanSymbol, w: number, d: number, h: number) {
+  const g = new THREE.Group()
+  const rand = random(sym.id)
+  const counter = 90
+  const wood = k.q(COLORS.wood, 'wood')
+  const stone = k.q('#ece8e1', 'gloss')
+  const chrome = k.q(COLORS.chrome, 'chrome')
+  const black = k.q('#27272a', 'satin')
+  // Base cabinet and counter.
+  g.add(box(w - 4, 10, d - 6, 0, 0, -2, k.q(COLORS.dark, 'satin')))
+  g.add(rbox(w, counter - 14, d - 2, 0.6, 0, 10, -1, wood))
+  const n = Math.max(2, Math.round(w / 50))
+  const dw = w / n
+  for (let i = 0; i < n; i++) front(k, g, dw - 0.8, counter - 16, -w / 2 + dw * (i + 0.5), 11, d / 2 - 1, COLORS.woodLight, 'bar', 'top')
+  g.add(rbox(w + 2, 4, d + 2, 0.5, 0, counter - 4, 0, stone))
+  // Backsplash up to the shelves, and the shelves.
+  g.add(box(w, Math.min(h, 185) - counter, 1.5, 0, counter, -d / 2 + 0.75, stone))
+  const shelfD = Math.min(26, d - 10)
+  const shelves = [counter + 42, counter + 76].filter((y) => y < h - 8)
+  for (const y of shelves) {
+    g.add(rbox(w - 6, 3, shelfD, 0.5, 0, y, -d / 2 + 1.5 + shelfD / 2, wood))
+    // Cups with saucers, and jars of coffee.
+    for (let x = -w / 2 + 8; x < w / 2 - 10; x += 9 + rand() * 4) {
+      const z = -d / 2 + 4 + shelfD / 2
+      if (rand() < 0.35) {
+        g.add(cylinder(3.6, 12, x + 3.6, y + 3, z, k.glass(), 1, 3.6, 18))
+        g.add(cylinder(3.2, 7, x + 3.6, y + 3.2, z, k.q('#3b2416', 'matte'), 1, 3.2, 14))
+        g.add(cylinder(3.8, 1.2, x + 3.6, y + 15, z, black, 1, 3.8, 18))
+        x += 3
+      } else {
+        g.add(cylinder(5, 0.6, x + 4, y + 3, z, k.q('#f5f5f4', 'ceramic'), 1, 5, 20))
+        g.add(cylinder(3.4, 6.5, x + 4, y + 3.6, z, k.q(rand() < 0.5 ? '#f5f5f4' : '#1f2937', 'ceramic'), 1, 2.8, 18))
+      }
+    }
+  }
+  // A wall cabinet above, if it's tall enough.
+  if (h > 200) {
+    const y = Math.max(counter + 100, h - 50)
+    g.add(rbox(w, h - y, 35, 0.6, 0, y, -d / 2 + 17.5, wood))
+    for (let i = 0; i < n; i++) front(k, g, dw - 0.8, h - y - 2, -w / 2 + dw * (i + 0.5), y + 1, -d / 2 + 35 + 0.9, COLORS.woodLight, 'bar', 'middle')
+  }
+  // The espresso machine: body, group head and portafilter, drip tray, and a grinder beside it.
+  const mx = -w / 2 + 22
+  const mz = -d / 2 + 18
+  g.add(rbox(32, 34, 30, 2, mx, counter, mz, k.q('#d4d4d8', 'metal')))
+  g.add(box(30, 2, 12, mx, counter, mz + 19, chrome))
+  g.add(cylinder(4, 6, mx, counter + 18, mz + 18, chrome, 1, 3, 16))
+  const handle = box(1.6, 1.6, 14, mx + 6, counter + 19, mz + 24, black)
+  handle.rotation.y = 0.5
+  g.add(handle)
+  g.add(cylinder(3, 6, mx, counter + 2, mz + 18, k.q('#f5f5f4', 'ceramic'), 1, 2.6, 16))
+  const gx = mx + 26
+  g.add(rbox(13, 22, 18, 2, gx, counter, mz, black))
+  g.add(cylinder(6, 14, gx, counter + 22, mz, k.tinted(), 1, 3, 18))
+  return g
+}
+
+/** Where a cabinet's LEDs go, in its own frame: strips (lit lenses) and the spot lights they make. */
+export interface CabinetLeds {
+  strips: { x: number; y: number; z: number; len: number; axis: 'x' | 'y' }[]
+  spots: { x: number; y: number; z: number; angle: number; intensity: number }[]
+}
+
+export function cabinetLeds(sym: PlanSymbol): CabinetLeds | null {
+  const { width: w, depth: d, height: h } = sym
+  if (sym.type === 'display-cabinet') {
+    // Profiles up the front corners of the vitrine and along under its top.
+    const y0 = Math.min(85, h * 0.42) + 2.5
+    const y1 = h - 3.5
+    return {
+      strips: [
+        { x: -w / 2 + 3, y: (y0 + y1) / 2, z: d / 2 - 4, len: y1 - y0 - 2, axis: 'y' },
+        { x: w / 2 - 3, y: (y0 + y1) / 2, z: d / 2 - 4, len: y1 - y0 - 2, axis: 'y' },
+        { x: 0, y: y1 - 1, z: d / 2 - 6, len: w - 8, axis: 'x' },
+      ],
+      spots: [{ x: 0, y: y1 - 2, z: 0, angle: 1.2, intensity: 6 }],
+    }
+  }
+  if (sym.type === 'sideboard') {
+    // Inside under the top behind glass; under the cabinet (onto the floor) when the doors are solid.
+    if (hasGlass(sym)) return { strips: [{ x: 0, y: h - 5, z: d / 2 - 5, len: w - 6, axis: 'x' }], spots: [{ x: 0, y: h - 6, z: 0, angle: 1.2, intensity: 5 }] }
+    return { strips: [{ x: 0, y: 13.5, z: d / 2 - 6, len: w - 10, axis: 'x' }], spots: [{ x: 0, y: 13, z: 0, angle: 1.3, intensity: 3 }] }
+  }
+  if (sym.type === 'coffee-corner') {
+    // Under each shelf, lighting the counter and the cups below.
+    const z = -d / 2 + 1.5 + Math.min(26, d - 10) - 3
+    const ys = [90 + 42, 90 + 76].filter((y) => y < h - 8)
+    return {
+      strips: ys.map((y) => ({ x: 0, y: y - 0.4, z, len: w - 12, axis: 'x' as const })),
+      spots: [{ x: 0, y: (ys[0] ?? 130) - 1, z: z - 4, angle: 1.1, intensity: 6 }],
+    }
+  }
+  return null
 }
 
 /** An L-shaped wardrobe: along the back (its corner end blind) and down the left side, facing into the room. */
@@ -968,7 +1195,7 @@ function quadrantShower(k: Kit, w: number, d: number, h: number, glass: Mat, doo
 function drape(x0: number, x1: number, z: number, top: number, fabric: number, mat: Mat) {
   const w = Math.max(2, Math.abs(x1 - x0))
   const n = Math.max(2, Math.round(fabric / 14))
-  const amp = Math.min(8, Math.max(1.2, Math.sqrt(Math.max(0, (fabric / n / 2) ** 2 - (w / n / 2) ** 2)) / 2))
+  const amp = drapeAmp(fabric, w)
   const h = top - 1.5
   const geo = new THREE.PlaneGeometry(w, h, n * 6, 1)
   const pos = geo.attributes.position
@@ -982,24 +1209,31 @@ function drape(x0: number, x1: number, z: number, top: number, fabric: number, m
   return m
 }
 
-/** Curtains on a track near the ceiling: two panels, gathered at the ends as far as they're open; a sheer behind maybe. */
+/**
+ * Curtains on tracks near the ceiling, a layer on each: from the window out, a sheer, a blackout and a curtain, two
+ * panels each. Their panels gather toward the ends as they open (see poseDoor); a sheer stays drawn unless it's alone.
+ */
 function curtain(k: Kit, sym: PlanSymbol, w: number, d: number, top: number) {
   const g = new THREE.Group()
   const color = frameOf(sym)?.hex ?? '#d9cfbf'
-  const fabric = sym.fabric ?? 'curtain'
-  const back = -d / 2
-  g.add(box(w, 2.5, 3, 0, top - 2.5, back + 4, k.q('#d4d4d8', 'metal')))
-  const layer = (z: number, open: number, mat: Mat) => {
-    const wp = curtainPanel(w, open)
-    // The fabric for each panel: twice the half-width it covers when closed.
-    const amount = w
-    g.add(drape(-w / 2, -w / 2 + wp, z, top - 3, amount, mat))
-    g.add(drape(w / 2 - wp, w / 2, z, top - 3, amount, mat))
-  }
-  if (sym.sheer && fabric !== 'sheer') layer(back + 4, 0, k.sheer('#f8f6f1', 0.32))
-  const front = Math.min(d / 2 - 3, back + 10)
-  if (fabric === 'sheer') layer(front, sym.open ?? 0.7, k.sheer(color, 0.38))
-  else layer(front, sym.open ?? 0.7, k.q(color, 'cloth'))
+  const layers = curtainLayers(sym)
+  const designed = sym.open ?? 0.7
+  const openTo = designed > 0.05 ? designed : 0.8
+  const step = Math.max(4, (d - 4) / layers.length)
+  layers.forEach((l, i) => {
+    const z = -d / 2 + 3 + step * (i + 0.5)
+    g.add(box(w, 2.5, 2.5, 0, top - 2.5, z, k.q('#d4d4d8', 'metal')))
+    const mat = l === 'sheer' ? k.sheer(i === layers.length - 1 && layers.length === 1 ? color : '#f8f6f1', 0.34) : k.q(l === 'blackout' && layers.includes('curtain') ? '#8b8378' : color, 'cloth')
+    const moves = l !== 'sheer' || layers.length === 1
+    for (const side of [-1, 1]) {
+      // Built shut, hanging from its end of the track toward the middle; the part gathers it toward the end.
+      const part = new THREE.Group()
+      part.position.set(side * (w / 2), 0, z)
+      part.add(drape(0, -side * (w / 2), 0, top - 3, w, mat))
+      if (moves) part.userData.door = { gather: { half: w / 2, fabric: w, openTo }, startOpen: !startsShut(sym) } satisfies DoorPart
+      g.add(part)
+    }
+  })
   return g
 }
 
@@ -1009,10 +1243,21 @@ function blind(k: Kit, sym: PlanSymbol, w: number, d: number, h: number, top: nu
   const color = frameOf(sym)?.hex ?? '#f4f4f2'
   const z = -d / 2 + d / 2
   g.add(rbox(w, 7, Math.min(d, 8), 1, 0, top - 7, z, k.q('#e7e5e4', 'satin')))
-  const len = Math.max(2, Math.min(h, top - 8) * (1 - (sym.open ?? 0)))
+  // Built let all the way down; rolling it up shortens the fabric from the top and lifts the bar (see poseDoor).
+  const full = Math.max(2, Math.min(h, top - 8))
+  const designed = sym.open ?? 0
+  const roll = { full, openTo: designed > 0.05 ? designed : 0.9 }
+  const startOpen = !startsShut(sym)
   const mat = sym.fabric === 'blackout' ? k.q(color, 'cloth') : k.sheer(color, 0.8)
-  g.add(box(w - 3, len, 0.3, 0, top - 7 - len, z + 1, mat))
-  g.add(box(w - 3, 2.2, 1.6, 0, top - 7 - len - 2.2, z + 1, k.q('#d4d4d8', 'metal')))
+  const fabric = new THREE.Group()
+  fabric.position.y = top - 7
+  fabric.add(box(w - 3, full, 0.3, 0, -full, z + 1, mat))
+  fabric.userData.door = { roll, startOpen } satisfies DoorPart
+  g.add(fabric)
+  const bar = new THREE.Group()
+  bar.add(box(w - 3, 2.2, 1.6, 0, top - 7 - full - 2.2, z + 1, k.q('#d4d4d8', 'metal')))
+  bar.userData.door = { roll: { ...roll, bar: true }, startOpen } satisfies DoorPart
+  g.add(bar)
   return g
 }
 
@@ -1468,6 +1713,15 @@ export function symbolModel(
       break
     case 'curtain':
       g = curtain(k, sym, w, d, ceilingH)
+      break
+    case 'display-cabinet':
+      g = displayCabinet(k, sym, w, d, h)
+      break
+    case 'sideboard':
+      g = sideboard(k, sym, w, d, h)
+      break
+    case 'coffee-corner':
+      g = coffeeCorner(k, sym, w, d, h)
       break
     case 'blind':
       g = blind(k, sym, w, d, h, ceilingH)

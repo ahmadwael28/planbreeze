@@ -63,6 +63,22 @@ export interface SymbolDef {
   render: (w: number, d: number, t: PlanTheme, sym?: PlanSymbol) => ReactNode
 }
 
+/** Cabinets with optional glass doors and LED lighting inside; display cabinets have glass doors unless told otherwise. */
+export const CABINETS = new Set(['display-cabinet', 'sideboard', 'coffee-corner'])
+export const hasGlass = (sym: PlanSymbol) => sym.glass ?? sym.type === 'display-cabinet'
+
+/** Pendant light styles; the first is the default. */
+export const PENDANT_STYLES: { id: string; name: string; kind: 'Modern' | 'Classic' | 'Industrial' }[] = [
+  { id: 'cone', name: 'Cone', kind: 'Industrial' },
+  { id: 'dome', name: 'Dome', kind: 'Modern' },
+  { id: 'globe', name: 'Glass globe', kind: 'Modern' },
+  { id: 'ring', name: 'LED ring', kind: 'Modern' },
+  { id: 'cluster', name: 'Cluster of globes', kind: 'Modern' },
+  { id: 'drum', name: 'Fabric drum', kind: 'Classic' },
+  { id: 'lantern', name: 'Lantern', kind: 'Classic' },
+  { id: 'bell', name: 'Glass bell', kind: 'Classic' },
+]
+
 /** A corner wardrobe's depth: a standard 60 cm, less if it's small. */
 export const cornerArm = (w: number, d: number) => Math.min(60, w * 0.45, d * 0.45)
 
@@ -144,6 +160,22 @@ export const BLIND_COLORS: FrameColor[] = [
   { name: 'Grey', hex: '#9ca3af' },
   { name: 'Charcoal', hex: '#3f4349' },
 ]
+
+export type CurtainLayer = 'sheer' | 'blackout' | 'curtain'
+
+/** A curtain's layers, from the window out: sheer, blackout, curtain (older plans had one fabric and maybe a sheer). */
+export function curtainLayers(sym: PlanSymbol): CurtainLayer[] {
+  const on = new Set<string>(sym.layers ?? [...(sym.sheer ? ['sheer'] : []), sym.fabric && sym.fabric !== 'screen' ? sym.fabric : 'curtain'])
+  const out = (['sheer', 'blackout', 'curtain'] as const).filter((l) => on.has(l))
+  return out.length ? out : ['curtain']
+}
+
+/** Curtains and blinds that are drawn shut as designed start shut in 3D (doors start open). */
+export function startsShut(sym: PlanSymbol) {
+  if (sym.type === 'curtain') return (sym.open ?? 0.7) <= 0.05
+  if (sym.type === 'blind') return (sym.open ?? 0) <= 0.05
+  return false
+}
 
 /** How far a curtain's panels reach in from each end: gathered at the ends when open, meeting in the middle when closed. */
 export function curtainPanel(w: number, open: number) {
@@ -457,6 +489,7 @@ export const SYMBOLS: SymbolDef[] = [
     name: 'Curtain',
     keywords: 'drape drapes sheer blackout',
     category: 'Doors & Windows',
+    opens: true,
     width: 200,
     depth: 15,
     height: 250,
@@ -466,19 +499,25 @@ export const SYMBOLS: SymbolDef[] = [
     frameLabel: 'Color',
     render: (w, d, t, sym) => {
       const k = kit(t)
-      const wp = curtainPanel(w, sym?.open ?? 0.7)
-      const y = -d / 2 + d * 0.6
-      // A zig-zag for each panel, from its end of the track.
-      const folds = (x0: number, x1: number) => {
+      const layers = sym ? curtainLayers(sym) : (['curtain'] as CurtainLayer[])
+      // A zig-zag for each panel of each layer, from its end of the track; sheers thinner.
+      const folds = (x0: number, x1: number, y: number) => {
         const n = Math.max(2, Math.round(Math.abs(x1 - x0) / 7))
-        return Array.from({ length: n + 1 }, (_, i) => `${i ? 'L' : 'M'}${x0 + ((x1 - x0) * i) / n},${y + (i % 2 ? 3 : -3)}`).join('')
+        return Array.from({ length: n + 1 }, (_, i) => `${i ? 'L' : 'M'}${x0 + ((x1 - x0) * i) / n},${y + (i % 2 ? 2.5 : -2.5)}`).join('')
       }
       return (
         <>
-          <line x1={-w / 2} y1={-d / 2 + 4} x2={w / 2} y2={-d / 2 + 4} {...k.thin} strokeDasharray="6 3" />
-          {sym?.sheer && <line x1={-w / 2} y1={-d / 2 + 7} x2={w / 2} y2={-d / 2 + 7} {...k.thin} />}
-          <path d={folds(-w / 2, -w / 2 + wp)} {...k.line} />
-          <path d={folds(w / 2, w / 2 - wp)} {...k.line} />
+          {layers.map((l, i) => {
+            const y = -d / 2 + ((i + 1) * d) / (layers.length + 1)
+            const wp = curtainPanel(w, l === 'sheer' && layers.length > 1 ? 0 : (sym?.open ?? 0.7))
+            const style = l === 'sheer' ? k.thin : k.line
+            return (
+              <g key={l}>
+                <path d={folds(-w / 2, -w / 2 + wp, y)} {...style} strokeDasharray={l === 'sheer' ? '3 2' : undefined} />
+                <path d={folds(w / 2, w / 2 - wp, y)} {...style} strokeDasharray={l === 'sheer' ? '3 2' : undefined} />
+              </g>
+            )
+          })}
         </>
       )
     },
@@ -489,6 +528,7 @@ export const SYMBOLS: SymbolDef[] = [
     name: 'Roller blind',
     keywords: 'blackout shade screen roller blinds',
     category: 'Doors & Windows',
+    opens: true,
     width: 120,
     depth: 8,
     height: 160,
@@ -674,6 +714,76 @@ export const SYMBOLS: SymbolDef[] = [
         <>
           {k.box(w, d)}
           <rect x={-Math.min(w * 0.35, 82)} y={-d / 2 + 4} width={Math.min(w * 0.7, 165)} height={6} {...k.s(t.ink)} />
+        </>
+      )
+    },
+  },
+  {
+    type: 'display-cabinet',
+    name: 'Display cabinet',
+    keywords: 'china cabinet vitrine curio showcase glass antiques',
+    category: 'Living',
+    width: 120,
+    depth: 45,
+    height: 200,
+    render: (w, d, t, sym) => {
+      const k = kit(t)
+      const n = Math.max(2, Math.round(w / 55))
+      return (
+        <>
+          {k.box(w, d)}
+          {Array.from({ length: n - 1 }, (_, i) => {
+            const x = -w / 2 + (w * (i + 1)) / n
+            return <line key={i} x1={x} y1={d / 2 - 10} x2={x} y2={d / 2} {...k.line} />
+          })}
+          <line x1={-w / 2 + 3} y1={-d / 2 + 4} x2={w / 2 - 3} y2={-d / 2 + 4} {...k.thin} />
+          {sym && hasGlass(sym) && <line x1={-w / 2 + 3} y1={d / 2 - 2.5} x2={w / 2 - 3} y2={d / 2 - 2.5} {...k.thin} />}
+          <circle cx={-w / 4} cy={0} r={Math.min(6, d / 6)} {...k.thin} fill="none" />
+          <circle cx={w / 4} cy={0} r={Math.min(6, d / 6)} {...k.thin} fill="none" />
+        </>
+      )
+    },
+  },
+  {
+    type: 'sideboard',
+    name: 'Sideboard',
+    keywords: 'buffet credenza console cabinet',
+    category: 'Living',
+    width: 180,
+    depth: 45,
+    height: 85,
+    render: (w, d, t, sym) => {
+      const k = kit(t)
+      const n = Math.max(2, Math.round(w / 50))
+      return (
+        <>
+          {k.box(w, d, 2)}
+          {Array.from({ length: n - 1 }, (_, i) => {
+            const x = -w / 2 + (w * (i + 1)) / n
+            return <line key={i} x1={x} y1={d / 2 - 10} x2={x} y2={d / 2} {...k.line} />
+          })}
+          {sym && hasGlass(sym) && <line x1={-w / 2 + 3} y1={d / 2 - 2.5} x2={w / 2 - 3} y2={d / 2 - 2.5} {...k.thin} />}
+        </>
+      )
+    },
+  },
+  {
+    type: 'coffee-corner',
+    name: 'Coffee corner',
+    keywords: 'coffee station bar espresso machine',
+    category: 'Kitchen',
+    width: 120,
+    depth: 50,
+    height: 220,
+    render: (w, d, t) => {
+      const k = kit(t)
+      return (
+        <>
+          {k.box(w, d, 1)}
+          <rect x={-w / 2 + 6} y={-d / 2 + 4} width={30} height={Math.min(30, d - 10)} rx={3} {...k.s(t.fill2)} />
+          <circle cx={-w / 2 + 21} cy={-d / 2 + 4 + Math.min(30, d - 10) / 2} r={4} {...k.thin} fill="none" />
+          <circle cx={w / 6} cy={0} r={3.5} {...k.thin} fill="none" />
+          <circle cx={w / 6 + 10} cy={0} r={3.5} {...k.thin} fill="none" />
         </>
       )
     },
@@ -1314,14 +1424,44 @@ export const SYMBOLS: SymbolDef[] = [
     height: 30,
     elevation: 165,
     fixture: 'pendant',
+    keywords: 'hanging lamp dome globe ring cluster drum lantern bell',
     render: (w, _d, t, sym) => {
       const k = kit(t)
+      const r = w / 2
+      const style = sym?.style ?? 'cone'
+      if (style === 'cluster') {
+        return (
+          <>
+            <circle cx={0} cy={0} r={r} {...k.thin} strokeDasharray="4 3" fill="none" />
+            {[0, 1, 2, 3, 4].map((i) => {
+              const a = (i / 5) * Math.PI * 2
+              return <circle key={i} cx={Math.cos(a) * r * 0.55} cy={Math.sin(a) * r * 0.55} r={r * 0.25} {...k.s(glow(sym))} />
+            })}
+          </>
+        )
+      }
+      if (style === 'lantern') {
+        return (
+          <>
+            <rect x={-r} y={-r} width={w} height={w} {...k.s()} strokeDasharray="4 3" />
+            <rect x={-r * 0.55} y={-r * 0.55} width={r * 1.1} height={r * 1.1} {...k.s(glow(sym))} />
+          </>
+        )
+      }
       return (
         <>
-          <circle cx={0} cy={0} r={w / 2} {...k.s()} strokeDasharray="4 3" />
-          <circle cx={0} cy={0} r={w / 5} {...k.s(glow(sym))} />
-          <line x1={-w / 2} y1={0} x2={w / 2} y2={0} {...k.thin} />
-          <line x1={0} y1={-w / 2} x2={0} y2={w / 2} {...k.thin} />
+          <circle cx={0} cy={0} r={r} {...k.s()} strokeDasharray={style === 'globe' || style === 'drum' ? undefined : '4 3'} />
+          {style === 'ring' ? (
+            <circle cx={0} cy={0} r={r * 0.8} fill="none" stroke={glow(sym)} strokeWidth={3} vectorEffect="non-scaling-stroke" />
+          ) : (
+            <circle cx={0} cy={0} r={style === 'globe' || style === 'drum' ? r * 0.7 : w / 5} {...k.s(glow(sym))} />
+          )}
+          {(style === 'cone' || style === 'dome') && (
+            <>
+              <line x1={-r} y1={0} x2={r} y2={0} {...k.thin} />
+              <line x1={0} y1={-r} x2={0} y2={r} {...k.thin} />
+            </>
+          )}
         </>
       )
     },

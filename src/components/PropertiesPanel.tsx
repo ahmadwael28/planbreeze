@@ -8,14 +8,14 @@ import {
   AlignHorizontalSpaceAround,
   AlignVerticalDistributeCenter,
   AlignVerticalSpaceAround,
-  Box, ClipboardCopy, Copy, FlipHorizontal2, Group, Ungroup, FlipVertical2, ImageOff, Link2Off, Lock, Ruler, RotateCw, SplitSquareHorizontal, Trash2, Video } from 'lucide-react'
+  Box, ClipboardCopy, Copy, FlipHorizontal2, Group, Ungroup, FlipVertical2, ImageOff, Lightbulb, Link2Off, Lock, Ruler, RotateCw, SplitSquareHorizontal, Trash2, Video } from 'lucide-react'
 import { toast } from 'sonner'
 import { arrange, arrangeable, layoutOf, spacingOf, wouldMove } from '@/model/arrange'
 import type { Unit } from '@/model/arrange'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Separator } from '@/components/ui/separator'
 import { Slider } from '@/components/ui/slider'
 import { Switch } from '@/components/ui/switch'
@@ -25,7 +25,7 @@ import { usePlanTheme } from '@/hooks/use-plan-theme'
 import { cn } from '@/lib/utils'
 import { area, dist, perimeter } from '@/model/geometry'
 import { DEFAULT_RAILING, isOutdoor, OUTDOOR, RAILING_THICKNESS, ROOM_COLORS, roomOuter, setWallLength, symbolPose } from '@/model/project'
-import { frameOf, SYMBOL_MAP } from '@/model/symbols'
+import { CABINETS, curtainLayers, frameOf, hasGlass, PENDANT_STYLES, SYMBOL_MAP } from '@/model/symbols'
 import type { FrameColor } from '@/model/symbols'
 import { formatArea, formatLength } from '@/model/units'
 import type { Dimension, ItemRef, OutdoorKind, PlanSymbol, RailingStyle, Room, SavedView, Units } from '@/model/types'
@@ -405,32 +405,57 @@ function FabricControls({ sym }: { sym: PlanSymbol }) {
   const isBlind = sym.type === 'blind'
   const fabric = sym.fabric ?? (isBlind ? 'screen' : 'curtain')
   const open = sym.open ?? (isBlind ? 0 : 0.7)
-  const kinds = isBlind ? (['screen', 'blackout'] as const) : (['sheer', 'curtain', 'blackout'] as const)
   return (
     <>
-      <Field label="Fabric">
-        {() => (
-          <ToggleGroup
-            type="single"
-            size="sm"
-            variant="outline"
-            value={fabric}
-            onValueChange={(v) => v && updateSymbol(sym.id, (s) => void (s.fabric = v as NonNullable<PlanSymbol['fabric']>))}
-            className="w-full"
-          >
-            {kinds.map((f) => (
-              <ToggleGroupItem key={f} value={f} className="flex-1 capitalize">
-                {f}
-              </ToggleGroupItem>
-            ))}
-          </ToggleGroup>
-        )}
-      </Field>
-      {!isBlind && fabric !== 'sheer' && (
-        <label className="flex items-center justify-between gap-2 text-sm">
-          <span className="text-muted-foreground">Sheer curtain behind</span>
-          <Switch size="sm" checked={!!sym.sheer} onCheckedChange={(on) => updateSymbol(sym.id, (s) => void (s.sheer = on || undefined))} />
-        </label>
+      {isBlind ? (
+        <Field label="Fabric">
+          {() => (
+            <ToggleGroup
+              type="single"
+              size="sm"
+              variant="outline"
+              value={fabric}
+              onValueChange={(v) => v && updateSymbol(sym.id, (s) => void (s.fabric = v as NonNullable<PlanSymbol['fabric']>))}
+              className="w-full"
+            >
+              {(['screen', 'blackout'] as const).map((f) => (
+                <ToggleGroupItem key={f} value={f} className="flex-1 capitalize">
+                  {f}
+                </ToggleGroupItem>
+              ))}
+            </ToggleGroup>
+          )}
+        </Field>
+      ) : (
+        <Field label="Layers">
+          {() => (
+            <div className="space-y-1">
+              <ToggleGroup
+                type="multiple"
+                size="sm"
+                variant="outline"
+                value={curtainLayers(sym)}
+                // At least one layer: emptying it does nothing.
+                onValueChange={(v) =>
+                  v.length &&
+                  updateSymbol(sym.id, (s) => {
+                    s.layers = v as NonNullable<PlanSymbol['layers']>
+                    delete s.sheer
+                    delete s.fabric
+                  })
+                }
+                className="w-full"
+              >
+                {(['sheer', 'curtain', 'blackout'] as const).map((f) => (
+                  <ToggleGroupItem key={f} value={f} className="flex-1 capitalize">
+                    {f}
+                  </ToggleGroupItem>
+                ))}
+              </ToggleGroup>
+              <p className="text-xs text-muted-foreground">Any of them together, from the window out: sheer, blackout, curtain.</p>
+            </div>
+          )}
+        </Field>
       )}
       <Field label={isBlind ? 'Rolled up' : 'Open'}>
         {() => (
@@ -893,7 +918,47 @@ function SymbolProps({ sym, units }: { sym: PlanSymbol; units: Units }) {
         })}
         {def?.fullHeight && <p className="text-xs text-muted-foreground">Floor to ceiling, whatever the room's height.</p>}
         {sym.type === 'shower' && <ShowerGlass sym={sym} />}
+        {sym.type === 'pendant' && (
+          <Field label="Style">
+            {(id) => (
+              <Select value={sym.style ?? PENDANT_STYLES[0].id} onValueChange={(v) => updateSymbol(sym.id, (s) => void (s.style = v))}>
+                <SelectTrigger id={id} size="sm" className="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {(['Modern', 'Classic', 'Industrial'] as const).map((kind) => (
+                    <SelectGroup key={kind}>
+                      <SelectLabel>{kind}</SelectLabel>
+                      {PENDANT_STYLES.filter((p) => p.kind === kind).map((p) => (
+                        <SelectItem key={p.id} value={p.id}>
+                          {p.name}
+                        </SelectItem>
+                      ))}
+                    </SelectGroup>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
+          </Field>
+        )}
         {(sym.type === 'curtain' || sym.type === 'blind') && <FabricControls sym={sym} />}
+        {CABINETS.has(sym.type) && (
+          <div className="space-y-3 rounded-lg bg-muted/60 p-3">
+            {sym.type !== 'coffee-corner' && (
+              <label className="flex items-center justify-between gap-2 text-sm">
+                <span>Glass doors</span>
+                <Switch size="sm" checked={hasGlass(sym)} onCheckedChange={(on) => updateSymbol(sym.id, (s) => void (s.glass = on))} />
+              </label>
+            )}
+            <label className="flex items-center justify-between gap-2 text-sm">
+              <span className="flex items-center gap-1.5">
+                <Lightbulb className="size-4" /> LED lighting inside
+              </span>
+              <Switch size="sm" checked={!!sym.led} onCheckedChange={(on) => updateSymbol(sym.id, (s) => void (s.led = on || undefined))} />
+            </label>
+            {sym.led && <LightSection sym={sym} units={units} />}
+          </div>
+        )}
         {def?.frames && <FramePicker sym={sym} frames={def.frames} label={def.frameLabel} />}
         {def?.sill !== undefined && (
           <Field label="Sill height">

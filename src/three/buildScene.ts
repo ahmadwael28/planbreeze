@@ -1,14 +1,14 @@
 import * as THREE from 'three'
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js'
-import { add, bbox, dist, dot, inwardNormal, labelPoint, mul, normalize, offsetPolygon, signedArea, sub } from '@/model/geometry'
+import { add, bbox, dist, dot, inwardNormal, labelPoint, mul, normalize, offsetPolygon, pointInPolygon, signedArea, sub } from '@/model/geometry'
 import { isSelected } from '@/model/items'
 import { isOutdoor, railingRuns, roomOuter, symbolPose } from '@/model/project'
 import { SYMBOL_MAP } from '@/model/symbols'
 import type { PlanTheme } from '@/model/theme'
 import type { Floor, Point, Project, Room, Selection } from '@/model/types'
-import { COLORS, Materials, railingModel, symbolModel } from './furniture'
+import { cabinetLeds, COLORS, Materials, railingModel, symbolModel } from './furniture'
 import { ceilingHeightAt } from '@/model/lighting'
-import { bakeGlows, buildCeilings, buildFixture } from './lighting3d'
+import { bakeGlows, buildCeilings, buildFixture, cabinetLights } from './lighting3d'
 import type { LightHandle, SwitchHandle } from './lighting3d'
 import type { PoolRoom } from './lightPool'
 
@@ -285,6 +285,16 @@ export function buildProjectGroup(project: Project, opts: BuildOptions): THREE.G
       const pick: PickInfo = { floorId: floor.id, kind: 'symbol', id: sym.id }
       obj.traverse((o) => (o.userData.pick = pick))
       group.add(obj)
+      // Cabinets with LEDs inside: their lights, placed like the cabinet.
+      const leds = sym.led ? cabinetLeds(sym) : null
+      if (leds) {
+        const lit = cabinetLights(sym, leds, floor, floor.rooms.find((r) => pointInPolygon(pose, r.points))?.id, handles)
+        lit.position.copy(obj.position)
+        lit.rotation.copy(obj.rotation)
+        lit.scale.copy(obj.scale)
+        lit.traverse((o) => (o.userData.pick = pick))
+        group.add(lit)
+      }
     }
 
     root.add(group)
