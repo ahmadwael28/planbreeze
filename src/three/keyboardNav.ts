@@ -195,6 +195,7 @@ export const KEY_HELP: [string, string][] = [
   ['Q / E', 'Move down / up'],
   ['R / F', 'Look up / down'],
   ['Shift', 'Move faster'],
+  ['Space', 'Open or close the door in front of you'],
 ]
 
 /** Numpad keys in their physical layout, with the direction each one looks. */

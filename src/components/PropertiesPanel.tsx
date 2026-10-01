@@ -398,6 +398,14 @@ function DimensionProps({ dim, units }: { dim: Dimension; units: Units }) {
 }
 
 /** Several items selected: what they are, and what can be done with all of them. */
+/** Items with a choice of hinged or sliding doors, and which they have unless chosen. */
+const DOOR_DEFAULT: Record<string, 'hinged' | 'sliding'> = {
+  shower: 'hinged',
+  'shower-quadrant': 'sliding',
+  wardrobe: 'hinged',
+  'wardrobe-corner': 'hinged',
+}
+
 /** Which sides of a shower have glass: by default the ones not against a wall, or chosen. */
 function ShowerGlass({ sym }: { sym: PlanSymbol }) {
   const floor = useFloor()
@@ -886,7 +894,34 @@ function SymbolProps({ sym, units }: { sym: PlanSymbol; units: Units }) {
             <p className="text-xs text-muted-foreground">Gaps to the nearest wall on each side. Dragging near the middle snaps to it.</p>
           </div>
         )}
-        {sym.type === 'sofa-corner' && (
+        {DOOR_DEFAULT[sym.type] && (
+          <Field label="Doors">
+            {() => (
+              <ToggleGroup
+                type="single"
+                size="sm"
+                variant="outline"
+                value={sym.doors ?? DOOR_DEFAULT[sym.type]}
+                onValueChange={(v) => v && updateSymbol(sym.id, (s) => void (s.doors = v as 'hinged' | 'sliding'))}
+                className="w-full"
+              >
+                <ToggleGroupItem value="hinged" className="flex-1">
+                  Hinged
+                </ToggleGroupItem>
+                <ToggleGroupItem value="sliding" className="flex-1">
+                  Sliding
+                </ToggleGroupItem>
+              </ToggleGroup>
+            )}
+          </Field>
+        )}
+        {sym.type.startsWith('wardrobe') && (
+          <label className="flex items-center justify-between gap-2 text-sm">
+            <span className="text-muted-foreground">Glass doors</span>
+            <Switch size="sm" checked={!!sym.glass} onCheckedChange={(on) => updateSymbol(sym.id, (s) => void (s.glass = on || undefined))} />
+          </label>
+        )}
+        {(sym.type === 'sofa-corner' || sym.type === 'wardrobe-corner') && (
           <Field label="Corner on">
             {() => (
               <ToggleGroup

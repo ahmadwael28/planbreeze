@@ -42,6 +42,7 @@ const RULES: Record<string, Rules> = {
   'bed-double': { width: [120, 220], depth: [180, 230], height: [25, 70] },
   'bed-single': { width: [70, 140], depth: [180, 220], height: [25, 70] },
   wardrobe: { width: [40, 600], depth: [40, 80], height: [150, 300] },
+  'wardrobe-corner': { width: [100, 500], depth: [100, 500], height: [150, 300] },
   nightstand: { width: [30, 80], depth: [25, 60], height: [35, 80] },
   desk: { width: [60, 300], depth: [40, 100], height: [65, 110] },
   // Kitchen

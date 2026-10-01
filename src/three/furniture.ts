@@ -14,7 +14,7 @@ import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js'
 import { inwardNormal, signedArea } from '@/model/geometry'
 import { openSides } from '@/model/guides'
 import type { Side } from '@/model/guides'
-import { chairsAlong, frameOf, seatsAlong, SOFA } from '@/model/symbols'
+import { chairsAlong, cornerArm, frameOf, seatsAlong, SOFA } from '@/model/symbols'
 import type { PlanSymbol, Point, Room } from '@/model/types'
 
 export const COLORS = {
@@ -98,6 +98,16 @@ export class Materials {
         depthWrite: false,
       })
       this.cache.set('glass', m)
+    }
+    return m
+  }
+
+  /** Tinted (bronze) glass, for wardrobe doors. */
+  tinted(): THREE.Material {
+    let m = this.cache.get('tinted')
+    if (!m) {
+      m = new THREE.MeshStandardMaterial({ color: '#6b5a48', transparent: true, opacity: 0.5, roughness: 0.08, metalness: 0.2, depthWrite: false })
+      this.cache.set('tinted', m)
     }
     return m
   }
@@ -272,6 +282,7 @@ function sliding(slide: number, build: (g: THREE.Group) => void) {
 interface Kit {
   q: (color: string, finish?: Finish) => Mat
   glass: () => Mat
+  tinted: () => Mat
 }
 
 function chair(k: Kit, x: number, z: number, rotDeg: number, w = 44, d = 46) {
@@ -431,8 +442,21 @@ function bed(k: Kit, w: number, d: number, h: number, pillows: number) {
 }
 
 /** A cabinet front with a handle; `pull` is 'bar' (horizontal), 'post' (vertical) or 'knob'. */
-function front(k: Kit, g: THREE.Group, w: number, h: number, x: number, y: number, z: number, color: string, pull: 'bar' | 'post' | 'knob', pullAt: 'top' | 'middle' | 'side' = 'top', side = 1) {
+function front(
+  k: Kit,
+  g: THREE.Group,
+  w: number,
+  h: number,
+  x: number,
+  y: number,
+  z: number,
+  color: string,
+  pull: 'bar' | 'post' | 'knob' | 'none',
+  pullAt: 'top' | 'middle' | 'side' = 'top',
+  side = 1,
+) {
   g.add(rbox(w, h, 1.8, 0.5, x, y, z, k.q(color, 'satin')))
+  if (pull === 'none') return
   const hz = z + 1.6
   const metal = k.q(COLORS.chrome, 'chrome')
   if (pull === 'knob') g.add(mesh(new THREE.SphereGeometry(1.4, 12, 8), metal).translateX(x).translateY(y + h / 2).translateZ(hz))
@@ -451,18 +475,89 @@ function nightstand(k: Kit, w: number, d: number, h: number) {
   return g
 }
 
-function wardrobe(k: Kit, w: number, d: number, h: number) {
+interface WardrobeOpts {
+  doors: 'hinged' | 'sliding'
+  glass: boolean
+  /** A plain panel instead of doors at the left end, this long (where a corner wardrobe's other run stands in front). */
+  blind?: number
+}
+
+/** A glass door in a slim frame. */
+function glassDoor(k: Kit, g: THREE.Group, w: number, h: number, x: number, y: number, z: number) {
+  const frame = k.q(COLORS.dark, 'metal')
+  const f = 3
+  for (const s of [-1, 1]) g.add(box(f, h, 2, x + s * (w / 2 - f / 2), y, z, frame))
+  for (const yy of [y, y + h - f]) g.add(box(w - 2 * f, f, 2, x, yy, z, frame))
+  g.add(box(w - 2 * f, h - 2 * f, 0.6, x, y + f, z, k.tinted()))
+}
+
+/** What shows through glass doors: a rail of clothes and a shelf above. */
+function wardrobeInside(k: Kit, g: THREE.Group, w: number, d: number, h: number, plinth: number) {
+  const rand = random(`${w}x${d}x${h}`)
+  g.add(box(w - 4, 1.8, d - 6, 0, h - 40, -1, k.q(COLORS.woodLight, 'wood')))
+  const rail = cylinder(1, w - 6, 0, 0, 0, k.q(COLORS.chrome, 'chrome'), 1, 1, 10)
+  rail.rotation.z = Math.PI / 2
+  rail.position.set(0, h - 48, 0)
+  g.add(rail)
+  for (let x = -w / 2 + 8; x < w / 2 - 8; x += 7 + rand() * 6) {
+    const len = 60 + rand() * 50
+    g.add(box(3 + rand() * 2, len, d * 0.62, x, h - 50 - len, 0, k.q(COLORS.books[Math.floor(rand() * COLORS.books.length)], 'fabric')))
+  }
+  g.add(box(w - 4, 1.8, d - 6, 0, plinth + 1, -1, k.q(COLORS.woodLight, 'wood')))
+}
+
+/** A run of wardrobe, doors facing +z: hinged doors (handles meeting in pairs) or sliding ones on staggered tracks. */
+function wardrobe(k: Kit, w: number, d: number, h: number, o: WardrobeOpts) {
   const g = new THREE.Group()
   const plinth = 8
+  const wood = k.q(COLORS.wood, 'wood')
   g.add(box(w - 4, plinth, d - 6, 0, 0, -2, k.q(COLORS.dark, 'satin')))
-  g.add(rbox(w, h - plinth, d - 2, 0.8, 0, plinth, -1, k.q(COLORS.wood, 'wood')))
-  const n = Math.max(2, Math.round(w / 55))
-  const dw = w / n
-  for (let i = 0; i < n; i++) {
-    // Handles meet at the middle of each pair of doors.
-    const side = i % 2 === 0 ? 1 : -1
-    front(k, g, dw - 0.6, h - plinth - 3, -w / 2 + dw * (i + 0.5), plinth + 1.5, d / 2 - 1.2, COLORS.woodLight, 'post', 'side', side)
+  if (o.glass) {
+    // Open inside: back, sides, top and bottom, with clothes behind the glass.
+    g.add(box(w, h - plinth, 1.8, 0, plinth, -d / 2 + 0.9, wood))
+    for (const s of [-1, 1]) g.add(box(1.8, h - plinth, d - 2, s * (w / 2 - 0.9), plinth, -1, wood))
+    g.add(box(w, 1.8, d - 2, 0, h - 1.8, -1, wood))
+    wardrobeInside(k, g, w, d, h, plinth)
+  } else g.add(rbox(w, h - plinth, d - 2, 0.8, 0, plinth, -1, wood))
+  const blind = o.blind ?? 0
+  const x0 = -w / 2 + blind
+  const span = w - blind
+  const dh = h - plinth - 3
+  const y = plinth + 1.5
+  if (blind > 0) front(k, g, blind - 0.6, dh, -w / 2 + blind / 2, y, d / 2 - 1.2, COLORS.woodLight, 'none')
+  const door = (dw: number, x: number, z: number, side: number) => {
+    if (o.glass) {
+      glassDoor(k, g, dw, dh, x, y, z)
+      g.add(box(1.2, 34, 1.4, x + side * (dw / 2 - 6), y + dh / 2 - 17, z + 1.6, k.q(COLORS.chrome, 'chrome')))
+    } else front(k, g, dw, dh, x, y, z, COLORS.woodLight, 'post', 'side', side)
   }
+  if (o.doors === 'sliding') {
+    // Two or three panels on two tracks, overlapping a little, under a top track.
+    const n = span > 220 ? 3 : 2
+    const pw = span / n + 2
+    for (let i = 0; i < n; i++) door(pw, x0 + ((span - pw) * i) / (n - 1) + pw / 2, d / 2 - 1.2 + (i % 2 ? 2.4 : 0), i === 0 ? 1 : -1)
+    g.add(box(span, 3, 5.5, x0 + span / 2, h - 3, d / 2 + 0.6, k.q(COLORS.metal, 'metal')))
+  } else {
+    const n = Math.max(1, Math.round(span / 55))
+    const dw = span / n
+    // Handles meet at the middle of each pair of doors.
+    for (let i = 0; i < n; i++) door(dw - 0.6, x0 + dw * (i + 0.5), d / 2 - 1.2, i % 2 === 0 ? 1 : -1)
+  }
+  return g
+}
+
+/** An L-shaped wardrobe: along the back (its corner end blind) and down the left side, facing into the room. */
+function cornerWardrobe(k: Kit, w: number, d: number, h: number, o: WardrobeOpts) {
+  const g = new THREE.Group()
+  const a = cornerArm(w, d)
+  const back = wardrobe(k, w, a, h, { ...o, blind: a })
+  back.position.set(0, 0, -d / 2 + a / 2)
+  g.add(back)
+  const run = d - a
+  const side = wardrobe(k, run, a, h, o)
+  side.rotation.y = Math.PI / 2
+  side.position.set(-w / 2 + a / 2, 0, -d / 2 + a + run / 2)
+  g.add(side)
   return g
 }
 
@@ -718,7 +813,7 @@ function bathtub(k: Kit, w: number, d: number, h: number) {
 }
 
 /** A shower with glass on the given sides (model frame: +x right, +z front); the others are walls. */
-function shower(k: Kit, w: number, d: number, h: number, glass: Mat, sides: Set<Side>) {
+function shower(k: Kit, w: number, d: number, h: number, glass: Mat, sides: Set<Side>, doors: 'hinged' | 'sliding') {
   const g = new THREE.Group()
   const tray = 5
   g.add(rbox(w, tray, d, 1.5, 0, 0, 0, k.q(COLORS.ceramic, 'gloss')))
@@ -732,12 +827,37 @@ function shower(k: Kit, w: number, d: number, h: number, glass: Mat, sides: Set<
     right: { x: w / 2, z: 0, nx: -1, nz: 0, len: d },
     left: { x: -w / 2, z: 0, nx: 1, nz: 0, len: d },
   }
-  // Glass on the open sides, in slim frames.
+  // Glass on the open sides, in slim frames; the door in the front if it has glass.
+  const door = (['front', 'right', 'left', 'back'] as const).find((s) => sides.has(s))
   for (const s of sides) {
     const { x, z, nx, nz, len } = at[s]
     const along = nz !== 0
-    g.add(box(along ? len : 0.8, h - tray, along ? 0.8 : len, x + nx, tray, z + nz, glass))
-    g.add(box(along ? len : 2, 2, along ? 2 : len, x + nx, h - 2, z + nz, metal))
+    // A thing from u0 to u1 along this side (u from -len/2), `inset` in from its edge.
+    const put = (u0: number, u1: number, inset: number, y: number, hh: number, t: number, mat: Mat) => {
+      const c = (u0 + u1) / 2
+      const l = u1 - u0
+      g.add(box(along ? l : t, hh, along ? t : l, x + nx * inset + (along ? c : 0), y, z + nz * inset + (along ? 0 : c), mat))
+    }
+    put(-len / 2, len / 2, 1, h - 2, 2, 2, metal)
+    if (s !== door) {
+      put(-len / 2, len / 2, 1, tray, h - tray, 0.8, glass)
+      continue
+    }
+    if (doors === 'sliding') {
+      // A fixed pane on the inner track and one sliding on the outer, with rollers and a long bar to pull.
+      const pw = len * 0.55
+      put(-len / 2, -len / 2 + pw, 2.2, tray, h - tray - 4, 0.8, glass)
+      put(len / 2 - pw, len / 2, 0.2, tray, h - tray - 4, 0.8, glass)
+      for (const u of [len / 2 - pw + 8, len / 2 - 8]) put(u - 2, u + 2, 0.2, h - 7, 4, 2, chrome)
+      put(len / 2 - pw + 4, len / 2 - pw + 5.5, -1.6, 70, 60, 2, chrome)
+    } else {
+      // A fixed pane, and the door hinged on it, with clamps, swinging out; a pull by its free edge.
+      const fixed = len * 0.4
+      put(-len / 2, -len / 2 + fixed - 0.4, 1, tray, h - tray - 2, 0.8, glass)
+      put(-len / 2 + fixed + 0.4, len / 2, 1, tray + 1, h - tray - 4, 0.8, glass)
+      for (const y of [30, h - 45]) put(-len / 2 + fixed - 3, -len / 2 + fixed + 3, 1, y, 8, 2.4, chrome)
+      put(len / 2 - 9, len / 2 - 7.6, -1.4, 80, 30, 2.5, chrome)
+    }
   }
   // Posts at the corners where glass ends.
   const corner = (a: Side, b: Side, sx: number, sz: number) => {
@@ -747,13 +867,6 @@ function shower(k: Kit, w: number, d: number, h: number, glass: Mat, sides: Set<
   corner('left', 'front', -1, 1)
   corner('right', 'back', 1, -1)
   corner('left', 'back', -1, -1)
-  // The door, with a pull: in the front if it has glass.
-  const door = (['front', 'right', 'left', 'back'] as const).find((s) => sides.has(s))
-  if (door) {
-    const { x, z, nx, nz, len } = at[door]
-    const off = -len / 2 + len * 0.35
-    g.add(box(nz !== 0 ? 1.2 : 2.5, 30, nz !== 0 ? 2.5 : 1.2, x - nx + (nz !== 0 ? off : 0), 90, z - nz + (nz !== 0 ? 0 : off), chrome))
-  }
   // Rain head on an arm from a wall, and a mixer; with no wall at all, hanging from the frame.
   const wall = (['back', 'left', 'right', 'front'] as const).find((s) => !sides.has(s))
   if (wall) {
@@ -772,8 +885,8 @@ function shower(k: Kit, w: number, d: number, h: number, glass: Mat, sides: Set<
   return g
 }
 
-/** A curved corner shower: walls on the back and left, a quarter-round glass front with sliding doors. */
-function quadrantShower(k: Kit, w: number, d: number, h: number, glass: Mat) {
+/** A curved corner shower: walls on the back and left, a quarter-round glass front with sliding or hinged doors. */
+function quadrantShower(k: Kit, w: number, d: number, h: number, glass: Mat, doors: 'hinged' | 'sliding') {
   const g = new THREE.Group()
   const tray = 5
   const shape = new THREE.Shape()
@@ -789,20 +902,40 @@ function quadrantShower(k: Kit, w: number, d: number, h: number, glass: Mat) {
   const metal = k.q(COLORS.metal, 'metal')
   const chrome = k.q(COLORS.chrome, 'chrome')
   // Curved glass and its rails: a quarter of a cylinder around the corner, stretched to the tray.
-  const curve = (height: number, y: number, mat: Mat, inset: number) => {
-    const m = mesh(new THREE.CylinderGeometry(1, 1, height, 32, 1, true, 0, Math.PI / 2), mat)
+  const curve = (height: number, y: number, mat: Mat, inset: number, from = 0, to = Math.PI / 2) => {
+    const m = mesh(new THREE.CylinderGeometry(1, 1, height, 32, 1, true, from, to - from), mat)
     m.scale.set(w - inset, 1, d - inset)
     m.position.set(-w / 2, y + height / 2, -d / 2)
     return m
   }
-  g.add(curve(h - tray - 4, tray + 2, glass, 1.5))
-  g.add(curve(2.5, tray, metal, 1))
-  g.add(curve(2.5, h - 2.5, metal, 1))
+  // A point on the curve at angle a (from the right end), `out` beyond the glass.
+  const on = (a: number, out = 1) => ({ x: -w / 2 + (w + out) * Math.sin(a), z: -d / 2 + (d + out) * Math.cos(a) })
   g.add(box(2.5, h - tray, 2.5, w / 2 - 1.25, tray, -d / 2 + 1.25, metal))
   g.add(box(2.5, h - tray, 2.5, -w / 2 + 1.25, tray, d / 2 - 1.25, metal))
-  // Pulls on the two sliding doors, meeting in the middle of the curve.
-  for (const a of [Math.PI / 4 - 0.12, Math.PI / 4 + 0.12]) {
-    g.add(box(1.4, 30, 1.4, -w / 2 + (w + 1) * Math.cos(a), 90, -d / 2 + (d + 1) * Math.sin(a), chrome))
+  if (doors === 'hinged') {
+    // Two curved doors hinged on the end posts, meeting in the middle.
+    const mid = Math.PI / 4
+    g.add(curve(h - tray - 4, tray + 2, glass, 1.5, 0.03, mid - 0.01))
+    g.add(curve(h - tray - 4, tray + 2, glass, 1.5, mid + 0.01, Math.PI / 2 - 0.03))
+    for (const a of [0.06, Math.PI / 2 - 0.06]) {
+      for (const y of [30, h - 45]) {
+        const p = on(a, 0)
+        g.add(box(3, 8, 3, p.x, y, p.z, chrome))
+      }
+    }
+    for (const a of [mid - 0.05, mid + 0.05]) {
+      const p = on(a, 1.5)
+      g.add(box(1.4, 26, 1.4, p.x, 85, p.z, chrome))
+    }
+  } else {
+    g.add(curve(h - tray - 4, tray + 2, glass, 1.5))
+    g.add(curve(2.5, tray, metal, 1))
+    g.add(curve(2.5, h - 2.5, metal, 1))
+    // Pulls on the two sliding doors, meeting in the middle of the curve.
+    for (const a of [Math.PI / 4 - 0.12, Math.PI / 4 + 0.12]) {
+      const p = on(a)
+      g.add(box(1.4, 30, 1.4, p.x, 90, p.z, chrome))
+    }
   }
   // Rain head on an arm from the back wall, near the corner, and a mixer.
   const hx = -w / 2 + w * 0.32
@@ -1147,7 +1280,7 @@ export function railingModel(room: Room, runs: { a: Point; b: Point }[], mats: M
 
 /** The 3D model for a symbol (not light fixtures), in its local frame. Empty for symbols without one. */
 export function symbolModel(sym: PlanSymbol, mats: Materials, hl: boolean, wallT: number, floorH: number, hasDef: boolean, rooms: Room[] = []): THREE.Group {
-  const k: Kit = { q: (color, finish) => mats.get(color, hl, finish), glass: () => mats.glass() }
+  const k: Kit = { q: (color, finish) => mats.get(color, hl, finish), glass: () => mats.glass(), tinted: () => mats.tinted() }
   const w = sym.width
   const d = sym.depth
   const h = sym.height
@@ -1242,11 +1375,11 @@ export function symbolModel(sym: PlanSymbol, mats: Materials, hl: boolean, wallT
       // Glass where chosen, or on the sides not against a wall; the model is mirrored by flips, the sides with it.
       const flip = (s: Side): Side =>
         sym.flipX && (s === 'left' || s === 'right') ? (s === 'left' ? 'right' : 'left') : sym.flipY && (s === 'front' || s === 'back') ? (s === 'front' ? 'back' : 'front') : s
-      g = shower(k, w, d, h, k.glass(), new Set((sym.screens ?? openSides(sym, rooms)).map(flip)))
+      g = shower(k, w, d, h, k.glass(), new Set((sym.screens ?? openSides(sym, rooms)).map(flip)), sym.doors ?? 'hinged')
       break
     }
     case 'shower-quadrant':
-      g = quadrantShower(k, w, d, h, k.glass())
+      g = quadrantShower(k, w, d, h, k.glass(), sym.doors ?? 'sliding')
       break
     case 'wall-post':
       g = wallPost(k, w, d, floorH)
@@ -1279,7 +1412,10 @@ export function symbolModel(sym: PlanSymbol, mats: Materials, hl: boolean, wallT
       g = tv(k, w, d, h, sym.elevation ?? 100)
       break
     case 'wardrobe':
-      g = wardrobe(k, w, d, h)
+      g = wardrobe(k, w, d, h, { doors: sym.doors ?? 'hinged', glass: !!sym.glass })
+      break
+    case 'wardrobe-corner':
+      g = cornerWardrobe(k, w, d, h, { doors: sym.doors ?? 'hinged', glass: !!sym.glass })
       break
     case 'bookshelf':
       g = bookshelf(k, sym, w, d, h)

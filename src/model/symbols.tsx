@@ -61,6 +61,41 @@ export interface SymbolDef {
   render: (w: number, d: number, t: PlanTheme, sym?: PlanSymbol) => ReactNode
 }
 
+/** A corner wardrobe's depth: a standard 60 cm, less if it's small. */
+export const cornerArm = (w: number, d: number) => Math.min(60, w * 0.45, d * 0.45)
+
+/**
+ * A wardrobe's doors seen from above, along its front from x0 to x1 at y: door divisions for hinged doors, two
+ * staggered tracks for sliding ones (`flip` draws them on the other side of the line, for the corner one's side run).
+ */
+function wardrobeFront(k: ReturnType<typeof kit>, x0: number, x1: number, y: number, sym?: PlanSymbol, flip = false) {
+  const span = x1 - x0
+  const s = flip ? -1 : 1
+  if (sym?.doors === 'sliding') {
+    const n = span > 220 ? 3 : 2
+    const pw = span / n + 2
+    return (
+      <>
+        {Array.from({ length: n }, (_, i) => {
+          const a = x0 + ((span - pw) * i) / (n - 1)
+          const yy = y - s * (i % 2 ? 2.5 : 5)
+          return <line key={i} x1={a} y1={yy} x2={a + pw} y2={yy} {...k.line} />
+        })}
+      </>
+    )
+  }
+  const n = Math.max(1, Math.round(span / 55))
+  return (
+    <>
+      {Array.from({ length: n - 1 }, (_, i) => {
+        const x = x0 + (span * (i + 1)) / n
+        return <line key={i} x1={x} y1={y} x2={x} y2={y - s * 12} {...k.line} />
+      })}
+      {sym?.glass && <line x1={x0 + 3} y1={y - s * 2.5} x2={x1 - 3} y2={y - s * 2.5} {...k.thin} />}
+    </>
+  )
+}
+
 export interface FrameColor {
   name: string
   hex: string
@@ -738,20 +773,43 @@ export const SYMBOLS: SymbolDef[] = [
   {
     type: 'wardrobe',
     name: 'Wardrobe',
+    keywords: 'closet cupboard',
     category: 'Bedroom',
     width: 120,
     depth: 60,
     height: 220,
-    render: (w, d, t) => {
+    render: (w, d, t, sym) => {
       const k = kit(t)
       return (
         <>
           {k.box(w, d)}
-          {Array.from({ length: Math.max(2, Math.round(w / 55)) - 1 }, (_, i) => {
-            const x = -w / 2 + (w * (i + 1)) / Math.max(2, Math.round(w / 55))
-            return <line key={i} x1={x} y1={-d / 2} x2={x} y2={d / 2} {...k.line} />
-          })}
+          {wardrobeFront(k, -w / 2, w / 2, d / 2, sym)}
           <line x1={-w / 2 + 5} y1={0} x2={w / 2 - 5} y2={0} {...k.thin} strokeDasharray="6 4" />
+        </>
+      )
+    },
+  },
+  {
+    type: 'wardrobe-corner',
+    name: 'Corner wardrobe',
+    keywords: 'closet cupboard L shaped',
+    category: 'Bedroom',
+    width: 200,
+    depth: 180,
+    height: 240,
+    render: (w, d, t, sym) => {
+      const k = kit(t)
+      // An L along the back (top) and down the left side; flip it for the other hand.
+      const a = cornerArm(w, d)
+      const L = -w / 2
+      const T = -d / 2
+      return (
+        <>
+          <path d={`M${L},${T} H${w / 2} V${T + a} H${L + a} V${d / 2} H${L} Z`} {...k.s()} />
+          {wardrobeFront(k, L + a, w / 2, T + a, sym)}
+          <g transform={`translate(${L + a},${T + a}) rotate(90)`}>{wardrobeFront(k, 0, d - a, 0, sym, true)}</g>
+          <line x1={L + a} y1={T + a / 2} x2={w / 2 - 5} y2={T + a / 2} {...k.thin} strokeDasharray="6 4" />
+          <line x1={L + a / 2} y1={T + a} x2={L + a / 2} y2={d / 2 - 5} {...k.thin} strokeDasharray="6 4" />
         </>
       )
     },
@@ -933,14 +991,23 @@ export const SYMBOLS: SymbolDef[] = [
     width: 90,
     depth: 90,
     height: 200,
-    render: (w, d, t) => {
+    render: (w, d, t, sym) => {
       const k = kit(t)
+      const leaf = w * 0.6
       return (
         <>
           {k.box(w, d)}
           <line x1={-w / 2} y1={-d / 2} x2={w / 2} y2={d / 2} {...k.thin} />
           <line x1={w / 2} y1={-d / 2} x2={-w / 2} y2={d / 2} {...k.thin} />
           <circle cx={0} cy={0} r={4} {...k.s()} />
+          {sym?.doors === 'sliding' ? (
+            <>
+              <line x1={-w / 2} y1={d / 2 - 2} x2={-w / 2 + w * 0.55} y2={d / 2 - 2} {...k.line} />
+              <line x1={w / 2 - w * 0.55} y1={d / 2 + 1.5} x2={w / 2} y2={d / 2 + 1.5} {...k.line} />
+            </>
+          ) : (
+            <path d={`M${w / 2},${d / 2} A${leaf},${leaf} 0 0 1 ${w / 2 - leaf},${d / 2 + leaf}`} {...k.thin} strokeDasharray="4 3" />
+          )}
         </>
       )
     },

@@ -25,7 +25,7 @@ import { usePlanTheme } from '@/hooks/use-plan-theme'
 import { cn } from '@/lib/utils'
 import { bbox, labelPoint, pointInPolygon } from '@/model/geometry'
 import { isLightOn, LIGHT_COLORS, OTHER_LIGHTS, switchesFor, WIRE_COLORS } from '@/model/lighting'
-import { uid } from '@/model/project'
+import { symbolPose, uid } from '@/model/project'
 import { SYMBOL_MAP } from '@/model/symbols'
 import { refsOf } from '@/model/items'
 import type { LightColor, Selection } from '@/model/types'
@@ -80,6 +80,9 @@ interface Ctx {
   hlMats: Map<THREE.Material, THREE.Material>
   /** The project last built, to frame a newly opened one. */
   projectId: string | null
+  /** The door in reach (see doorInReach), and who to tell when it changes. */
+  nearDoor: string | null
+  onNearDoor: (id: string | null) => void
   /** When the camera last moved (ms), and whether frames were slow while it moved: then it moves at a lower resolution. */
   movedAt: number
   frameMs: number
@@ -92,6 +95,48 @@ const movingRatio = () => Math.max(0.75, fullRatio() * 0.5)
 
 /** Hand out the real lights again, when the camera has moved or lights changed (at most every so often). */
 const POOL_EVERY_MS = 150
+
+/** Swing or slide these doors open or shut. */
+function swingDoors(ctx: Ctx | null, ids: string[], closed: boolean) {
+  useEditor.getState().setDoorsClosed(ids, closed)
+  if (!ctx?.content) return
+  const which = new Set(ids)
+  const t0 = performance.now()
+  ctx.content.traverse((o) => {
+    if (!o.userData.door || !which.has(pickedId(o))) return
+    ctx.doorAnims = ctx.doorAnims.filter((a) => a.part !== o)
+    ctx.doorAnims.push({ part: o, from: (o.userData.open as number | undefined) ?? 1, to: closed ? 0 : 1, t0 })
+  })
+  ctx.dirty = true
+}
+
+/** Within this distance (m) of a door, in front of you, Space opens or closes it. */
+const DOOR_REACH = 1.8
+
+/** The door you're standing close to and facing, walking on the current floor (for Space to open or close it). */
+function doorInReach(ctx: Ctx): string | null {
+  const st = useEditor.getState()
+  const floor = currentFloor(st)
+  const cam = ctx.camera.position
+  const h = cam.y / WORLD_SCALE - floorBase(st.project, floor.id)
+  if (h < 0 || h > floor.height) return null
+  const ahead = ctx.camera.getWorldDirection(new THREE.Vector3())
+  const flat = Math.hypot(ahead.x, ahead.z) || 1
+  let best: string | null = null
+  let bestD = DOOR_REACH
+  for (const s of floor.symbols) {
+    if (!SYMBOL_MAP.get(s.type)?.opens) continue
+    const p = symbolPose(s, floor.rooms)
+    const dx = p.x * WORLD_SCALE - cam.x
+    const dz = p.y * WORLD_SCALE - cam.z
+    const d = Math.hypot(dx, dz)
+    // Close enough, and roughly in front (right next to it, any way you face).
+    if (d >= bestD || (d > 0.5 && (dx * ahead.x + dz * ahead.z) / (d * flat) < 0.4)) continue
+    best = s.id
+    bestD = d
+  }
+  return best
+}
 
 /**
  * Give the pool's real lights to the fixtures that matter most from where the camera is: fading over as it moves,
@@ -117,6 +162,11 @@ function updatePool(ctx: Ctx, instant = false) {
   const inside = roomAt(ctx.camera.position, false)
   const focus = inside ? ctx.camera.position : ctx.controls.target
   ctx.pool.retarget(lights, rooms, focus, (inside ?? roomAt(ctx.controls.target, true))?.id ?? null, instant)
+  const door = inside ? doorInReach(ctx) : null
+  if (door !== ctx.nearDoor) {
+    ctx.nearDoor = door
+    ctx.onNearDoor(door)
+  }
   // Small fixture parts only near the camera; once shown, they stay a little further, so they don't blink at the edge.
   const at = new THREE.Vector3()
   for (const g of (content.userData.detailed ?? []) as THREE.Object3D[]) {
@@ -465,6 +515,8 @@ export default function Viewer3D() {
       movedAt: 0,
       frameMs: 0,
       slow: false,
+      nearDoor: null,
+      onNearDoor: () => {},
     }
     ctxRef.current = ctx
     controls.addEventListener('change', () => {
@@ -905,25 +957,37 @@ export default function Viewer3D() {
   }, [built])
 
   /** Swing or slide these doors open or shut. */
-  const moveDoors = (ids: string[], closed: boolean) => {
-    const ctx = ctxRef.current
-    useEditor.getState().setDoorsClosed(ids, closed)
-    if (!ctx?.content) return
-    const which = new Set(ids)
-    const t0 = performance.now()
-    ctx.content.traverse((o) => {
-      if (!o.userData.door || !which.has(pickedId(o))) return
-      ctx.doorAnims = ctx.doorAnims.filter((a) => a.part !== o)
-      ctx.doorAnims.push({ part: o, from: (o.userData.open as number | undefined) ?? 1, to: closed ? 0 : 1, t0 })
-    })
-    ctx.dirty = true
-  }
+  const moveDoors = (ids: string[], closed: boolean) => swingDoors(ctxRef.current, ids, closed)
   const doorsClosed = useEditor((s) => s.doorsClosed)
   const doorIds = useMemo(
     () => project.floors.flatMap((f) => f.symbols.filter((s) => SYMBOL_MAP.get(s.type)?.opens).map((s) => s.id)),
     [project],
   )
   const anyOpen = doorIds.some((id) => !doorsClosed[id])
+
+  // ---------- Space opens or closes the door you're close to, like in a game ----------
+  const [nearDoor, setNearDoor] = useState<string | null>(null)
+  useEffect(() => {
+    const ctx = ctxRef.current
+    if (!ctx) return
+    ctx.onNearDoor = setNearDoor
+    return () => {
+      ctx.onNearDoor = () => {}
+    }
+  }, [])
+  useEffect(() => {
+    if (!visible) return
+    const onKey = (e: KeyboardEvent) => {
+      if (e.code !== 'Space' || e.repeat || e.ctrlKey || e.metaKey || e.altKey) return
+      if (e.target instanceof Element && e.target.closest('input, textarea, select, button, [role="dialog"], [role="menu"], [role="listbox"]')) return
+      const id = ctxRef.current?.nearDoor
+      if (!id) return
+      e.preventDefault()
+      swingDoors(ctxRef.current, [id], !useEditor.getState().doorsClosed[id])
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [visible])
 
   // ---------- click to select / flip switches / open and shut doors ----------
   const down = useRef<{ x: number; y: number } | null>(null)
@@ -971,6 +1035,12 @@ export default function Viewer3D() {
   return (
     <div className="relative h-full w-full">
       <div ref={hostRef} className="absolute inset-0" onPointerDown={onPointerDown} onPointerUp={onPointerUp} />
+      {nearDoor && !compiling && (
+        <div className="pointer-events-none absolute bottom-20 left-1/2 z-10 flex -translate-x-1/2 items-center gap-2 rounded-full bg-foreground/85 px-3 py-1.5 text-xs text-background shadow">
+          <Kbd className="bg-background/20 text-background">Space</Kbd>
+          {doorsClosed[nearDoor] ? 'Open the door' : 'Close the door'}
+        </div>
+      )}
       {compiling && (
         <div className="absolute inset-0 z-20 grid place-items-center bg-background/80 backdrop-blur-sm">
           <div className="flex items-center gap-2 text-sm text-muted-foreground">
