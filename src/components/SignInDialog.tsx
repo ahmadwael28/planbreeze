@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { useCloud } from '@/cloud/store'
-import { signInWithEmail, signInWithProvider } from '@/cloud/sync'
+import { dismissPendingShare, signInWithEmail, signInWithProvider } from '@/cloud/sync'
 import type { OAuthProvider } from '@/cloud/sync'
 import { GitHubIcon, GoogleIcon } from './BrandIcons'
 
@@ -14,6 +14,7 @@ export function SignInDialog() {
   const open = useCloud((s) => s.signInOpen)
   const setOpen = useCloud((s) => s.openSignIn)
   const configured = useCloud((s) => s.configured)
+  const note = useCloud((s) => s.signInNote)
   const [busy, setBusy] = useState<OAuthProvider | 'email' | null>(null)
   const [email, setEmail] = useState('')
   const [sentTo, setSentTo] = useState<string | null>(null)
@@ -50,6 +51,8 @@ export function SignInDialog() {
   }
 
   const close = (o: boolean) => {
+    // Closed without signing in: forget the shared plan's link that asked for it.
+    if (!o && note) dismissPendingShare()
     setOpen(o)
     if (!o) {
       setSentTo(null)
@@ -61,10 +64,10 @@ export function SignInDialog() {
     <Dialog open={open} onOpenChange={close}>
       <DialogContent className="sm:max-w-sm">
         <DialogHeader>
-          <DialogTitle>Save your plans to the cloud</DialogTitle>
+          <DialogTitle>{note ? 'Sign in' : 'Save your plans to the cloud'}</DialogTitle>
           <DialogDescription>
-            Sign in to keep your plans safe and open them on any device. Without an account, they're saved in this browser
-            only.
+            {note ??
+              "Sign in to keep your plans safe and open them on any device. Without an account, they're saved in this browser only."}
           </DialogDescription>
         </DialogHeader>
 

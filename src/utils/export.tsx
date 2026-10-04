@@ -119,6 +119,7 @@ export async function importJson(file: File): Promise<Project> {
   return {
     ...data,
     id: uid(), // import as a new project so nothing is overwritten
+    access: undefined, // and it's the importer's own, even if it was exported from a shared plan
     units: data.units === 'imperial' ? 'imperial' : 'metric',
     defaultWallThickness: data.defaultWallThickness || 10,
     createdAt: now,

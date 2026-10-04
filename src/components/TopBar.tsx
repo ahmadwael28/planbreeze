@@ -37,6 +37,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import { currentFloor, useEditor } from '@/store/editor'
 import { useUi } from '@/store/ui'
 import { AccountButton, SaveStatus } from './AccountControls'
+import { ShareControls } from './ShareControls'
 import { Logo } from './Logo'
 import type { ViewMode } from '@/store/editor'
 
@@ -132,6 +133,7 @@ export function TopBar({ onToggleSidebar, sidebarOpen }: Props) {
         <span className="truncate">{name}</span>
       </Button>
       <SaveStatus />
+      <ShareControls />
 
       <div className="flex shrink-0 items-center">
         <Tip label="Undo (Ctrl+Z)">

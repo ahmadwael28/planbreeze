@@ -6,7 +6,7 @@ import { Separator } from '@/components/ui/separator'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { cn } from '@/lib/utils'
 import type { Tool } from '@/model/types'
-import { addLShapeRoomAtCenter, addRectRoomAtCenter, useEditor } from '@/store/editor'
+import { addLShapeRoomAtCenter, addRectRoomAtCenter, isViewOnly, useEditor } from '@/store/editor'
 import { useUi } from '@/store/ui'
 
 const TOOLS: { tool: Tool; icon: LucideIcon; label: string; key: string }[] = [
@@ -53,29 +53,36 @@ export function Toolbar() {
   const setTool = useEditor((s) => s.setTool)
   const requestFit = useEditor((s) => s.requestFit)
   const layer = useEditor((s) => s.layer)
+  // Shared to view: only the tools for looking around.
+  const viewOnly = useEditor((s) => isViewOnly(s.project))
+  const tools = viewOnly ? TOOLS.filter((t) => t.tool === 'select' || t.tool === 'pan') : TOOLS
 
   return (
     <nav className="flex w-13 shrink-0 flex-col items-center gap-1 overflow-y-auto border-r bg-background py-2">
-      {TOOLS.map(({ tool: t, icon: Icon, label, key }) => (
+      {tools.map(({ tool: t, icon: Icon, label, key }) => (
         <ToolButton key={t} label={`${label} (${key})`} active={tool === t} onClick={() => setTool(t)}>
           <Icon />
         </ToolButton>
       ))}
-      {layer === 'lighting' && (
+      {layer === 'lighting' && !viewOnly && (
         <ToolButton label="Connect switches to lights (W)" active={tool === 'wire'} onClick={() => setTool('wire')}>
           <Cable />
         </ToolButton>
       )}
-      <Separator className="my-1 w-7!" />
-      <ToolButton label="Add 4 × 3 m room" onClick={() => addRectRoomAtCenter()}>
-        <Plus />
-      </ToolButton>
-      <ToolButton label="Add L-shaped room" onClick={addLShapeRoomAtCenter}>
-        <SquareDashedBottom />
-      </ToolButton>
-      <ToolButton label="Import a sketch or photo" onClick={() => useUi.getState().openImport('current')}>
-        <ScanLine />
-      </ToolButton>
+      {!viewOnly && (
+        <>
+          <Separator className="my-1 w-7!" />
+          <ToolButton label="Add 4 × 3 m room" onClick={() => addRectRoomAtCenter()}>
+            <Plus />
+          </ToolButton>
+          <ToolButton label="Add L-shaped room" onClick={addLShapeRoomAtCenter}>
+            <SquareDashedBottom />
+          </ToolButton>
+          <ToolButton label="Import a sketch or photo" onClick={() => useUi.getState().openImport('current')}>
+            <ScanLine />
+          </ToolButton>
+        </>
+      )}
       <Separator className="my-1 w-7!" />
       <ToolButton label="Zoom in (+)" onClick={() => zoomBy(1.25)}>
         <ZoomIn />

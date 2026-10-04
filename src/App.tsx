@@ -36,11 +36,13 @@ import { useCloud } from '@/cloud/store'
 import { connectMemoryCloudForTesting, initCloud } from '@/cloud/sync'
 import { ConflictDialog } from '@/components/ConflictDialog'
 import { SignInDialog } from '@/components/SignInDialog'
+import { ShareDialog } from '@/components/ShareDialog'
 import { VisibilityMenu } from '@/components/VisibilityMenu'
 
 // Handy for debugging in the browser console during development.
 if (import.meta.env.DEV) {
   Object.assign(window, { __editor: useEditor, __ui: useUi, __cloud: { useCloud, connectMemoryCloudForTesting } })
+  void import('@/cloud/sync').then((sync) => Object.assign(window, { __sync: sync }))
 }
 
 // three.js is only downloaded when the 3D view is first opened.
@@ -307,6 +309,7 @@ export default function App() {
       <ImportWizard />
       <PrintDialog />
       <SignInDialog />
+      <ShareDialog />
       <ConflictDialog />
     </div>
   )

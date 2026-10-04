@@ -1,15 +1,34 @@
 import { useState } from 'react'
+import { Copy, Eye } from 'lucide-react'
+import { Button } from '@/components/ui/button'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { makeOwnCopy } from '@/cloud/sync'
 import { cn } from '@/lib/utils'
-import { useEditor } from '@/store/editor'
+import { isViewOnly, useEditor } from '@/store/editor'
 import { LibraryPanel } from './LibraryPanel'
 import { PropertiesPanel } from './PropertiesPanel'
 import { SummaryPanel } from './SummaryPanel'
 
 type Tab = 'properties' | 'library' | 'summary'
 
+/** For a plan shared to view: why nothing can be changed, and the way to a copy that can. */
+function ViewOnlyNote() {
+  return (
+    <div className="m-3 space-y-2 rounded-lg border bg-muted/50 p-3 text-sm">
+      <p className="flex items-center gap-2 font-medium">
+        <Eye className="size-4" /> Shared with you to view
+      </p>
+      <p className="text-xs text-muted-foreground">You can look around, measure and walk through it in 3D. To change it, make your own copy.</p>
+      <Button size="sm" variant="outline" onClick={makeOwnCopy}>
+        <Copy /> Make a copy
+      </Button>
+    </div>
+  )
+}
+
 export function Sidebar({ open }: { open: boolean }) {
   const [tab, setTab] = useState<Tab>('properties')
+  const viewOnly = useEditor((s) => isViewOnly(s.project))
   const selectionKey = useEditor((s) => (s.selection ? (s.selection.kind === 'multi' ? `multi:${s.selection.items.length}` : `${s.selection.kind}:${s.selection.id}`) : ''))
 
   // Jump to properties when something gets selected.
@@ -37,11 +56,13 @@ export function Sidebar({ open }: { open: boolean }) {
         </div>
         <div className="min-h-0 flex-1 overflow-y-auto">
           <TabsContent value="properties">
-            <PropertiesPanel />
+            {viewOnly && <ViewOnlyNote />}
+            {/* Shared to view: every field shows, none can be changed. */}
+            <fieldset disabled={viewOnly} className="m-0 min-w-0 border-0 p-0">
+              <PropertiesPanel />
+            </fieldset>
           </TabsContent>
-          <TabsContent value="library">
-            <LibraryPanel />
-          </TabsContent>
+          <TabsContent value="library">{viewOnly ? <ViewOnlyNote /> : <LibraryPanel />}</TabsContent>
           <TabsContent value="summary">
             <SummaryPanel />
           </TabsContent>

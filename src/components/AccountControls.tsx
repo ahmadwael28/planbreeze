@@ -16,6 +16,7 @@ import { cn } from '@/lib/utils'
 import { useCloud } from '@/cloud/store'
 import type { SaveState } from '@/cloud/store'
 import { reconcile, saveNow, signOut } from '@/cloud/sync'
+import { useEditor } from '@/store/editor'
 
 function ago(t: number | null, now: number) {
   if (!t) return ''
@@ -41,6 +42,7 @@ export function SaveStatus() {
   const lastSaved = useCloud((s) => s.lastSaved)
   const error = useCloud((s) => s.error)
   const signedIn = useCloud((s) => !!s.user)
+  const viewOnly = useEditor((s) => s.project.access?.role === 'viewer')
   const [now, setNow] = useState(() => Date.now())
   useEffect(() => {
     const id = setInterval(() => setNow(Date.now()), 15000)
@@ -60,6 +62,9 @@ export function SaveStatus() {
   const retry = () => {
     if (state === 'error' || state === 'offline') void reconcile().then(() => saveNow())
   }
+
+  // Someone else's plan, shared to view: nothing to save (the View only badge says so), unless it couldn't be reached.
+  if (viewOnly && state !== 'error') return null
 
   return (
     <Tooltip>

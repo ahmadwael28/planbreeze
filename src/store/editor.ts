@@ -133,6 +133,12 @@ function apply(p: Project, recipe: (draft: Project) => void) {
   return next === p ? p : { ...next, updatedAt: Date.now() }
 }
 
+/** A plan shared with this user to view only: nothing changes it. */
+export const isViewOnly = (p: Project) => p.access?.role === 'viewer'
+
+/** Who may do what with a plan stays as it is now when stepping back or forward through its history. */
+const withAccess = (p: Project, current: Project) => (p.access === current.access ? p : { ...p, access: current.access })
+
 function validSelection(p: Project, floorId: string, sel: Selection | null): Selection | null {
   if (!sel) return null
   const floor = p.floors.find((f) => f.id === floorId)
@@ -181,6 +187,7 @@ export const useEditor = create<EditorState>((set, get) => ({
 
   commit: (recipe) => {
     const { project, past } = get()
+    if (isViewOnly(project)) return
     const next = apply(project, recipe)
     if (next === project) return
     set({ project: next, past: [...past, project].slice(-HISTORY_LIMIT), future: [] })
@@ -188,15 +195,19 @@ export const useEditor = create<EditorState>((set, get) => ({
 
   checkpoint: () => {
     const { project, past } = get()
+    if (isViewOnly(project)) return
     set({ past: [...past, project].slice(-HISTORY_LIMIT), future: [] })
   },
 
-  mutate: (recipe) => set({ project: apply(get().project, recipe) }),
+  mutate: (recipe) => {
+    const { project } = get()
+    if (!isViewOnly(project)) set({ project: apply(project, recipe) })
+  },
 
   undo: () => {
     const { past, future, project, floorId, selection } = get()
-    if (!past.length) return
-    const prev = past[past.length - 1]
+    if (!past.length || isViewOnly(project)) return
+    const prev = withAccess(past[past.length - 1], project)
     const fid = prev.floors.some((f) => f.id === floorId) ? floorId : prev.floors[0].id
     set({
       project: prev,
@@ -209,8 +220,8 @@ export const useEditor = create<EditorState>((set, get) => ({
 
   redo: () => {
     const { past, future, project, floorId, selection } = get()
-    if (!future.length) return
-    const next = future[0]
+    if (!future.length || isViewOnly(project)) return
+    const next = withAccess(future[0], project)
     const fid = next.floors.some((f) => f.id === floorId) ? floorId : next.floors[0].id
     set({
       project: next,
@@ -224,6 +235,8 @@ export const useEditor = create<EditorState>((set, get) => ({
   setFloor: (id) => set({ floorId: id, selection: null }),
   select: (selection) => set({ selection }),
   setTool: (tool) =>
+    // Shared to view: only the tools for looking around.
+    (!isViewOnly(get().project) || tool === 'select' || tool === 'pan' || tool === 'area') &&
     set({
       tool,
       selection: tool === 'select' || tool === 'wire' ? get().selection : null,

@@ -257,8 +257,20 @@ export interface Project {
   floors: Floor[]
   /** Photos of real tiles and wallpapers, used as finishes. */
   images?: ProjectImage[]
+  /** A plan someone else owns, opened because it's shared (never saved to the cloud with the plan). */
+  access?: ProjectAccess
   createdAt: number
   updatedAt: number
+}
+
+/** Someone else's plan opened through sharing: whose it is, and what this user may do with it. */
+export interface ProjectAccess {
+  /** The owner's account id. */
+  owner: string
+  ownerEmail?: string
+  role: 'viewer' | 'editor'
+  /** Opened with its view link (the link's key) rather than shared with this user by email. */
+  key?: string
 }
 
 export interface Pose {

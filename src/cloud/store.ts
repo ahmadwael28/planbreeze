@@ -36,7 +36,9 @@ interface CloudState {
   error: string | null
   conflict: { projectId: string; remote: CloudRow } | null
   signInOpen: boolean
-  openSignIn: (open: boolean) => void
+  /** Why the sign-in dialog was opened, if not by the user (e.g. a shared plan's link). */
+  signInNote: string | null
+  openSignIn: (open: boolean, note?: string) => void
 }
 
 export const useCloud = create<CloudState>((set) => ({
@@ -48,5 +50,6 @@ export const useCloud = create<CloudState>((set) => ({
   error: null,
   conflict: null,
   signInOpen: false,
-  openSignIn: (signInOpen) => set({ signInOpen }),
+  signInNote: null,
+  openSignIn: (signInOpen, note) => set({ signInOpen, signInNote: signInOpen ? (note ?? null) : null }),
 }))

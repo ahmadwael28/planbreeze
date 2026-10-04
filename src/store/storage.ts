@@ -1,4 +1,4 @@
-import type { Project } from '../model/types'
+import type { Project, ProjectAccess } from '../model/types'
 
 const INDEX_KEY = 'fp.projects'
 const PROJECT_KEY = (id: string) => `fp.project.${id}`
@@ -8,6 +8,8 @@ export interface ProjectMeta {
   id: string
   name: string
   updatedAt: number
+  /** Someone else's plan, shared with this user. */
+  shared?: ProjectAccess
 }
 
 function read<T>(key: string, fallback: T): T {
@@ -41,7 +43,7 @@ export function loadProject(id: string): Project | null {
 export function saveProject(p: Project): boolean {
   const ok = write(PROJECT_KEY(p.id), p)
   const index = listProjects().filter((m) => m.id !== p.id)
-  index.push({ id: p.id, name: p.name, updatedAt: p.updatedAt })
+  index.push({ id: p.id, name: p.name, updatedAt: p.updatedAt, shared: p.access })
   write(INDEX_KEY, index)
   write(LAST_KEY, p.id)
   return ok

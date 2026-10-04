@@ -5,13 +5,14 @@ import { Button } from '@/components/ui/button'
 import { Separator } from '@/components/ui/separator'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { cn } from '@/lib/utils'
-import { addFloor, deleteFloor, duplicateFloor, useEditor } from '@/store/editor'
+import { addFloor, deleteFloor, duplicateFloor, isViewOnly, useEditor } from '@/store/editor'
 import { ConfirmDialog } from './ConfirmDialog'
 
 export function FloorBar() {
   const floors = useEditor((s) => s.project.floors)
   const floorId = useEditor((s) => s.floorId)
   const setFloor = useEditor((s) => s.setFloor)
+  const viewOnly = useEditor((s) => isViewOnly(s.project))
   const [confirmDelete, setConfirmDelete] = useState(false)
   const current = floors.find((f) => f.id === floorId)
 
@@ -40,10 +41,14 @@ export function FloorBar() {
           {f.name}
         </Button>
       ))}
-      <Separator orientation="vertical" className="mx-0.5 h-4!" />
-      {action('Add floor above', addFloor, <Plus />)}
-      {action('Duplicate this floor', () => duplicateFloor(floorId), <Copy />)}
-      {action('Delete this floor', () => setConfirmDelete(true), <Trash2 />, floors.length <= 1)}
+      {!viewOnly && (
+        <>
+          <Separator orientation="vertical" className="mx-0.5 h-4!" />
+          {action('Add floor above', addFloor, <Plus />)}
+          {action('Duplicate this floor', () => duplicateFloor(floorId), <Copy />)}
+          {action('Delete this floor', () => setConfirmDelete(true), <Trash2 />, floors.length <= 1)}
+        </>
+      )}
       <ConfirmDialog
         open={confirmDelete}
         onOpenChange={setConfirmDelete}

@@ -23,7 +23,12 @@ Replace `<project-ref>` below with your Supabase project's reference (the part b
 2. Paste the contents of [`supabase/schema.sql`](../supabase/schema.sql) and click **Run**.
 
 This creates the `projects` table with row-level security, so each user can only read and change
-their own plans.
+their own plans, plus the plans shared with them (`project_shares`): viewers can read them, editors
+can also save them, and only owners can delete or share them. A plan's view link works through the
+`shared_project` function, for anyone who has its key.
+
+The script is safe to run again. **Run it again after updating Planbreeze** if the update changed it
+(sharing was added on 4 October 2026).
 
 ## 3. Tell Supabase where the app lives
 
