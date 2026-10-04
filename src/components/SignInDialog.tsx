@@ -115,6 +115,17 @@ export function SignInDialog() {
             {error && <p className="rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive">{error}</p>}
           </div>
         )}
+        <p className="text-center text-xs text-muted-foreground">
+          By signing in you agree to the{' '}
+          <a href="terms.html" target="_blank" rel="noreferrer" className="underline underline-offset-2 hover:text-foreground">
+            Terms
+          </a>{' '}
+          and{' '}
+          <a href="privacy.html" target="_blank" rel="noreferrer" className="underline underline-offset-2 hover:text-foreground">
+            Privacy Policy
+          </a>
+          .
+        </p>
       </DialogContent>
     </Dialog>
   )
