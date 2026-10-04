@@ -28,7 +28,8 @@ import { DEFAULT_RAILING, isOutdoor, OUTDOOR, RAILING_THICKNESS, ROOM_COLORS, ro
 import { CABINETS, curtainLayers, frameOf, hasGlass, STYLES, styleOf, SYMBOL_MAP } from '@/model/symbols'
 import type { FrameColor } from '@/model/symbols'
 import { formatArea, formatLength } from '@/model/units'
-import type { Dimension, ItemRef, OutdoorKind, PlanSymbol, RailingStyle, Room, SavedView, Units } from '@/model/types'
+import { FLOOR_FINISHES, floorOf } from '@/model/floors'
+import type { Dimension, FloorFinish, FloorPattern, ItemRef, OutdoorKind, PlanSymbol, RailingStyle, Room, RoomFloor, SavedView, Units } from '@/model/types'
 import {
   arrangeSelection,
   autoDimension,
@@ -211,7 +212,8 @@ function RoomProps({ room, units }: { room: Room; units: Units }) {
             </p>
           </>
         )}
-        <Field label="Floor color">
+        <FloorSection room={room} />
+        <Field label={room.floor ? 'Plan color' : 'Floor color'}>
           {() => (
             <div className="flex flex-wrap gap-1.5">
               {ROOM_COLORS.map((c) => (
@@ -503,6 +505,134 @@ function FabricControls({ sym }: { sym: PlanSymbol }) {
         )}
       </Field>
     </>
+  )
+}
+
+const FINISH_GROUPS: [string, FloorFinish[]][] = [
+  ['Tiles', ['ceramic', 'porcelain', 'marble']],
+  ['Planks', ['hdf', 'spc', 'parquet']],
+  ['Other', ['carpet', 'concrete']],
+]
+const PATTERN_NAMES: Record<FloorPattern, string> = { straight: 'Straight', offset: 'Offset', diagonal: 'Diagonal', herringbone: 'Herringbone' }
+
+/** A room's floor finish: tiles, planks or another surface, its color and size, and how it's laid. */
+function FloorSection({ room }: { room: Room }) {
+  const floor = room.floor
+  const f = floor && floorOf(floor)
+  const patch = (p: Partial<RoomFloor>) => updateRoom(room.id, (r) => void (r.floor = { ...r.floor!, ...p }))
+  const square = !!f?.size && f.size[0] === f.size[1]
+  return (
+    <div className="space-y-2.5 rounded-lg bg-muted/60 p-3">
+      <Field label="Floor">
+        {(id) => (
+          <Select
+            value={floor?.finish ?? 'plain'}
+            onValueChange={(v) =>
+              updateRoom(room.id, (r) => {
+                if (v === 'plain') delete r.floor
+                else r.floor = { finish: v as FloorFinish }
+              })
+            }
+          >
+            <SelectTrigger id={id} size="sm" className="w-full">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="plain">Plain color</SelectItem>
+              {FINISH_GROUPS.map(([group, list]) => (
+                <SelectGroup key={group}>
+                  <SelectLabel>{group}</SelectLabel>
+                  {list.map((k) => (
+                    <SelectItem key={k} value={k}>
+                      {FLOOR_FINISHES[k].name}
+                    </SelectItem>
+                  ))}
+                </SelectGroup>
+              ))}
+            </SelectContent>
+          </Select>
+        )}
+      </Field>
+      {f && floor && (
+        <>
+          <p className="text-xs text-muted-foreground">{f.def.hint}</p>
+          <Field label="Color">
+            {() => (
+              <div className="flex flex-wrap items-center gap-2 py-1">
+                {f.def.colors.map((c) => (
+                  <button
+                    key={c.hex}
+                    type="button"
+                    title={c.name}
+                    aria-label={c.name}
+                    aria-pressed={c.hex === f.color}
+                    onClick={() => patch({ color: c.hex })}
+                    className={cn(
+                      'size-6 rounded-full border shadow-sm outline-none focus-visible:ring-2 focus-visible:ring-ring',
+                      c.hex === f.color && 'ring-2 ring-primary ring-offset-2 ring-offset-background',
+                    )}
+                    style={{ background: c.hex }}
+                  />
+                ))}
+                <span className="text-xs text-muted-foreground">{f.def.colors.find((c) => c.hex === f.color)?.name ?? 'Custom'}</span>
+              </div>
+            )}
+          </Field>
+          {f.def.sizes.length > 0 && (
+            <Field label={f.def.kind === 'tile' ? 'Tile size' : 'Plank size'}>
+              {(id) => (
+                <Select value={f.size.join('x')} onValueChange={(v) => patch({ size: v.split('x').map(Number) as [number, number] })}>
+                  <SelectTrigger id={id} size="sm" className="w-full">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {f.def.sizes.map((s) => (
+                      <SelectItem key={s.join('x')} value={s.join('x')}>
+                        {s[0]} × {s[1]} cm
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              )}
+            </Field>
+          )}
+          {f.def.patterns.length > 1 && (
+            <Field label="Laying">
+              {() => (
+                <ToggleGroup type="single" size="sm" variant="outline" value={f.pattern} onValueChange={(v) => v && patch({ pattern: v as FloorPattern })} className="w-full">
+                  {f.def.patterns.map((p) => (
+                    <ToggleGroupItem key={p} value={p} className="flex-1">
+                      {PATTERN_NAMES[p]}
+                    </ToggleGroupItem>
+                  ))}
+                </ToggleGroup>
+              )}
+            </Field>
+          )}
+          {f.def.kind !== 'plain' && !(f.def.kind === 'tile' && square && f.pattern !== 'offset') && (
+            <Field label="Direction">
+              {() => (
+                <ToggleGroup
+                  type="single"
+                  size="sm"
+                  variant="outline"
+                  value={floor.turned ? 'across' : 'along'}
+                  onValueChange={(v) => v && patch({ turned: v === 'across' || undefined })}
+                  className="w-full"
+                >
+                  <ToggleGroupItem value="along" className="flex-1">
+                    Left to right
+                  </ToggleGroupItem>
+                  <ToggleGroupItem value="across" className="flex-1">
+                    Top to bottom
+                  </ToggleGroupItem>
+                </ToggleGroup>
+              )}
+            </Field>
+          )}
+        </>
+      )}
+    </div>
   )
 }
 

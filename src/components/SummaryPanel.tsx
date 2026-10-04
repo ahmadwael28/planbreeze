@@ -1,6 +1,8 @@
 import { useMemo } from 'react'
 import { Separator } from '@/components/ui/separator'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
+import { area } from '@/model/geometry'
+import { FLOOR_FINISHES, floorAreas, floorOf } from '@/model/floors'
 import { floorStats } from '@/model/project'
 import { SYMBOL_MAP } from '@/model/symbols'
 import { formatArea, formatLength } from '@/model/units'
@@ -24,6 +26,8 @@ export function SummaryPanel() {
   ]
   if (stats.outdoorArea > 0) tiles.push(['Outdoor', formatArea(stats.outdoorArea, units)])
   if (project.floors.length > 1) tiles.push(['All floors', formatArea(projectArea, units)])
+  // Floor finishes to buy: their area, with a tenth more for cuts (and how many tiles that is).
+  const finishes = useMemo(() => floorAreas(floor.rooms, (r) => area(r.points)), [floor.rooms])
 
   return (
     <div className="space-y-4 p-4">
@@ -66,6 +70,49 @@ export function SummaryPanel() {
           <p className="text-xs text-muted-foreground">No rooms on this floor yet.</p>
         )}
       </div>
+
+      {finishes.length > 0 && (
+        <>
+          <Separator />
+          <div className="space-y-2">
+            <h4 className="text-xs font-medium tracking-wide text-muted-foreground uppercase">Floor finishes</h4>
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Finish</TableHead>
+                  <TableHead className="text-right">Area</TableHead>
+                  <TableHead className="text-right">To buy</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {finishes.map(({ floor: fl, area: a }) => {
+                  const f = floorOf(fl)
+                  const def = FLOOR_FINISHES[fl.finish]
+                  const buy = a * 1.1
+                  const tiles = def.kind !== 'plain' && f.size ? Math.ceil(buy / (f.size[0] * f.size[1])) : 0
+                  return (
+                    <TableRow key={`${fl.finish}${f.color}${f.size?.join('x')}${f.pattern}`}>
+                      <TableCell className="max-w-36">
+                        <div className="truncate">{def.name}</div>
+                        <div className="truncate text-xs text-muted-foreground">
+                          {def.colors.find((c) => c.hex === f.color)?.name ?? 'Custom'}
+                          {f.size && def.kind !== 'plain' ? ` · ${f.size[0]}×${f.size[1]}` : ''}
+                        </div>
+                      </TableCell>
+                      <TableCell className="text-right tabular-nums">{formatArea(a, units)}</TableCell>
+                      <TableCell className="text-right tabular-nums">
+                        {formatArea(buy, units)}
+                        {tiles > 0 && <div className="text-xs text-muted-foreground">≈ {tiles} {def.kind === 'tile' ? 'tiles' : 'planks'}</div>}
+                      </TableCell>
+                    </TableRow>
+                  )
+                })}
+              </TableBody>
+            </Table>
+            <p className="text-xs text-muted-foreground">To buy: the area plus a tenth for cuts and breakage.</p>
+          </div>
+        </>
+      )}
 
       <Separator />
       <div className="space-y-2">

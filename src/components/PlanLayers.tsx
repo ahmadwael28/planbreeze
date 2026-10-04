@@ -11,6 +11,7 @@ import {
   signedArea,
   sub,
 } from '@/model/geometry'
+import { floorLayout } from '@/model/floors'
 import { ceilingLight, ceilingRoom, ceilingZones, covePath, coveRuns, pocketWidth, SHADOW_GAP, WIRE_COLORS } from '@/model/lighting'
 import { dimensionPoints, isOutdoor, railingRuns, roomOuter, symbolPose } from '@/model/project'
 import { SYMBOL_MAP } from '@/model/symbols'
@@ -188,6 +189,46 @@ function CurtainPockets({ room, theme }: { room: Room; theme: PlanTheme }) {
           </g>
         )
       })}
+    </g>
+  )
+}
+
+/** A room's floor finish on the plan: its tiles' or planks' joints as faint lines, laid from the room's corner. */
+function FloorFinish({ room, theme }: { room: Room; theme: PlanTheme }) {
+  const layout = room.floor && floorLayout(room.floor)
+  if (!layout) return null
+  const [bw, bh] = layout.block
+  const xs = room.points.map((p) => p.x)
+  const ys = room.points.map((p) => p.y)
+  const id = `floor-${room.id}`
+  return (
+    <g pointerEvents="none">
+      <defs>
+        <pattern
+          id={id}
+          width={bw}
+          height={bh}
+          patternUnits="userSpaceOnUse"
+          patternTransform={`translate(${Math.min(...xs)} ${Math.min(...ys)}) rotate(${layout.angle})`}
+        >
+          {layout.pieces.flatMap((p) =>
+            [-bw, 0, bw].flatMap((dx) =>
+              [-bh, 0, bh].map((dy) => (
+                <path
+                  key={`${p.id}-${p.pts[0].x}-${p.pts[0].y}-${dx}-${dy}`}
+                  d={polygonPath(p.pts.map((q) => ({ x: q.x + dx, y: q.y + dy })))}
+                  fill="none"
+                  stroke={theme.ink}
+                  strokeOpacity={0.22}
+                  strokeWidth={0.8}
+                  vectorEffect="non-scaling-stroke"
+                />
+              )),
+            ),
+          )}
+        </pattern>
+      </defs>
+      <path d={polygonPath(room.points)} fill={`url(#${id})`} />
     </g>
   )
 }
@@ -467,6 +508,7 @@ export function PlanLayers({
             fillOpacity={lighting ? 0.55 : 1}
           />
         ))}
+        {!lighting && !forPrint && floor.rooms.map((r) => <FloorFinish key={r.id} room={r} theme={theme} />)}
       </g>
       {lighting && (
         <g>

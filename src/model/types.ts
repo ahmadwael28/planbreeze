@@ -10,6 +10,21 @@ export type Units = 'metric' | 'imperial'
 /** Gypsum board (drop) ceiling styles. */
 export type CeilingStyle = 'flat' | 'tray' | 'cove' | 'floating' | 'stepped'
 
+export type FloorFinish = 'ceramic' | 'porcelain' | 'marble' | 'hdf' | 'spc' | 'parquet' | 'carpet' | 'concrete'
+export type FloorPattern = 'straight' | 'offset' | 'diagonal' | 'herringbone'
+
+/** What a room's floor is finished with (see model/floors). */
+export interface RoomFloor {
+  finish: FloorFinish
+  /** Its color (one of the finish's, or any). */
+  color?: string
+  /** Tile sides, or plank width × length (cm). */
+  size?: [number, number]
+  pattern?: FloorPattern
+  /** Turned a quarter: planks (or long tiles) run the other way. */
+  turned?: boolean
+}
+
 export interface Ceiling {
   style: CeilingStyle
   /** How far the gypsum hangs below the structural ceiling. */
@@ -31,6 +46,8 @@ export interface Room {
   ceiling?: Ceiling
   /** Walls (edge indices) with a shadow gap: a recessed groove where the wall meets the ceiling. */
   shadowGaps?: number[]
+  /** The floor's finish (tiles, planks…); without one, it's plain in the room's color. */
+  floor?: RoomFloor
   /** At a column built into a wall, shadow gaps go around it (default) or stop at it. */
   gapsAtColumns?: 'wrap' | 'stop'
   /** Walls with a curtain pocket: the gypsum ceiling stops short of them, so curtain tracks hide up in the gap. */

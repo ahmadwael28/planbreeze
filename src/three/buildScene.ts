@@ -9,6 +9,7 @@ import type { Floor, Point, Project, Room, Selection } from '@/model/types'
 import { cabinetLeds, COLORS, Materials, railingModel, symbolModel } from './furniture'
 import type { CurtainWash } from './furniture'
 import { ceilingHeightAt, ceilingLight, ceilingRoom, coveRuns, LIGHT_COLORS, pocketWidth } from '@/model/lighting'
+import { floorMaterial } from './floorTextures'
 import { bakeGlows, buildCeilings, buildFixture, cabinetLights } from './lighting3d'
 import type { LightHandle, SwitchHandle } from './lighting3d'
 import type { PoolRoom } from './lightPool'
@@ -205,13 +206,15 @@ export function buildProjectGroup(project: Project, opts: BuildOptions): THREE.G
     }
     for (const room of floor.rooms) {
       if (room.points.length < 3) continue
-      const shape = new THREE.Shape(room.points.map((p) => new THREE.Vector2(p.x, p.y)))
+      // Facing up: the outline mirrored (plan y runs down the screen, three.js z toward the viewer), laid flat. Its
+      // texture coordinates are then the plan's x and -y, in cm.
+      const shape = new THREE.Shape(room.points.map((p) => new THREE.Vector2(p.x, -p.y)))
       const geo = new THREE.ShapeGeometry(shape)
-      geo.rotateX(Math.PI / 2)
+      geo.rotateX(-Math.PI / 2)
       geo.translate(0, floorBase + 0.3, 0)
       const hl = isSelected(sel, 'room', room.id)
-      const mat = mats.get(room.color, hl).clone()
-      mat.side = THREE.DoubleSide
+      // Its finish (tiles, planks…), or plain in the room's color.
+      const mat = room.floor ? floorMaterial(room) : mats.get(room.color, hl, 'satin').clone()
       group.add(mesh(geo, mat, { floorId: floor.id, kind: 'room', id: room.id }))
     }
 
@@ -348,7 +351,12 @@ export function buildProjectGroup(project: Project, opts: BuildOptions): THREE.G
         o.geometry.dispose()
         const m = o.material as THREE.Material | THREE.Material[]
         if (Array.isArray(m)) m.forEach((x) => x.dispose())
-        else m.dispose()
+        else {
+          // A room's own copy of its floor texture.
+          const map = (m as THREE.MeshStandardMaterial).map
+          if (map?.userData.roomCopy) map.dispose()
+          m.dispose()
+        }
       } else if (o instanceof THREE.Points) {
         o.geometry.dispose()
         ;(o.material as THREE.Material).dispose()
