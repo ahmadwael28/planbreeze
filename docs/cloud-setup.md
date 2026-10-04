@@ -11,7 +11,11 @@ Replace `<project-ref>` below with your Supabase project's reference (the part b
 
 1. Go to [supabase.com](https://supabase.com), sign in, and click **New project**.
 2. Name it `planbreeze`, pick the region closest to your users, and save the database password
-   somewhere safe. Wait a minute or two for it to start.
+   somewhere safe (the app never needs it).
+3. Under **Security**: keep **Enable Data API** on (the app talks to the database through it).
+   **Automatically expose new tables** can stay off, since the schema below grants access itself.
+   **Enable automatic RLS** is optional; the schema turns row-level security on anyway.
+4. Click **Create new project** and wait a minute or two for it to start.
 
 ## 2. Create the database table
 

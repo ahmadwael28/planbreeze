@@ -11,13 +11,13 @@ import {
   signedArea,
   sub,
 } from '@/model/geometry'
-import { floorLayout } from '@/model/floors'
+import { finishOf, surfaceLayout, wallSurfaceAt } from '@/model/finishes'
 import { ceilingLight, ceilingRoom, ceilingZones, covePath, coveRuns, pocketWidth, SHADOW_GAP, WIRE_COLORS } from '@/model/lighting'
 import { dimensionPoints, isOutdoor, railingRuns, roomOuter, symbolPose } from '@/model/project'
 import { SYMBOL_MAP } from '@/model/symbols'
 import type { PlanTheme } from '@/model/theme'
 import { formatArea, formatLength } from '@/model/units'
-import type { Dimension, Floor, PlanLayer, PlanSymbol, Point, Room, Units } from '@/model/types'
+import type { Dimension, Floor, PlanLayer, PlanSymbol, Point, ProjectImage, Room, Units } from '@/model/types'
 
 interface Props {
   floor: Floor
@@ -39,6 +39,8 @@ interface Props {
   forPrint?: boolean
   /** Library categories (and 'Dimensions') shown faded and not clickable, to work around them. */
   faded?: string[]
+  /** The project's photos (finishes using one show in its color). */
+  images?: ProjectImage[]
 }
 
 const FADE = 0.15
@@ -195,7 +197,7 @@ function CurtainPockets({ room, theme }: { room: Room; theme: PlanTheme }) {
 
 /** A room's floor finish on the plan: its tiles' or planks' joints as faint lines, laid from the room's corner. */
 function FloorFinish({ room, theme }: { room: Room; theme: PlanTheme }) {
-  const layout = room.floor && floorLayout(room.floor)
+  const layout = room.floor && surfaceLayout(room.floor, 'floor')
   if (!layout) return null
   const [bw, bh] = layout.block
   const xs = room.points.map((p) => p.x)
@@ -229,6 +231,60 @@ function FloorFinish({ room, theme }: { room: Room; theme: PlanTheme }) {
         </pattern>
       </defs>
       <path d={polygonPath(room.points)} fill={`url(#${id})`} />
+    </g>
+  )
+}
+
+/** How wide the strip showing a wall's finish is on the plan (cm). */
+const WALL_STRIP = 5
+
+/** A room's wall finishes on the plan: a strip of each one's color along the inside of the walls, with tile joints. */
+function WallFinishes({ room, theme, images }: { room: Room; theme: PlanTheme; images?: ProjectImage[] }) {
+  if (isOutdoor(room) || (!room.walls && !room.wallFinishes)) return null
+  const pts = room.points
+  const sa = signedArea(pts)
+  return (
+    <g pointerEvents="none">
+      {pts.map((a, i) => {
+        const s = wallSurfaceAt(room, i)
+        if (!s) return null
+        const b = pts[(i + 1) % pts.length]
+        const inn = inwardNormal(a, b, sa)
+        const p = add(a, mul(inn, WALL_STRIP / 2))
+        const q = add(b, mul(inn, WALL_STRIP / 2))
+        const f = finishOf(s, 'wall')
+        const color = (s.image && images?.find((m) => m.id === s.image)?.tone) || f.color
+        // Joints every tile (along the wall) or slat.
+        const k = f.def.kind
+        const step = f.size && (k === 'tile' ? (s.turned ? Math.min(...f.size) : Math.max(...f.size)) : k === 'slats' ? f.size[0] + f.size[1] : 0)
+        return (
+          <g key={i}>
+            <line x1={p.x} y1={p.y} x2={q.x} y2={q.y} stroke={color} strokeWidth={WALL_STRIP} />
+            {!!step && f.pattern !== 'herringbone' && f.pattern !== 'chevron' && f.pattern !== 'diagonal' && (
+              <line
+                x1={p.x}
+                y1={p.y}
+                x2={q.x}
+                y2={q.y}
+                stroke={theme.ink}
+                strokeOpacity={0.35}
+                strokeWidth={WALL_STRIP}
+                strokeDasharray={`${Math.min(0.5, step / 4)} ${step - Math.min(0.5, step / 4)}`}
+              />
+            )}
+            <line
+              x1={p.x + (inn.x * WALL_STRIP) / 2}
+              y1={p.y + (inn.y * WALL_STRIP) / 2}
+              x2={q.x + (inn.x * WALL_STRIP) / 2}
+              y2={q.y + (inn.y * WALL_STRIP) / 2}
+              stroke={theme.ink}
+              strokeOpacity={0.3}
+              strokeWidth={0.6}
+              vectorEffect="non-scaling-stroke"
+            />
+          </g>
+        )
+      })}
     </g>
   )
 }
@@ -475,6 +531,7 @@ export function PlanLayers({
   ghost,
   forPrint,
   faded = [],
+  images,
 }: Props) {
   if (ghost) {
     return (
@@ -509,6 +566,7 @@ export function PlanLayers({
           />
         ))}
         {!lighting && !forPrint && floor.rooms.map((r) => <FloorFinish key={r.id} room={r} theme={theme} />)}
+        {!lighting && floor.rooms.map((r) => <WallFinishes key={r.id} room={r} theme={theme} images={images} />)}
       </g>
       {lighting && (
         <g>

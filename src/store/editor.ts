@@ -533,6 +533,7 @@ export function fixAttachments(d: Project, oldRoom: Room) {
   if (r.shadowGaps) r.shadowGaps = remapEdges(oldRoom.points, r.points, r.shadowGaps)
   if (r.curtainPockets) r.curtainPockets = remapEdges(oldRoom.points, r.points, r.curtainPockets)
   if (r.ceiling?.bands) r.ceiling.bands = remapEdgeValues(oldRoom.points, r.points, r.ceiling.bands)
+  if (r.wallFinishes) r.wallFinishes = remapEdgeValues(oldRoom.points, r.points, r.wallFinishes)
   for (const s of f.symbols) {
     if (s.room === r.id && s.cove?.off) s.cove = { ...s.cove, off: remapEdges(oldRoom.points, r.points, s.cove.off) }
   }

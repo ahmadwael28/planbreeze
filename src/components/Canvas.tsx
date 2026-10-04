@@ -931,6 +931,7 @@ export function Canvas() {
           showWallLengths={settings.showWallLengths}
           showAreas={settings.showAreas}
           faded={settings.faded}
+          images={project.images}
         />
 
         {/* saved 3D views */}

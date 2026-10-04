@@ -17,6 +17,12 @@ create table if not exists public.projects (
 
 create index if not exists projects_user_updated_idx on public.projects (user_id, updated_at desc);
 
+-- Signed-in users reach the table through the Data API (needed when new tables aren't exposed
+-- automatically); the policies below still limit each of them to their own rows. Signed-out
+-- visitors get no access.
+grant select, insert, update, delete on table public.projects to authenticated;
+revoke all on table public.projects from anon;
+
 -- Row-level security: every signed-in user sees and changes only their own projects.
 alter table public.projects enable row level security;
 

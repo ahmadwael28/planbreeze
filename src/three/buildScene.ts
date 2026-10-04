@@ -1,15 +1,20 @@
 import * as THREE from 'three'
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js'
-import { add, bbox, dist, dot, inwardNormal, labelPoint, mul, normalize, offsetPolygon, pointInPolygon, projectOnSegment, signedArea, sub } from '@/model/geometry'
+import { add, bbox, dist, inwardNormal, labelPoint, mul, normalize, offsetPolygon, pointInPolygon, projectOnSegment, signedArea, sub } from '@/model/geometry'
 import { isSelected } from '@/model/items'
 import { isOutdoor, railingRuns, roomOuter, symbolPose } from '@/model/project'
 import { SYMBOL_MAP } from '@/model/symbols'
 import type { PlanTheme } from '@/model/theme'
-import type { Floor, Point, Project, Room, Selection } from '@/model/types'
+import type { Floor, Point, Project, Room, Selection, Surface } from '@/model/types'
+import { FINISHES, startsAtFloor, wallSurfaceAt } from '@/model/finishes'
+import { cutsFor, wallOpenings, wallPatches } from '@/model/walls'
+import type { Opening } from '@/model/walls'
+import { readyImage } from '@/lib/images'
 import { cabinetLeds, COLORS, Materials, railingModel, symbolModel } from './furniture'
 import type { CurtainWash } from './furniture'
 import { ceilingHeightAt, ceilingLight, ceilingRoom, coveRuns, LIGHT_COLORS, pocketWidth } from '@/model/lighting'
-import { floorMaterial } from './floorTextures'
+import { floorMaterial, wallMaterial } from './finishTextures'
+import type { Photo } from './finishTextures'
 import { bakeGlows, buildCeilings, buildFixture, cabinetLights } from './lighting3d'
 import type { LightHandle, SwitchHandle } from './lighting3d'
 import type { PoolRoom } from './lightPool'
@@ -48,47 +53,6 @@ function mesh(geo: THREE.BufferGeometry, mat: THREE.Material, pick?: PickInfo) {
 
 // ---------------------------------------------------------------------------
 // Walls with openings
-
-interface Opening {
-  center: Point
-  dir: Point
-  width: number
-  bottom: number
-  top: number
-}
-
-function wallOpenings(floor: Floor): Opening[] {
-  const out: Opening[] = []
-  for (const sym of floor.symbols) {
-    const def = SYMBOL_MAP.get(sym.type)
-    if (!def?.wall) continue
-    const pose = symbolPose(sym, floor.rooms)
-    const r = (pose.rotation * Math.PI) / 180
-    const bottom = sym.elevation ?? def.sill ?? 0
-    out.push({
-      center: { x: pose.x, y: pose.y },
-      dir: { x: Math.cos(r), y: Math.sin(r) },
-      width: sym.width,
-      bottom,
-      top: bottom + sym.height,
-    })
-  }
-  return out
-}
-
-/** Openings lying in the wall along a→b (including ones attached to an overlapping wall of a neighbor room). */
-function cutsFor(openings: Opening[], a: Point, dir: Point, out: Point, t: number, L: number) {
-  const centerLine = add(a, mul(out, t / 2))
-  return openings
-    .filter((o) => Math.abs(o.dir.x * dir.y - o.dir.y * dir.x) < 0.02)
-    .filter((o) => Math.abs(dot(sub(o.center, centerLine), out)) < t / 2 + 1)
-    .map((o) => {
-      const s = dot(sub(o.center, a), dir)
-      return { s1: Math.max(0, s - o.width / 2), s2: Math.min(L, s + o.width / 2), bottom: o.bottom, top: o.top }
-    })
-    .filter((c) => c.s2 - c.s1 > 0.5)
-    .sort((p, q) => p.s1 - q.s1)
-}
 
 function roomWalls(room: Room, openings: Opening[], height: number, base: number): THREE.BufferGeometry[] {
   const pts = room.points
@@ -139,7 +103,7 @@ function skirting(room: Room, openings: Opening[], base: number): THREE.BufferGe
     const a = pts[i]
     const b = pts[(i + 1) % n]
     const L = dist(a, b)
-    if (L < 5) continue
+    if (L < 5 || startsAtFloor(wallSurfaceAt(room, i))) continue // tiles and slats come down to the floor
     const dir = normalize(sub(b, a))
     const inn = inwardNormal(a, b, sa)
     const piece = (s1: number, s2: number) => {
@@ -157,6 +121,46 @@ function skirting(room: Room, openings: Opening[], base: number): THREE.BufferGe
     piece(cur, L)
   }
   return geos
+}
+
+/** How far inside the walls their finishes sit (cm). */
+const FINISH_INSET = 0.3
+
+/**
+ * The finishes on the walls (paint, wallpaper, tiles…) just inside them, around their doors and windows: one mesh per
+ * room and finish, picked as the room. Texture coordinates run along the wall (left to right, seen from the room) and
+ * up it, in cm.
+ */
+function wallFinishMeshes(floor: Floor, openings: Opening[], base: number, material: (s: Surface) => THREE.Material, pick: (room: Room) => PickInfo) {
+  const groups = new Map<string, { room: Room; s: Surface; pos: number[]; uv: number[]; idx: number[] }>()
+  for (const p of wallPatches(floor, () => floor.height, openings)) {
+    const key = `${p.room.id}|${JSON.stringify(p.surface)}`
+    let g = groups.get(key)
+    if (!g) groups.set(key, (g = { room: p.room, s: p.surface, pos: [], uv: [], idx: [] }))
+    // Seen from the room, does the wall run left to right? If not, flip the quads and their texture.
+    const facing = p.dir.x * p.inward.y - p.dir.y * p.inward.x > 0
+    const sign = facing ? 1 : -1
+    for (const [s1, s2, z0, z1] of p.parts) {
+      const at = (d: number) => add(add(p.a, mul(p.dir, d)), mul(p.inward, FINISH_INSET))
+      const A = at(s1)
+      const B = at(s2)
+      const i0 = g.pos.length / 3
+      g.pos.push(A.x, base + z0, A.y, B.x, base + z0, B.y, B.x, base + z1, B.y, A.x, base + z1, A.y)
+      g.uv.push(sign * s1, z0, sign * s2, z0, sign * s2, z1, sign * s1, z1)
+      if (facing) g.idx.push(i0, i0 + 1, i0 + 2, i0, i0 + 2, i0 + 3)
+      else g.idx.push(i0, i0 + 2, i0 + 1, i0, i0 + 3, i0 + 2)
+    }
+  }
+  return [...groups.values()].map((g) => {
+    const geo = new THREE.BufferGeometry()
+    geo.setAttribute('position', new THREE.Float32BufferAttribute(g.pos, 3))
+    geo.setAttribute('uv', new THREE.Float32BufferAttribute(g.uv, 2))
+    geo.setIndex(g.idx)
+    geo.computeVertexNormals()
+    const m = mesh(geo, material(g.s), pick(g.room))
+    m.castShadow = false
+    return m
+  })
 }
 
 // ---------------------------------------------------------------------------
@@ -177,6 +181,16 @@ export function buildProjectGroup(project: Project, opts: BuildOptions): THREE.G
   const walls: THREE.Mesh[] = []
   const poolRooms: PoolRoom[] = []
   const curtainWashes: { floorId: string; lightId: string; m: THREE.MeshStandardMaterial; base: number }[] = []
+  // Photos of real tiles and wallpapers (decoded beforehand; see loadImages), and a material per wall finish.
+  const images = new Map((project.images ?? []).map((i) => [i.id, i]))
+  const photoOf = (s: Surface): Photo => (s.image ? readyImage(images.get(s.image)) : undefined)
+  const wallMats = new Map<string, THREE.Material>()
+  const wallMat = (s: Surface) => {
+    const key = JSON.stringify(s)
+    let m = wallMats.get(key)
+    if (!m) wallMats.set(key, (m = wallMaterial(s, photoOf(s))))
+    return m
+  }
   const currentIdx = Math.max(
     0,
     project.floors.findIndex((f) => f.id === opts.floorId),
@@ -214,7 +228,7 @@ export function buildProjectGroup(project: Project, opts: BuildOptions): THREE.G
       geo.translate(0, floorBase + 0.3, 0)
       const hl = isSelected(sel, 'room', room.id)
       // Its finish (tiles, planks…), or plain in the room's color.
-      const mat = room.floor ? floorMaterial(room) : mats.get(room.color, hl, 'satin').clone()
+      const mat = room.floor ? floorMaterial(room, photoOf(room.floor)) : mats.get(room.color, hl, 'satin').clone()
       group.add(mesh(geo, mat, { floorId: floor.id, kind: 'room', id: room.id }))
     }
 
@@ -262,6 +276,9 @@ export function buildProjectGroup(project: Project, opts: BuildOptions): THREE.G
         group.add(w)
       }
     }
+
+    // Paint, wallpaper and tiles on the walls.
+    for (const m of wallFinishMeshes(floor, openings, floorBase, wallMat, (room) => ({ floorId: floor.id, kind: 'room', id: room.id }))) group.add(m)
 
     // Gypsum ceilings (seen from inside the rooms).
     if (opts.showCeilings) {
@@ -311,6 +328,17 @@ export function buildProjectGroup(project: Project, opts: BuildOptions): THREE.G
         sym.type === 'curtain' ? washFor(pose) : undefined,
       )
       if (!obj.children.length) continue
+      // A column in a wall is painted like the walls of its room.
+      if (sym.type === 'wall-post') {
+        const near = (r: Room) => r.points.some((p, i) => projectOnSegment(pose, p, r.points[(i + 1) % r.points.length]).dist < Math.max(sym.width, sym.depth))
+        const room = floor.rooms.find((r) => pointInPolygon(pose, r.points)) ?? floor.rooms.find(near)
+        if (room?.walls && FINISHES[room.walls.finish].kind === 'paint') {
+          const paint = wallMat({ finish: 'paint', color: room.walls.color ?? FINISHES.paint.colors[0].hex })
+          obj.traverse((o) => {
+            if (o instanceof THREE.Mesh) o.material = paint
+          })
+        }
+      }
       const elevation = def?.wall ? (sym.elevation ?? def.sill ?? 0) : (sym.elevation ?? 0)
       obj.position.set(pose.x, floorBase + elevation, pose.y)
       obj.rotation.y = (-pose.rotation * Math.PI) / 180

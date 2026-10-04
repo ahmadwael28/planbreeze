@@ -11,18 +11,49 @@ export type Units = 'metric' | 'imperial'
 export type CeilingStyle = 'flat' | 'tray' | 'cove' | 'floating' | 'stepped'
 
 export type FloorFinish = 'ceramic' | 'porcelain' | 'marble' | 'hdf' | 'spc' | 'parquet' | 'carpet' | 'concrete'
-export type FloorPattern = 'straight' | 'offset' | 'diagonal' | 'herringbone'
+export type WallFinish = 'paint' | 'wallpaper' | 'ceramic' | 'porcelain' | 'marble' | 'slats' | 'concrete'
+export type Finish = FloorFinish | WallFinish
+export type FloorPattern = 'straight' | 'offset' | 'diagonal' | 'herringbone' | 'chevron'
 
-/** What a room's floor is finished with (see model/floors). */
-export interface RoomFloor {
-  finish: FloorFinish
+/** What a floor or wall is finished with (see model/finishes). */
+export interface Surface {
+  finish: Finish
   /** Its color (one of the finish's, or any). */
   color?: string
-  /** Tile sides, or plank width × length (cm). */
+  /** A photo of the real thing (one of the project's `images`): one tile or plank, or a repeat of a wallpaper. */
+  image?: string
+  /** Tile sides, plank width × length, or the repeat of a wallpaper photo (cm). */
   size?: [number, number]
   pattern?: FloorPattern
   /** Turned a quarter: planks (or long tiles) run the other way. */
   turned?: boolean
+  /** Wallpaper: its design. */
+  design?: string
+}
+
+export interface RoomFloor extends Surface {
+  finish: FloorFinish
+}
+
+export interface WallSurface extends Surface {
+  finish: WallFinish
+  /** Tiles or slats only up to this height (cm), painted above; to the ceiling if left out. */
+  height?: number
+  /** The paint above them. */
+  above?: string
+}
+
+/** A photo the user added, to show a real tile, plank or wallpaper. */
+export interface ProjectImage {
+  id: string
+  name: string
+  /** Image data URL (scaled down). */
+  src: string
+  /** Its size in pixels. */
+  w: number
+  h: number
+  /** Its average color, for the plan. */
+  tone: string
 }
 
 export interface Ceiling {
@@ -48,6 +79,10 @@ export interface Room {
   shadowGaps?: number[]
   /** The floor's finish (tiles, planks…); without one, it's plain in the room's color. */
   floor?: RoomFloor
+  /** The walls' finish (paint, wallpaper, tiles…) inside the room; without one, they're plain white. */
+  walls?: WallSurface
+  /** A different finish on some walls (by wall index; null: the room's), e.g. an accent wall or tiles behind a sink. */
+  wallFinishes?: (WallSurface | null)[]
   /** At a column built into a wall, shadow gaps go around it (default) or stop at it. */
   gapsAtColumns?: 'wrap' | 'stop'
   /** Walls with a curtain pocket: the gypsum ceiling stops short of them, so curtain tracks hide up in the gap. */
@@ -220,6 +255,8 @@ export interface Project {
   units: Units
   defaultWallThickness: number
   floors: Floor[]
+  /** Photos of real tiles and wallpapers, used as finishes. */
+  images?: ProjectImage[]
   createdAt: number
   updatedAt: number
 }

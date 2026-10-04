@@ -33,6 +33,7 @@ import type { LightColor, Selection } from '@/model/types'
 import { currentFloor, draftFloor, useEditor, useFloor } from '@/store/editor'
 import { useUi } from '@/store/ui'
 import { buildProjectGroup, SLAB } from '@/three/buildScene'
+import { loadImages } from '@/lib/images'
 import type { FloorFilter, PickInfo } from '@/three/buildScene'
 import { KEY_HELP, KeyboardNav, NUMPAD_HELP } from '@/three/keyboardNav'
 import { poseDoor } from '@/three/furniture'
@@ -452,6 +453,7 @@ export default function Viewer3D() {
   const [compiling, setCompiling] = useState(true)
   /** What the scene was last built from, so showing the view again doesn't rebuild an unchanged scene. */
   const builtFrom = useRef<unknown[]>([])
+  const [photos, setPhotos] = useState(0)
   const [tour, setTour] = useState(false)
   const [active, setActive] = useState<string | null>(null)
   const [playing, setPlaying] = useState(false)
@@ -867,6 +869,12 @@ export default function Viewer3D() {
     const ctx = ctxRef.current
     // Hidden: rebuild when shown again, and only if something changed.
     if (!ctx || !visible) return
+    // Photos used as finishes are decoded first; this runs again when they are.
+    const decoding = loadImages(project.images)
+    if (decoding) {
+      void decoding.then(() => setPhotos((n) => n + 1))
+      return
+    }
     const from = [project, floorId, filter, theme, showCeilings]
     if (ctx.content && from.every((x, i) => x === builtFrom.current[i])) return
     builtFrom.current = from
@@ -926,7 +934,7 @@ export default function Viewer3D() {
     }
     ctx.dirty = true
     setBuilt((n) => n + 1)
-  }, [project, floorId, filter, theme, showCeilings, frame, visible])
+  }, [project, floorId, filter, theme, showCeilings, frame, visible, photos])
 
   // ---------- selection, highlighted without rebuilding ----------
   useEffect(() => {
