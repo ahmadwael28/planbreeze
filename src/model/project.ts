@@ -10,6 +10,7 @@ import {
   normalize,
   offsetPolygon,
   perimeter,
+  pointInPolygon,
   projectOnSegment,
   signedArea,
   sub,
@@ -231,6 +232,59 @@ export function findWallSnap(p: Point, rooms: Room[], maxDist: number): WallAtta
     }
   }
   return best
+}
+
+/**
+ * A free-standing column built into the nearest wall of its room: against the wall's inside face, as wide as the
+ * column is along the wall, and standing out of it as far as it reaches into the room (all of it, if it's clear of
+ * the wall). Null when no wall is within `reach` (cm) of it.
+ */
+export function columnIntoWall(sym: PlanSymbol, rooms: Room[], reach = 150): Pick<PlanSymbol, 'x' | 'y' | 'width' | 'depth' | 'rotation'> | null {
+  const c = { x: sym.x, y: sym.y }
+  const indoor = rooms.filter((r) => !isOutdoor(r) && r.points.length >= 3)
+  const inside = indoor.filter((r) => pointInPolygon(c, r.points))
+  const r0 = (sym.rotation * Math.PI) / 180
+  const corners = [
+    [-1, -1],
+    [1, -1],
+    [1, 1],
+    [-1, 1],
+  ].map(([sx, sy]) => {
+    const lx = (sx * sym.width) / 2
+    const ly = (sy * sym.depth) / 2
+    return { x: c.x + lx * Math.cos(r0) - ly * Math.sin(r0), y: c.y + lx * Math.sin(r0) + ly * Math.cos(r0) }
+  })
+  // The nearest wall: of the room it stands in, if it's in one.
+  let best: { a: Point; dir: Point; inn: Point; flip: boolean } | null = null
+  let bestD = reach + Math.max(sym.width, sym.depth) / 2
+  for (const room of inside.length ? inside : indoor) {
+    const pts = room.points
+    const sa = signedArea(pts)
+    pts.forEach((a, i) => {
+      const b = pts[(i + 1) % pts.length]
+      if (dist(a, b) < 1) return
+      const d = projectOnSegment(c, a, b).dist
+      if (d < bestD) {
+        bestD = d
+        best = { a, dir: normalize(sub(b, a)), inn: inwardNormal(a, b, sa), flip: sa < 0 }
+      }
+    })
+  }
+  if (!best) return null
+  const w = best as { a: Point; dir: Point; inn: Point; flip: boolean }
+  const along = corners.map((p) => dot(sub(p, w.a), w.dir))
+  const out = corners.map((p) => dot(sub(p, w.a), w.inn))
+  const s0 = Math.min(...along)
+  const s1 = Math.max(...along)
+  const n0 = Math.min(...out)
+  const n1 = Math.max(...out)
+  const round = (v: number) => Math.round(v * 10) / 10
+  // Overlapping the wall: what stands out of it. Clear of it: all of it, moved up against the wall.
+  const depth = round(Math.min(100, Math.max(5, n0 < 0 ? n1 : n1 - n0)))
+  const width = round(Math.min(200, Math.max(10, s1 - s0)))
+  const center = add(add(w.a, mul(w.dir, (s0 + s1) / 2)), mul(w.inn, depth / 2))
+  const rotation = (((Math.atan2(w.dir.y, w.dir.x) * 180) / Math.PI + (w.flip ? 180 : 0)) % 360 + 360) % 360
+  return { x: round(center.x), y: round(center.y), width, depth, rotation: round(rotation) }
 }
 
 /** Pose flat against the inside face of the nearest wall (switches, wall lights). */

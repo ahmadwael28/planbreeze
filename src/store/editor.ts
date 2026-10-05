@@ -18,7 +18,7 @@ import { boxCenterShift } from '@/model/guides'
 import { fixSizes } from '@/model/sizes'
 import type { Clip } from '@/model/items'
 import { CEILING_STYLES, mergeRoomLights, OTHER_LIGHTS, pruneControls, remapEdges, remapEdgeValues, ROOM_LIGHTS } from '@/model/lighting'
-import { dimensionPoints, roomOuter } from '@/model/project'
+import { columnIntoWall, dimensionPoints, roomOuter } from '@/model/project'
 import { SYMBOL_MAP } from '@/model/symbols'
 import type {
   CeilingStyle,
@@ -403,6 +403,24 @@ export function addSymbol(type: string, at?: Point, rotation = 0, wall?: PlanSym
   })
   useEditor.setState({ selection: { kind: 'symbol', id: sym.id }, tool: 'select' })
   return sym
+}
+
+/**
+ * Turn a free-standing column into one built into the nearest wall, or back. Returns false when there's no wall near
+ * enough to build it into.
+ */
+export function convertColumn(id: string, into: 'wall' | 'free'): boolean {
+  const st = useEditor.getState()
+  const floor = currentFloor(st)
+  const sym = floor.symbols.find((s) => s.id === id)
+  if (!sym) return false
+  const pose = into === 'wall' ? columnIntoWall(sym, floor.rooms) : {}
+  if (!pose) return false
+  st.commit((d) => {
+    const s = draftFloor(d).symbols.find((x) => x.id === id)
+    if (s) Object.assign(s, pose, { type: into === 'wall' ? 'wall-post' : 'column', flipX: false, flipY: false })
+  })
+  return true
 }
 
 export function deleteSelection() {

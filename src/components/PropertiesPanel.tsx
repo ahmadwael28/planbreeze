@@ -8,7 +8,7 @@ import {
   AlignHorizontalSpaceAround,
   AlignVerticalDistributeCenter,
   AlignVerticalSpaceAround,
-  Box, ClipboardCopy, Copy, FlipHorizontal2, Group, Ungroup, FlipVertical2, ImageOff, Lightbulb, Link2Off, Lock, Ruler, RotateCw, SplitSquareHorizontal, Trash2, Video } from 'lucide-react'
+  Box, ClipboardCopy, Columns2, Copy, FlipHorizontal2, Group, Ungroup, FlipVertical2, ImageOff, Lightbulb, Link2Off, Lock, Ruler, RotateCw, SplitSquareHorizontal, Trash2, Video } from 'lucide-react'
 import { toast } from 'sonner'
 import { arrange, arrangeable, layoutOf, spacingOf, wouldMove } from '@/model/arrange'
 import type { Unit } from '@/model/arrange'
@@ -32,6 +32,7 @@ import {
   arrangeSelection,
   autoDimension,
   centerSelection,
+  convertColumn,
   copySelection,
   rotateSelection,
   selectionBox,
@@ -1055,6 +1056,25 @@ function SymbolProps({ sym, units }: { sym: PlanSymbol; units: Units }) {
             <span className="text-muted-foreground">Glass doors</span>
             <Switch size="sm" checked={!!sym.glass} onCheckedChange={(on) => updateSymbol(sym.id, (s) => void (s.glass = on || undefined))} />
           </label>
+        )}
+        {(sym.type === 'column' || sym.type === 'wall-post') && (
+          <div className="space-y-1.5">
+            <Button
+              variant="outline"
+              size="sm"
+              className="w-full"
+              onClick={() => {
+                if (!convertColumn(sym.id, sym.type === 'column' ? 'wall' : 'free')) toast.error('There is no wall near it. Move it up to a wall first.')
+              }}
+            >
+              <Columns2 /> {sym.type === 'column' ? 'Build it into the wall' : 'Make it free-standing'}
+            </Button>
+            <p className="text-xs text-muted-foreground">
+              {sym.type === 'column'
+                ? 'Moves it against the nearest wall, standing out of it into the room. The gypsum ceiling, hidden lights and shadow gaps then go around it.'
+                : 'Makes it a column on its own, away from the walls, where it is now.'}
+            </p>
+          </div>
         )}
         {(sym.type === 'sofa-corner' || sym.type === 'wardrobe-corner') && (
           <Choice
