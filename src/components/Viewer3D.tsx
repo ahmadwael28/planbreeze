@@ -846,13 +846,13 @@ export default function Viewer3D() {
     },
   }
 
-  // "Look from here in 3D" on a saved view in the 2D plan: go there once the scene is ready.
+  // "Look from here in 3D" on a saved view, or "View in 3D" on a room, in the 2D plan: go there once the scene is ready.
   const pendingView = useUi((s) => s.pendingView)
   useEffect(() => {
     if (!pendingView || !built || !visible) return
     const t = setTimeout(() => {
       useUi.getState().setPendingView(null)
-      const id = `saved:${pendingView}`
+      const id = pendingView
       if (!viewpoints.some((v) => v.id === id)) return
       setTour(true)
       goTo(id)

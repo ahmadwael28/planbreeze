@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import type { KeyboardEvent, ReactNode } from 'react'
 import { Cable, Lightbulb, Plus, SlidersHorizontal, Trash2, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -30,9 +30,9 @@ import {
   withKelvin,
 } from '@/model/lighting'
 import { newSymbol, uid } from '@/model/project'
-import { SYMBOL_MAP } from '@/model/symbols'
+import { givesLight, SYMBOL_MAP } from '@/model/symbols'
 import { formatLength } from '@/model/units'
-import type { CeilingStyle, PlanSymbol, Room, TrackModule, Units } from '@/model/types'
+import type { CeilingStyle, LightSettings, PlanSymbol, Project, Room, TrackModule, Units } from '@/model/types'
 import { applyCeiling, draftFloor, toggleWire, useEditor, useFloor } from '@/store/editor'
 import { Choice } from './Choice'
 import { LengthInput } from './LengthInput'
@@ -58,16 +58,33 @@ const KELVIN_TRACK = `linear-gradient(to right, ${[KELVIN_MIN, 3000, 4000, 5000,
 
 /**
  * A light's color temperature: the ones lamps usually come in as swatches, and any in between on the slider (`onLive`
- * while it's dragged).
+ * while it's dragged, `onDone` when let go). `value` null: several lights at different ones (`fallback` places the
+ * slider).
  */
-export function KelvinPicker({ value, onChange, onLive }: { value: number; onChange: (k: number) => void; onLive: (k: number) => void }) {
+export function KelvinPicker({
+  value,
+  fallback = 3000,
+  onChange,
+  onLive,
+  onDone,
+}: {
+  value: number | null
+  fallback?: number
+  onChange: (k: number) => void
+  onLive: (k: number) => void
+  onDone?: () => void
+}) {
   return (
     <div className="space-y-2">
       <div className="flex justify-between gap-2 text-sm">
         <span className="text-muted-foreground">Color temperature</span>
-        <span className="truncate tabular-nums">
-          {value} K <span className="text-muted-foreground">· {kelvinName(value)}</span>
-        </span>
+        {value === null ? (
+          <span className="text-muted-foreground">Mixed</span>
+        ) : (
+          <span className="truncate tabular-nums">
+            {value} K <span className="text-muted-foreground">· {kelvinName(value)}</span>
+          </span>
+        )}
       </div>
       <div className="grid grid-cols-7 gap-0.5" role="group" aria-label="Color temperature">
         {KELVINS.map(({ kelvin, name }) => (
@@ -95,8 +112,9 @@ export function KelvinPicker({ value, onChange, onLive }: { value: number; onCha
         min={KELVIN_MIN}
         max={KELVIN_MAX}
         step={100}
-        value={[value]}
+        value={[value ?? fallback]}
         onValueChange={([k]) => onLive(k)}
+        onValueCommit={() => onDone?.()}
         aria-label="Color temperature, any value"
         style={{ '--kelvin-track': KELVIN_TRACK } as React.CSSProperties}
         className="[&_[data-slot=slider-range]]:bg-transparent [&_[data-slot=slider-track]]:border [&_[data-slot=slider-track]]:bg-(image:--kelvin-track)"
@@ -709,6 +727,78 @@ function TrackModules({ sym, units }: { sym: PlanSymbol; units: Units }) {
   )
 }
 
+const DEFAULT_LIGHT: LightSettings = { color: 'warm', brightness: 1 }
+
+/** Changes made while dragging a slider: `live` for each move, `done` when let go; the whole drag is one undo step. */
+function useDragEdit() {
+  const dragging = useRef(false)
+  return {
+    live(recipe: (d: Project) => void) {
+      const st = useEditor.getState()
+      if (!dragging.current) {
+        dragging.current = true
+        st.checkpoint()
+      }
+      st.mutate(recipe)
+    },
+    done() {
+      dragging.current = false
+    },
+  }
+}
+
+/**
+ * Lights among several selected items (e.g. a group of spots): their color temperature and brightness, set for all of
+ * them at once. A drag on a slider is one undo step.
+ */
+export function GroupLightSection({ ids }: { ids: string[] }) {
+  const floor = useFloor()
+  const drag = useDragEdit()
+  const lights = floor.symbols.filter((s) => ids.includes(s.id) && givesLight(s))
+  if (!lights.length) return null
+  const lightIds = new Set(lights.map((l) => l.id))
+  const kelvins = [...new Set(lights.map((l) => kelvinOf(l.light)))]
+  const levels = lights.map((l) => l.light?.brightness ?? 1)
+  const same = levels.every((b) => Math.abs(b - levels[0]) < 0.001)
+  const average = levels.reduce((s, b) => s + b, 0) / levels.length
+  const apply = (recipe: (l: LightSettings) => LightSettings, live = false) => {
+    const change = (d: Project) => {
+      for (const s of draftFloor(d).symbols) if (lightIds.has(s.id)) s.light = recipe(s.light ?? DEFAULT_LIGHT)
+    }
+    if (live) drag.live(change)
+    else useEditor.getState().commit(change)
+  }
+  return (
+    <div className="space-y-3">
+      <p className="text-xs text-muted-foreground">
+        {lights.length === 1 ? '1 light' : `All ${lights.length} lights`} in the selection{kelvins.length > 1 ? ', now at different color temperatures' : ''}.
+      </p>
+      <KelvinPicker
+        value={kelvins.length === 1 ? kelvins[0] : null}
+        fallback={kelvins[0]}
+        onChange={(k) => apply((l) => withKelvin(l, k))}
+        onLive={(k) => apply((l) => withKelvin(l, k), true)}
+        onDone={drag.done}
+      />
+      <div className="space-y-2">
+        <div className="flex justify-between text-sm">
+          <span className="text-muted-foreground">Brightness</span>
+          <span className="tabular-nums">{same ? `${Math.round(levels[0] * 100)}%` : 'Mixed'}</span>
+        </div>
+        <Slider
+          min={0.1}
+          max={1}
+          step={0.05}
+          value={[same ? levels[0] : average]}
+          onValueChange={([v]) => apply((l) => ({ ...l, brightness: v }), true)}
+          onValueCommit={drag.done}
+          aria-label="Brightness of all of them"
+        />
+      </div>
+    </div>
+  )
+}
+
 export function LightSection({ sym, units }: { sym: PlanSymbol; units: Units }) {
   const floor = useFloor()
   const def = SYMBOL_MAP.get(sym.type)
@@ -716,17 +806,19 @@ export function LightSection({ sym, units }: { sym: PlanSymbol; units: Units }) 
   const switches = switchesFor(floor, sym.id)
   const allSwitches = floor.symbols.filter((s) => s.type === 'switch')
   const hangs = def?.fixture === 'pendant' || def?.fixture === 'linear-pendant' || def?.fixture === 'chandelier'
+  const drag = useDragEdit()
+  const live = (next: LightSettings) =>
+    drag.live((d) => {
+      const s = draftFloor(d).symbols.find((x) => x.id === sym.id)
+      if (s) s.light = next
+    })
   return (
     <div className="space-y-3">
       <KelvinPicker
         value={kelvinOf(light)}
         onChange={(k) => updateSymbol(sym.id, (s) => void (s.light = withKelvin(light, k)))}
-        onLive={(k) =>
-          useEditor.getState().mutate((d) => {
-            const s = draftFloor(d).symbols.find((x) => x.id === sym.id)
-            if (s) s.light = withKelvin(light, k)
-          })
-        }
+        onLive={(k) => live(withKelvin(light, k))}
+        onDone={drag.done}
       />
       <div className="space-y-2">
         <div className="flex justify-between text-sm">
@@ -738,12 +830,8 @@ export function LightSection({ sym, units }: { sym: PlanSymbol; units: Units }) 
           max={1}
           step={0.05}
           value={[light.brightness]}
-          onValueChange={([v]) =>
-            useEditor.getState().mutate((d) => {
-              const s = draftFloor(d).symbols.find((x) => x.id === sym.id)
-              if (s) s.light = { ...light, brightness: v }
-            })
-          }
+          onValueChange={([v]) => live({ ...light, brightness: v })}
+          onValueCommit={drag.done}
         />
       </div>
       {(hangs || def?.fixture === 'wall') && (

@@ -9,7 +9,7 @@ interface UiState {
   printOpen: boolean
   shareOpen: boolean
   importTarget: ImportTarget | null
-  /** A saved view the 3D viewer should go to as soon as it's ready. */
+  /** A viewpoint the 3D viewer should go to as soon as it's ready (`saved:<view id>` or `room:<room id>`). */
   pendingView: string | null
   /** Library categories the user has folded away (all open by default). */
   libraryCollapsed: string[]

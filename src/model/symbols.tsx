@@ -1752,6 +1752,12 @@ export const SYMBOLS: SymbolDef[] = [
 
 export const SYMBOL_MAP = new Map(SYMBOLS.map((d) => [d.type, d]))
 
+/** Light fixtures and cabinets with LEDs: the items with light settings. */
+export function givesLight(sym: PlanSymbol) {
+  const f = SYMBOL_MAP.get(sym.type)?.fixture
+  return (!!f && f !== 'switch') || !!sym.led
+}
+
 export const CATEGORIES: SymbolCategory[] = [
   'Doors & Windows',
   'Lighting',

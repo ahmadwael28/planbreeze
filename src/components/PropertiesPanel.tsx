@@ -24,7 +24,7 @@ import { usePlanTheme } from '@/hooks/use-plan-theme'
 import { cn } from '@/lib/utils'
 import { area, dist, perimeter } from '@/model/geometry'
 import { DEFAULT_RAILING, isOutdoor, OUTDOOR, RAILING_THICKNESS, ROOM_COLORS, roomOuter, setWallLength, symbolPose } from '@/model/project'
-import { CABINETS, curtainLayers, frameOf, hasGlass, STYLES, styleOf, SYMBOL_MAP } from '@/model/symbols'
+import { CABINETS, curtainLayers, frameOf, givesLight, hasGlass, STYLES, styleOf, SYMBOL_MAP } from '@/model/symbols'
 import type { FrameColor } from '@/model/symbols'
 import { formatArea, formatLength } from '@/model/units'
 import type { Dimension, ItemRef, OutdoorKind, PlanSymbol, RailingStyle, Room, SavedView, Units } from '@/model/types'
@@ -52,14 +52,21 @@ import { isRound, resized, sizeRule } from '@/model/sizes'
 import type { Dim } from '@/model/sizes'
 import { useUi } from '@/store/ui'
 import { LengthInput, NumberInput, TextInput } from './LengthInput'
-import { CeilingSection, GrooveLightWalls, HiddenLightControls, LightSection, SwitchSection } from './LightingProps'
+import { CeilingSection, GroupLightSection, GrooveLightWalls, HiddenLightControls, LightSection, SwitchSection } from './LightingProps'
 import { Choice } from './Choice'
 import { FloorSection, WallsSection } from './FinishProps'
 
-function Section({ title, children, className }: { title?: ReactNode; children: ReactNode; className?: string }) {
+function Section({ title, action, children, className }: { title?: ReactNode; action?: ReactNode; children: ReactNode; className?: string }) {
   return (
     <section className={cn('space-y-3 px-4 py-4', className)}>
-      {title && <h3 className="text-sm font-semibold">{title}</h3>}
+      {action ? (
+        <div className="flex items-center justify-between gap-2">
+          <h3 className="text-sm font-semibold">{title}</h3>
+          {action}
+        </div>
+      ) : (
+        title && <h3 className="text-sm font-semibold">{title}</h3>
+      )}
       {children}
     </section>
   )
@@ -141,7 +148,23 @@ function RoomProps({ room, units }: { room: Room; units: Units }) {
     })
   return (
     <>
-      <Section title={room.kind ? OUTDOOR[room.kind].name : 'Room'}>
+      <Section
+        title={room.kind ? OUTDOOR[room.kind].name : 'Room'}
+        action={
+          <Button
+            variant="outline"
+            size="xs"
+            onClick={() => {
+              // Fly into the room, standing in its far corner looking across it (not tinted as selected).
+              useUi.getState().setPendingView(`room:${room.id}`)
+              useEditor.getState().select(null)
+              useEditor.getState().setViewMode('3d')
+            }}
+          >
+            <Box /> View in 3D
+          </Button>
+        }
+      >
         <Field label="Name">
           {(id) => <TextInput id={id} value={room.name} onChange={(v) => updateRoom(room.id, (r) => void (r.name = v))} />}
         </Field>
@@ -679,6 +702,8 @@ function MultiProps({ items }: { items: ItemRef[] }) {
   const depthwise = gaps.front !== undefined && gaps.back !== undefined
   const fmt = (v?: number) => (v === undefined ? '–' : formatLength(v, units))
   const free = arrangeable(floor, items)
+  const symbolIds = items.filter((r) => r.kind === 'symbol').map((r) => r.id)
+  const lit = floor.symbols.some((s) => symbolIds.includes(s.id) && givesLight(s))
   return (
     <>
       <Section title={`${items.length} selected`}>
@@ -756,6 +781,14 @@ function MultiProps({ items }: { items: ItemRef[] }) {
           Shortcuts: Ctrl+G group, Ctrl+Shift+G ungroup, Ctrl+C / X / V, Ctrl+D, Delete.
         </p>
       </Section>
+      {lit && (
+        <>
+          <Separator />
+          <Section title="Lights">
+            <GroupLightSection ids={symbolIds} />
+          </Section>
+        </>
+      )}
     </>
   )
 }
@@ -806,7 +839,7 @@ function ViewProps({ view, units }: { view: SavedView; units: Units }) {
         <Button
           className="w-full"
           onClick={() => {
-            useUi.getState().setPendingView(view.id)
+            useUi.getState().setPendingView(`saved:${view.id}`)
             useEditor.getState().setViewMode('3d')
           }}
         >
