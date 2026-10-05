@@ -193,12 +193,14 @@ export function ceilingRoom(room: Room, floor: Floor): Room {
       shapes.set(out, { parent, face, room, columns: cols })
     }
   }
-  // Its hidden light along the walls: the gypsum stops short of the walls it lights.
+  // Its hidden light along the walls: the gypsum stops short of the walls it lights (those without a curtain pocket,
+  // whose own light takes over there).
   const hidden = floor.symbols.find((s) => s.room === room.id && s.type === 'cove-light')
   if (hidden && hiddenLightInGap(room, hidden)) {
     const light = ceilingLight(hidden, out)
     const off = new Set(light.cove?.off ?? [])
-    const lit = out.points.map((_, i) => i).filter((i) => !off.has(i))
+    const pockets = new Set(out.curtainPockets ?? [])
+    const lit = out.points.map((_, i) => i).filter((i) => !off.has(i) && !pockets.has(i))
     if (lit.length) {
       const info = shapes.get(out)
       out = { ...out, hiddenGaps: lit, hiddenGapWidth: hidden.cove?.gap ?? HIDDEN_GAP }
@@ -381,15 +383,48 @@ export function covePath(room: Room, sym?: PlanSymbol): { path: Point[]; up: boo
   return { path: inset(room, 6), up: false, drop: (c?.drop ?? 0) + 3 }
 }
 
-/** The lit runs of a room's hidden light: one per wall that isn't switched off (a shadow gap light: that has a gap). */
+/**
+ * The lit runs of a room's hidden light: one per wall that isn't switched off (a shadow gap or curtain pocket light:
+ * that has its gap). Each wall has one gap with a light at most: a curtain pocket, else the hidden light's gap, else a
+ * shadow gap.
+ */
 export function coveRuns(room: Room, sym?: PlanSymbol): { runs: { a: Point; b: Point; edge: number }[]; up: boolean; drop: number } {
   const { path, up, drop } = covePath(room, sym)
-  const gaps = sym?.type === 'gap-light' ? new Set(room.shadowGaps ?? []) : sym?.type === 'pocket-light' ? new Set(room.curtainPockets ?? []) : null
+  const pockets = new Set(room.ceiling && room.ceiling.style !== 'floating' ? (room.curtainPockets ?? []) : [])
+  const hidden = new Set(room.hiddenGaps ?? [])
+  let only: ((edge: number) => boolean) | null = null
+  if (sym?.type === 'pocket-light') only = (e) => pockets.has(e)
+  else if (sym?.type === 'gap-light') only = (e) => (room.shadowGaps ?? []).includes(e) && !pockets.has(e) && !hidden.has(e)
+  else if (sym && hiddenLightInGap(room, sym)) only = (e) => !pockets.has(e)
   const off = new Set(sym?.cove?.off ?? [])
   const runs = path
     .map((a, i) => ({ a, b: path[(i + 1) % path.length], edge: i }))
-    .filter((r) => (!gaps || gaps.has(r.edge)) && !off.has(r.edge))
+    .filter((r) => (!only || only(r.edge)) && !off.has(r.edge))
   return { runs, up, drop }
+}
+
+/** The kinds of light that run around a room's ceiling: a room has at most one of each. */
+export const ROOM_LIGHTS = ['cove-light', 'pocket-light', 'gap-light']
+
+/**
+ * Merge extra lights of a kind in the same room into the first (they'd run along the same walls, one of them out of
+ * reach of the panel): switches wired to them control the first instead. Returns whether anything changed.
+ */
+export function mergeRoomLights(floor: Floor): boolean {
+  const keep = new Map<string, string>()
+  const gone = new Map<string, string>()
+  for (const s of floor.symbols) {
+    if (!s.room || !ROOM_LIGHTS.includes(s.type)) continue
+    const key = `${s.room}|${s.type}`
+    const first = keep.get(key)
+    if (first) gone.set(s.id, first)
+    else keep.set(key, s.id)
+  }
+  if (!gone.size) return false
+  floor.symbols = floor.symbols
+    .filter((s) => !gone.has(s.id))
+    .map((s) => (s.controls?.some((id) => gone.has(id)) ? { ...s, controls: [...new Set(s.controls.map((id) => gone.get(id) ?? id))] } : s))
+  return true
 }
 
 /**

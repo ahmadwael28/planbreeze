@@ -316,7 +316,10 @@ export function HiddenLightControls({ room, sym, units }: { room: Room; sym: Pla
   // Lights along the walls can go around columns or stop at them; those along the band's edge stay straight.
   const columns = roomColumns(room, floor).length > 0 && !followsBand(room, sym)
   const off = new Set(sym.cove?.off ?? [])
-  const lit = room.points.map((_, i) => i).filter((i) => !off.has(i))
+  // In a gap along the walls, it leaves walls with a curtain pocket to the pocket's own light.
+  const pockets = hiddenLightInGap(room, sym) ? new Set(room.curtainPockets ?? []) : new Set<number>()
+  const walls = room.points.map((_, i) => i).filter((i) => !pockets.has(i))
+  const lit = walls.filter((i) => !off.has(i))
   const style = room.ceiling?.style
   return (
     <div className="space-y-3">
@@ -341,16 +344,23 @@ export function HiddenLightControls({ room, sym, units }: { room: Room; sym: Pla
       <WallPicker
         room={room}
         on={lit}
+        only={pockets.size ? walls : undefined}
         units={units}
         tone="light"
         label="Walls with light"
-        onChange={(walls) =>
+        onChange={(chosen) =>
           updateSymbol(sym.id, (s) => {
-            const next = room.points.map((_, i) => i).filter((i) => !walls.includes(i))
+            // Walls with a pocket aren't switched off: if the pocket goes, the strip carries on along them.
+            const next = walls.filter((i) => !chosen.includes(i))
             s.cove = { ...s.cove, off: next.length ? next : undefined }
           })
         }
       />
+      {pockets.size > 0 && (
+        <p className="text-xs text-muted-foreground">
+          Walls with a curtain pocket (greyed) get their light from the pocket's LED instead, which can be on a switch of its own.
+        </p>
+      )}
       {hiddenLightInGap(room, sym) && (
         <div className="space-y-1">
           <Row label="Gap to the wall">

@@ -17,7 +17,7 @@ import type { Arrangement } from '@/model/arrange'
 import { boxCenterShift } from '@/model/guides'
 import { fixSizes } from '@/model/sizes'
 import type { Clip } from '@/model/items'
-import { CEILING_STYLES, OTHER_LIGHTS, pruneControls, remapEdges, remapEdgeValues } from '@/model/lighting'
+import { CEILING_STYLES, mergeRoomLights, OTHER_LIGHTS, pruneControls, remapEdges, remapEdgeValues, ROOM_LIGHTS } from '@/model/lighting'
 import { dimensionPoints, roomOuter } from '@/model/project'
 import { SYMBOL_MAP } from '@/model/symbols'
 import type {
@@ -176,7 +176,7 @@ export const useEditor = create<EditorState>((set, get) => ({
 
   loadProject: (p) =>
     set((s) => ({
-      project: fixSizes(p),
+      project: fixRoomLights(fixSizes(p)),
       past: [],
       future: [],
       floorId: p.floors[0].id,
@@ -342,6 +342,14 @@ export function roomAt(floor: Floor, p: Point): Room | undefined {
   return floor.rooms.find((r) => pointInPolygon(p, r.points))
 }
 
+/** A plan as loaded, with any room's extra hidden lights of a kind merged into its first (see mergeRoomLights). */
+function fixRoomLights(p: Project): Project {
+  if (!p.floors.some((f) => f.symbols.some((s) => s.room && ROOM_LIGHTS.includes(s.type)))) return p
+  return produce(p, (d) => {
+    for (const f of d.floors) mergeRoomLights(f)
+  })
+}
+
 export function applyCeiling(roomId: string, style: CeilingStyle | null) {
   const st = useEditor.getState()
   st.commit((d) => {
@@ -382,6 +390,12 @@ export function addSymbol(type: string, at?: Point, rotation = 0, wall?: PlanSym
     const sel = st0.selection
     const room = roomAt(floor0, p) ?? (sel?.kind === 'room' ? floor0.rooms.find((r) => r.id === sel.id) : undefined)
     if (!room) return null
+    // A room has one of each: show the one it has instead of adding another.
+    const has = ROOM_LIGHTS.includes(type) && floor0.symbols.find((s) => s.room === room.id && s.type === type)
+    if (has) {
+      useEditor.setState({ selection: { kind: 'symbol', id: has.id }, tool: 'select' })
+      return has
+    }
     sym.room = room.id
   }
   useEditor.getState().commit((d) => {
