@@ -12,6 +12,7 @@ export type SymbolCategory =
   | 'Kitchen'
   | 'Bathroom'
   | 'Electrical'
+  | 'People'
   | 'Other'
 
 /** How a light fixture is mounted and how it lights the room in 3D. */
@@ -244,6 +245,62 @@ export const chairsAlong = (len: number) => Math.max(1, Math.floor((len + 10) / 
 /** Sizes that stay the same however long a sofa gets. */
 export const SOFA = { arm: 20, back: 22, seat: 95 }
 const AMBER = '#f59e0b'
+
+/** How a person looks in 3D (one color, like an architect's scale figure). */
+export const PERSON_LOOKS: FrameColor[] = [
+  { name: 'Grey', hex: '#a3a8b0' },
+  { name: 'Light', hex: '#e4e0d8' },
+  { name: 'Sand', hex: '#c9ac8c' },
+  { name: 'Blue', hex: '#5d7fa3' },
+  { name: 'Dark', hex: '#45474c' },
+]
+
+/** A person seen from above: standing (shoulders, head, toes), sitting (legs forward) or lying (head at the back). */
+function personGlyph(w: number, d: number, t: PlanTheme, sym?: PlanSymbol) {
+  const k = kit(t)
+  const H = sym?.height ?? 175
+  const head = H * 0.06
+  const body = k.s(t.fill2)
+  const skin = k.s(t.fill)
+  const top = -d / 2
+  if (sym?.pose === 'lie') {
+    return (
+      <>
+        {[-1, 1].map((s) => (
+          <rect key={s} x={s * w * 0.17 - w * 0.14} y={top + H * 0.46} width={w * 0.28} height={H * 0.5} rx={w * 0.12} {...body} />
+        ))}
+        <rect x={-w / 2} y={top + H * 0.15} width={w} height={H * 0.34} rx={w * 0.25} {...body} />
+        <circle cx={0} cy={top + head * 1.1} r={head} {...skin} />
+      </>
+    )
+  }
+  if (sym?.pose === 'sit') {
+    const cy = top + w * 0.25
+    const knee = cy + H * 0.245
+    return (
+      <>
+        {[-1, 1].map((s) => (
+          <g key={s}>
+            <rect x={s * w * 0.18 - w * 0.08} y={knee - 2} width={w * 0.16} height={Math.max(4, d / 2 - knee + 2)} rx={w * 0.06} {...skin} />
+            <rect x={s * w * 0.18 - w * 0.14} y={cy} width={w * 0.28} height={knee - cy} rx={w * 0.12} {...body} />
+          </g>
+        ))}
+        <ellipse cx={0} cy={cy} rx={w / 2} ry={w * 0.25} {...body} />
+        <circle cx={0} cy={cy} r={head} {...skin} />
+      </>
+    )
+  }
+  const cy = top + w * 0.25
+  return (
+    <>
+      {[-1, 1].map((s) => (
+        <ellipse key={s} cx={s * w * 0.18} cy={d / 2 - H * 0.045} rx={w * 0.09} ry={H * 0.045} {...skin} />
+      ))}
+      <ellipse cx={0} cy={cy} rx={w / 2} ry={w * 0.25} {...body} />
+      <circle cx={0} cy={cy + 1} r={head} {...skin} />
+    </>
+  )
+}
 
 /** Small ceiling-plan icon for the gypsum ceiling styles. */
 function ceilingIcon(style: CeilingStyle, t: PlanTheme) {
@@ -1715,6 +1772,18 @@ export const SYMBOLS: SymbolDef[] = [
     render: (w, d, t) => kit(t).box(w, d, 0, t.wall),
   },
   {
+    type: 'person',
+    name: 'Person',
+    keywords: 'people human man woman child figure scale body',
+    category: 'People',
+    width: 45,
+    depth: 30,
+    height: 175,
+    frames: PERSON_LOOKS,
+    frameLabel: 'Look',
+    render: (w, d, t, sym) => personGlyph(w, d, t, sym),
+  },
+  {
     // A column partly built into a wall, standing out of it into the room.
     type: 'wall-post',
     name: 'Column in a wall',
@@ -1767,5 +1836,6 @@ export const CATEGORIES: SymbolCategory[] = [
   'Kitchen',
   'Bathroom',
   'Electrical',
+  'People',
   'Other',
 ]

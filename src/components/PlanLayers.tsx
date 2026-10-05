@@ -545,7 +545,10 @@ export function PlanLayers({
   const fadedSet = new Set(faded)
   const fade = (s: PlanSymbol) => fadedSet.has(SYMBOL_MAP.get(s.type)?.category ?? '')
   const isFixture = (s: PlanSymbol) => !!SYMBOL_MAP.get(s.type)?.fixture
-  const furniture = floor.symbols.filter((s) => !s.wall && !isFixture(s) && s.type !== 'gypsum-box')
+  // People on top, sitting on what's under them.
+  const furniture = floor.symbols
+    .filter((s) => !s.wall && !isFixture(s) && s.type !== 'gypsum-box')
+    .sort((a, b) => Number(a.type === 'person') - Number(b.type === 'person'))
   const fixtures = floor.symbols.filter((s) => isFixture(s) && !s.room)
   const coves = floor.symbols.filter((s) => s.room)
   const boxes = floor.symbols.filter((s) => s.type === 'gypsum-box')

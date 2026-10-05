@@ -27,12 +27,14 @@ import { DEFAULT_RAILING, isOutdoor, OUTDOOR, RAILING_THICKNESS, ROOM_COLORS, ro
 import { CABINETS, curtainLayers, frameOf, givesLight, hasGlass, STYLES, styleOf, SYMBOL_MAP } from '@/model/symbols'
 import type { FrameColor } from '@/model/symbols'
 import { formatArea, formatLength } from '@/model/units'
+import { PERSON, PERSON_PRESETS, personSupport, POSE_NAMES } from '@/model/people'
 import type { Dimension, ItemRef, OutdoorKind, PlanSymbol, RailingStyle, Room, SavedView, Units } from '@/model/types'
 import {
   arrangeSelection,
   autoDimension,
   centerSelection,
-  convertColumn,
+  convertColumns,
+  updatePerson,
   copySelection,
   rotateSelection,
   selectionBox,
@@ -705,6 +707,12 @@ function MultiProps({ items }: { items: ItemRef[] }) {
   const free = arrangeable(floor, items)
   const symbolIds = items.filter((r) => r.kind === 'symbol').map((r) => r.id)
   const lit = floor.symbols.some((s) => symbolIds.includes(s.id) && givesLight(s))
+  const columns = floor.symbols.filter((s) => symbolIds.includes(s.id) && s.type === 'column').length
+  const inWalls = floor.symbols.filter((s) => symbolIds.includes(s.id) && s.type === 'wall-post').length
+  const convert = (into: 'wall' | 'free', of: number) => {
+    const n = convertColumns(symbolIds, into)
+    if (into === 'wall' && n < of) toast(`Built ${n} of ${of} columns into the walls`, { description: 'The others have no wall near them.' })
+  }
   return (
     <>
       <Section title={`${items.length} selected`}>
@@ -719,6 +727,20 @@ function MultiProps({ items }: { items: ItemRef[] }) {
           <span className="self-center text-xs text-muted-foreground">or drag the handle above them</span>
         </div>
         {free.length >= 2 && <ArrangeBlock syms={free} />}
+        {(columns > 0 || inWalls > 0) && (
+          <div className="flex flex-wrap gap-2">
+            {columns > 0 && (
+              <Button variant="outline" size="sm" onClick={() => convert('wall', columns)}>
+                <Columns2 /> Build {columns === 1 ? 'the column' : `${columns} columns`} into the walls
+              </Button>
+            )}
+            {inWalls > 0 && (
+              <Button variant="outline" size="sm" onClick={() => convert('free', inWalls)}>
+                <Columns2 /> Make {inWalls === 1 ? 'the wall column' : `${inWalls} wall columns`} free-standing
+              </Button>
+            )}
+          </div>
+        )}
         {(across || depthwise) && (
           <div className="space-y-2 rounded-lg bg-muted/60 p-3">
             <p className="text-sm font-medium">Position in the room</p>
@@ -858,6 +880,68 @@ function ViewProps({ view, units }: { view: SavedView; units: Units }) {
   )
 }
 
+/** A person's height and shoulder width (or a typical person's), and whether they stand, sit or lie, and on what. */
+function PersonControls({ sym, units }: { sym: PlanSymbol; units: Units }) {
+  const floor = useFloor()
+  const pose = sym.pose ?? 'stand'
+  const on = personSupport(sym, floor.symbols)
+  const preset = PERSON_PRESETS.find((p) => p.height === sym.height && p.width === sym.width)
+  const clampTo = (v: number, a: number, b: number) => Math.min(b, Math.max(a, v))
+  return (
+    <>
+      <div className="flex flex-wrap gap-1.5">
+        {PERSON_PRESETS.map((p) => (
+          <Button
+            key={p.name}
+            variant={preset === p ? 'secondary' : 'outline'}
+            size="xs"
+            aria-pressed={preset === p}
+            onClick={() => updatePerson(sym.id, { height: p.height, width: p.width })}
+          >
+            {p.name} · {formatLength(p.height, units)}
+          </Button>
+        ))}
+      </div>
+      <Field label="Height">
+        {(id) => (
+          <LengthInput
+            id={id}
+            value={sym.height}
+            units={units}
+            min={PERSON.minHeight}
+            onChange={(v) => updatePerson(sym.id, { height: clampTo(v, PERSON.minHeight, PERSON.maxHeight) })}
+          />
+        )}
+      </Field>
+      <Field label="Shoulders">
+        {(id) => (
+          <LengthInput
+            id={id}
+            value={sym.width}
+            units={units}
+            min={PERSON.minWidth}
+            onChange={(v) => updatePerson(sym.id, { width: clampTo(v, PERSON.minWidth, PERSON.maxWidth) })}
+          />
+        )}
+      </Field>
+      <Choice
+        label="Pose"
+        value={pose}
+        onChange={(v) => updatePerson(sym.id, { pose: v })}
+        options={(['stand', 'sit', 'lie'] as const).map((p) => ({ value: p, label: POSE_NAMES[p] }))}
+      >
+        <p className="text-xs text-muted-foreground">
+          {pose === 'stand'
+            ? 'Drag them onto a chair, sofa or bed and pick sitting or lying: they settle onto it.'
+            : on
+              ? `${POSE_NAMES[pose]} on the ${on.name}, ${formatLength(on.height, units)} up. Drag them to another spot on it.`
+              : `${POSE_NAMES[pose]} on the floor. Drag them onto ${pose === 'sit' ? 'a chair, sofa, bed or toilet' : 'a bed or sofa'} to ${pose === 'sit' ? 'sit' : 'lie'} on it.`}
+        </p>
+      </Choice>
+    </>
+  )
+}
+
 function SymbolProps({ sym, units }: { sym: PlanSymbol; units: Units }) {
   const floor = useFloor()
   const def = SYMBOL_MAP.get(sym.type)
@@ -891,6 +975,7 @@ function SymbolProps({ sym, units }: { sym: PlanSymbol; units: Units }) {
           </span>
         }
       >
+        {sym.type === 'person' && <PersonControls sym={sym} units={units} />}
         {(isLabel || sym.label !== undefined) && (
           <Field label={def?.fixture === 'switch' ? 'Name' : 'Text'}>
             {(id) => (
@@ -905,7 +990,7 @@ function SymbolProps({ sym, units }: { sym: PlanSymbol; units: Units }) {
             ['height', sym.type === 'gypsum-box' ? 'Drop' : def?.fixture === 'switch' ? 'Mount height' : 'Height', !isLabel && !def?.fullHeight],
           ] as [Dim, string, boolean][]
         ).map(([dim, label, shown]) => {
-          if (!shown) return null
+          if (!shown || sym.type === 'person') return null
           const rule = sizeRule(sym.type, dim)
           return (
             <Field key={dim} label={label}>
@@ -1064,7 +1149,7 @@ function SymbolProps({ sym, units }: { sym: PlanSymbol; units: Units }) {
               size="sm"
               className="w-full"
               onClick={() => {
-                if (!convertColumn(sym.id, sym.type === 'column' ? 'wall' : 'free')) toast.error('There is no wall near it. Move it up to a wall first.')
+                if (!convertColumns([sym.id], sym.type === 'column' ? 'wall' : 'free')) toast.error('There is no wall near it. Move it up to a wall first.')
               }}
             >
               <Columns2 /> {sym.type === 'column' ? 'Build it into the wall' : 'Make it free-standing'}

@@ -315,6 +315,102 @@ function sliding(slide: number, build: (g: THREE.Group) => void) {
 }
 
 // ---------------------------------------------------------------------------
+// People
+
+/** A rounded limb from a to b. */
+function limb(a: THREE.Vector3, b: THREE.Vector3, r: number, mat: Mat) {
+  const dir = b.clone().sub(a)
+  const len = dir.length()
+  const m = mesh(new THREE.CapsuleGeometry(r, Math.max(0.1, len), 4, 12), mat)
+  m.position.copy(a).addScaledVector(dir, 0.5)
+  if (len > 0) m.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir.normalize())
+  return m
+}
+
+/**
+ * A person, like an architect's scale figure: one color, H tall and W across the shoulders, in its plan footprint
+ * (front toward +z). Standing on the floor; sitting on a seat `seat` cm high (the floor without one), back at the back
+ * of the footprint; or lying on a surface that high, head at the back.
+ */
+export function personModel(sym: PlanSymbol, mats: Materials, hl: boolean, seat?: number): THREE.Group {
+  const H = sym.height
+  const W = sym.width
+  const D = sym.depth
+  const pose = sym.pose ?? 'stand'
+  const mat = mats.get(frameOf(sym)?.hex ?? '#a3a8b0', hl, 'satin')
+  const g = new THREE.Group()
+  const v = (x: number, y: number, z: number) => new THREE.Vector3(x, y, z)
+  const r = { thigh: W * 0.14, shin: W * 0.1, arm: W * 0.085, fore: W * 0.07, neck: W * 0.1 }
+
+  /** Torso from hips (y) up, centered at z: belly, chest, shoulders, neck and head. */
+  const upper = (y: number, z: number, tilt = 0) => {
+    const t = new THREE.Group()
+    t.add(rbox(W * 0.78, H * 0.16, W * 0.46, W * 0.18, 0, 0, 0, mat))
+    t.add(rbox(W * 0.95, H * 0.15, W * 0.5, W * 0.2, 0, H * 0.14, 0, mat))
+    for (const s of [-1, 1]) t.add(blob(W * 0.11, s * (W / 2 - W * 0.1), H * 0.27, 0, mat))
+    t.add(cylinder(r.neck, H * 0.05, 0, H * 0.285, 0, mat))
+    const head = blob(H * 0.062, 0, H * 0.41, W * 0.02, mat)
+    head.scale.set(0.78, 1, 0.92)
+    t.add(head)
+    t.position.set(0, y, z)
+    t.rotation.x = tilt
+    return t
+  }
+
+  /** Standing on the floor, its back `zb` from the footprint's middle. */
+  const standing = (zb: number) => {
+    const s = new THREE.Group()
+    for (const side of [-1, 1]) {
+      const x = side * W * 0.2
+      s.add(limb(v(x, H * 0.51, zb), v(x, H * 0.285, zb + 1), r.thigh, mat))
+      s.add(limb(v(x, H * 0.285, zb + 1), v(x, H * 0.055, zb), r.shin, mat))
+      s.add(rbox(W * 0.2, H * 0.045, H * 0.15, 2, x, 0, zb + H * 0.045, mat))
+      const sx = side * (W / 2 - r.arm * 0.6)
+      s.add(limb(v(sx, H * 0.79, zb), v(sx * 1.04, H * 0.63, zb - 1), r.arm, mat))
+      s.add(limb(v(sx * 1.04, H * 0.63, zb - 1), v(sx * 0.98, H * 0.48, zb + 2), r.fore, mat))
+    }
+    s.add(upper(H * 0.5, zb))
+    return s
+  }
+
+  if (pose === 'lie') {
+    // Standing, laid on its back: head toward -z, toes up, back on the surface; head to feet along the footprint.
+    const s = standing(0)
+    s.rotation.x = -Math.PI / 2
+    s.position.set(0, (seat ?? 0) + W * 0.25 + 1, H / 2)
+    g.add(s)
+  } else if (pose === 'sit') {
+    const S = seat ?? 0
+    const zb = -D / 2 + W * 0.25
+    const hipY = S + r.thigh
+    const kneeZ = zb + H * 0.245
+    const onFloor = S < 15
+    for (const side of [-1, 1]) {
+      const x = side * W * 0.19
+      g.add(limb(v(x, hipY, zb + 2), v(x, hipY, kneeZ), r.thigh, mat))
+      if (onFloor) {
+        // On the floor: legs out in front.
+        g.add(limb(v(x, hipY, kneeZ), v(x, r.shin, kneeZ + H * 0.23), r.shin, mat))
+        g.add(rbox(W * 0.2, H * 0.1, H * 0.05, 2, x, 0, kneeZ + H * 0.25, mat))
+      } else {
+        const ankleY = Math.max(H * 0.05, hipY - H * 0.235)
+        g.add(limb(v(x, hipY, kneeZ), v(x, ankleY, kneeZ + 2), r.shin, mat))
+        g.add(rbox(W * 0.2, H * 0.045, H * 0.15, 2, x, ankleY - H * 0.05, kneeZ + H * 0.05, mat))
+      }
+      const sx = side * (W / 2 - r.arm * 0.6)
+      const shoulderY = hipY + H * 0.29
+      const elbow = v(sx * 1.02, shoulderY - H * 0.16, zb + 4)
+      g.add(limb(v(sx, shoulderY, zb), elbow, r.arm, mat))
+      g.add(limb(elbow, v(side * W * 0.22, hipY + r.thigh + 2, zb + H * 0.16), r.fore, mat))
+    }
+    g.add(upper(hipY - 2, zb, -0.05))
+  } else {
+    g.add(standing(-D / 2 + W * 0.25))
+  }
+  return g
+}
+
+// ---------------------------------------------------------------------------
 // Models
 
 interface Kit {

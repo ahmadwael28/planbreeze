@@ -216,6 +216,8 @@ export interface PlanSymbol {
   frame?: string
   /** Magnetic tracks: the modules clipped into them. */
   modules?: TrackModule[]
+  /** People: standing (default), sitting or lying down (see model/people). */
+  pose?: 'stand' | 'sit' | 'lie'
 }
 
 /** A reference drawing shown behind the plan for tracing (not exported). */

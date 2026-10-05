@@ -19,6 +19,7 @@ import { fixSizes } from '@/model/sizes'
 import type { Clip } from '@/model/items'
 import { CEILING_STYLES, mergeRoomLights, OTHER_LIGHTS, pruneControls, remapEdges, remapEdgeValues, ROOM_LIGHTS } from '@/model/lighting'
 import { columnIntoWall, dimensionPoints, roomOuter } from '@/model/project'
+import { personDepth, personSupport } from '@/model/people'
 import { SYMBOL_MAP } from '@/model/symbols'
 import type {
   CeilingStyle,
@@ -406,21 +407,44 @@ export function addSymbol(type: string, at?: Point, rotation = 0, wall?: PlanSym
 }
 
 /**
- * Turn a free-standing column into one built into the nearest wall, or back. Returns false when there's no wall near
- * enough to build it into.
+ * Turn free-standing columns into ones built into the nearest wall, or back, as one undo step. Returns how many
+ * changed (columns with no wall near enough to build them into stay as they are).
  */
-export function convertColumn(id: string, into: 'wall' | 'free'): boolean {
+export function convertColumns(ids: string[], into: 'wall' | 'free'): number {
   const st = useEditor.getState()
   const floor = currentFloor(st)
-  const sym = floor.symbols.find((s) => s.id === id)
-  if (!sym) return false
-  const pose = into === 'wall' ? columnIntoWall(sym, floor.rooms) : {}
-  if (!pose) return false
-  st.commit((d) => {
-    const s = draftFloor(d).symbols.find((x) => x.id === id)
-    if (s) Object.assign(s, pose, { type: into === 'wall' ? 'wall-post' : 'column', flipX: false, flipY: false })
-  })
-  return true
+  const from = into === 'wall' ? 'column' : 'wall-post'
+  const changes = new Map<string, Partial<PlanSymbol>>()
+  for (const sym of floor.symbols) {
+    if (!ids.includes(sym.id) || sym.type !== from) continue
+    const pose = into === 'wall' ? columnIntoWall(sym, floor.rooms) : {}
+    if (pose) changes.set(sym.id, { ...pose, type: into === 'wall' ? 'wall-post' : 'column', flipX: false, flipY: false })
+  }
+  if (changes.size)
+    st.commit((d) => {
+      for (const s of draftFloor(d).symbols) if (changes.has(s.id)) Object.assign(s, changes.get(s.id))
+    })
+  return changes.size
+}
+
+/**
+ * Change a person (height, shoulder width, pose…): their footprint follows, and sitting or lying, they settle onto what
+ * they're on. `live` makes no undo step (e.g. at the end of a drag, which has one).
+ */
+export function updatePerson(id: string, patch: Partial<Pick<PlanSymbol, 'height' | 'width' | 'pose'>> = {}, live = false) {
+  const st = useEditor.getState()
+  const recipe = (d: Project) => {
+    const f = draftFloor(d)
+    const s = f.symbols.find((x) => x.id === id)
+    if (!s || s.type !== 'person') return
+    Object.assign(s, patch)
+    if (s.pose === 'stand') delete s.pose
+    s.depth = personDepth(s.height, s.width, s.pose)
+    const at = personSupport(s, f.symbols)
+    if (at) Object.assign(s, { x: at.x, y: at.y, rotation: at.rotation })
+  }
+  if (live) st.mutate(recipe)
+  else st.commit(recipe)
 }
 
 export function deleteSelection() {

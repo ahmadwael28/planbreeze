@@ -10,7 +10,8 @@ import { FINISHES, startsAtFloor, wallSurfaceAt } from '@/model/finishes'
 import { cutsFor, wallOpenings, wallPatches } from '@/model/walls'
 import type { Opening } from '@/model/walls'
 import { readyImage } from '@/lib/images'
-import { cabinetLeds, COLORS, Materials, railingModel, symbolModel } from './furniture'
+import { cabinetLeds, COLORS, Materials, personModel, railingModel, symbolModel } from './furniture'
+import { personSupport } from '@/model/people'
 import type { CurtainWash } from './furniture'
 import { ceilingHeightAt, ceilingLight, ceilingRoom, coveRuns, lightHex, pocketWidth } from '@/model/lighting'
 import { floorMaterial, wallMaterial } from './finishTextures'
@@ -316,17 +317,21 @@ export function buildProjectGroup(project: Project, opts: BuildOptions): THREE.G
       const hl = isSelected(sel, 'symbol', sym.id)
       // Curtains and blinds hang from the ceiling above them (up in a curtain pocket if there's one).
       const hangs = sym.type === 'curtain' || sym.type === 'blind'
-      const obj = symbolModel(
-        sym,
-        mats,
-        hl,
-        pose.wallThickness ?? sym.depth,
-        floor.height,
-        !!def,
-        floor.rooms,
-        hangs ? ceilingHeightAt(floor, pose) : floor.height,
-        sym.type === 'curtain' ? washFor(pose) : undefined,
-      )
+      // People sit or lie on whatever they're on, at its height.
+      const obj =
+        sym.type === 'person'
+          ? personModel(sym, mats, hl, personSupport(sym, floor.symbols)?.height)
+          : symbolModel(
+              sym,
+              mats,
+              hl,
+              pose.wallThickness ?? sym.depth,
+              floor.height,
+              !!def,
+              floor.rooms,
+              hangs ? ceilingHeightAt(floor, pose) : floor.height,
+              sym.type === 'curtain' ? washFor(pose) : undefined,
+            )
       if (!obj.children.length) continue
       // A column in a wall is painted like the walls of its room.
       if (sym.type === 'wall-post') {

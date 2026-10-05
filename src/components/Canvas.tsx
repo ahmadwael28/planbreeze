@@ -31,6 +31,7 @@ import {
   draftFloor,
   splitWall,
   toggleWire,
+  updatePerson,
   useEditor,
 } from '@/store/editor'
 import { usePlanTheme } from '@/hooks/use-plan-theme'
@@ -738,6 +739,8 @@ export function Canvas() {
     drag.current = null
     setMovingId(null)
     setMovingMulti(false)
+    // A person dropped onto a seat or bed settles onto it.
+    if (d?.type === 'symbol' && d.moved && d.orig.type === 'person' && d.orig.pose) updatePerson(d.id, {}, true)
     if (d?.type === 'marquee') {
       setMarquee(null)
       const st = useEditor.getState()
@@ -1035,8 +1038,9 @@ export function Canvas() {
               )}
               {(() => {
                 // Only the sides that can change: a magnetic track only gets longer, a switch doesn't resize at all.
-                const wide = canResize(selSym.type, 'width')
-                const deep = !selSym.wall && canResize(selSym.type, 'depth')
+                // People are sized in the panel (their footprint follows their height and pose).
+                const wide = selSym.type !== 'person' && canResize(selSym.type, 'width')
+                const deep = selSym.type !== 'person' && !selSym.wall && canResize(selSym.type, 'depth')
                 return wide && deep
                   ? (['nw', 'n', 'ne', 'e', 'se', 's', 'sw', 'w'] as const)
                   : wide
