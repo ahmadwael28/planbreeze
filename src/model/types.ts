@@ -89,6 +89,8 @@ export interface Room {
   gapsAtColumns?: 'wrap' | 'stop'
   /** Walls with a curtain pocket: the gypsum ceiling stops short of them, so curtain tracks hide up in the gap. */
   curtainPockets?: number[]
+  /** At a column built into a wall, curtain pockets stop at it (default) or go around it. */
+  pocketsAtColumns?: 'wrap' | 'stop'
   /** How wide the curtain pockets are (cm). */
   pocketWidth?: number
   /**

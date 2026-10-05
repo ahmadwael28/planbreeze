@@ -16,7 +16,7 @@ import {
   sub,
 } from '@/model/geometry'
 import { toast } from 'sonner'
-import { ceilingLight, ceilingRoom, covePath, coveRuns } from '@/model/lighting'
+import { ceilingLight, ceilingRoom, coveRuns } from '@/model/lighting'
 import { dimensionPoints, findWallSnap, floorBounds, moveWall, roomOuter, symbolPose, wallMountPose } from '@/model/project'
 import { SYMBOL_MAP } from '@/model/symbols'
 import { formatLength, gridSpacing, parseLength, snapStep } from '@/model/units'
@@ -1012,11 +1012,8 @@ export function Canvas() {
           (() => {
             const room = ceilingRoom(selCoveRoom, floor)
             const light = ceilingLight(selSym, room)
-            return light.type === 'gap-light' || light.type === 'pocket-light' ? (
-              <path d={coveRuns(room, light).runs.map(({ a, b }) => `M${a.x},${a.y}L${b.x},${b.y}`).join('')} className="sel-outline" />
-            ) : (
-              <path d={polygonPath(covePath(room, light).path)} className="sel-outline" />
-            )
+            // Only where it's lit.
+            return <path d={coveRuns(room, light).runs.map(({ a, b }) => `M${a.x},${a.y}L${b.x},${b.y}`).join('')} className="sel-outline" />
           })()}
 
         {/* selected symbol: bounds, rotate & resize handles */}

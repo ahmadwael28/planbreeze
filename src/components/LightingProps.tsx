@@ -620,6 +620,12 @@ export function CeilingSection({ room, units }: { room: Room; units: Units }) {
                     onChange={(v) => set((r) => void (r.pocketWidth = Math.min(40, v)))}
                   />
                 </Row>
+                {roomColumns(room, floor).length > 0 && (
+                  <AtColumns
+                    value={room.pocketsAtColumns ?? 'stop'}
+                    onChange={(v) => set((r) => void (r.pocketsAtColumns = v === 'wrap' ? 'wrap' : undefined))}
+                  />
+                )}
                 <GrooveLight
                   room={room}
                   sym={pocketLight}

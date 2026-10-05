@@ -187,7 +187,7 @@ export function ceilingRoom(room: Room, floor: Floor): Room {
         ...room,
         points: pts,
         shadowGaps: map(room.shadowGaps, room.gapsAtColumns !== 'stop'),
-        curtainPockets: map(room.curtainPockets, false),
+        curtainPockets: map(room.curtainPockets, room.pocketsAtColumns === 'wrap'),
         ceiling: room.ceiling && { ...room.ceiling, bands: room.ceiling.bands && pts.map((_, i) => room.ceiling!.bands![parent[i]] ?? null) },
       }
       shapes.set(out, { parent, face, room, columns: cols })
@@ -199,8 +199,8 @@ export function ceilingRoom(room: Room, floor: Floor): Room {
   if (hidden && hiddenLightInGap(room, hidden)) {
     const light = ceilingLight(hidden, out)
     const off = new Set(light.cove?.off ?? [])
-    const pockets = new Set(out.curtainPockets ?? [])
-    const lit = out.points.map((_, i) => i).filter((i) => !off.has(i) && !pockets.has(i))
+    const pocket = onPocketWall(out)
+    const lit = out.points.map((_, i) => i).filter((i) => !off.has(i) && !pocket(i))
     if (lit.length) {
       const info = shapes.get(out)
       out = { ...out, hiddenGaps: lit, hiddenGapWidth: hidden.cove?.gap ?? HIDDEN_GAP }
@@ -391,16 +391,44 @@ export function covePath(room: Room, sym?: PlanSymbol): { path: Point[]; up: boo
 export function coveRuns(room: Room, sym?: PlanSymbol): { runs: { a: Point; b: Point; edge: number }[]; up: boolean; drop: number } {
   const { path, up, drop } = covePath(room, sym)
   const pockets = new Set(room.ceiling && room.ceiling.style !== 'floating' ? (room.curtainPockets ?? []) : [])
+  const pocket = onPocketWall(room)
   const hidden = new Set(room.hiddenGaps ?? [])
   let only: ((edge: number) => boolean) | null = null
   if (sym?.type === 'pocket-light') only = (e) => pockets.has(e)
-  else if (sym?.type === 'gap-light') only = (e) => (room.shadowGaps ?? []).includes(e) && !pockets.has(e) && !hidden.has(e)
-  else if (sym && hiddenLightInGap(room, sym)) only = (e) => !pockets.has(e)
+  else if (sym?.type === 'gap-light') only = (e) => (room.shadowGaps ?? []).includes(e) && !pocket(e) && !hidden.has(e)
+  // A hidden light in a gap runs where its gap is (see ceilingRoom).
+  else if (sym && hiddenLightInGap(room, sym)) only = (e) => hidden.has(e)
   const off = new Set(sym?.cove?.off ?? [])
   const runs = path
     .map((a, i) => ({ a, b: path[(i + 1) % path.length], edge: i }))
     .filter((r) => (!only || only(r.edge)) && !off.has(r.edge))
   return { runs, up, drop }
+}
+
+/**
+ * Whether a piece of a room's ceiling outline (see ceilingRoom) belongs to a wall with a curtain pocket: the pocket
+ * itself, or the sides of a column on that wall when the pocket stops at it. The pocket's light is the only one there.
+ */
+export function onPocketWall(croom: Room): (edge: number) => boolean {
+  if (!croom.ceiling || croom.ceiling.style === 'floating') return () => false
+  const pockets = new Set(croom.curtainPockets ?? [])
+  const info = shapes.get(croom)
+  const walls = new Set(info?.room.curtainPockets ?? [])
+  return (e) => pockets.has(e) || (!!info && walls.has(info.parent[e]))
+}
+
+/** The nearest point to `from` on the strip of a room light (where it's lit), or null if it's lit nowhere. */
+export function nearestOnStrip(croom: Room, sym: PlanSymbol, from: Point): Point | null {
+  let best: Point | null = null
+  let bestD = Infinity
+  for (const { a, b } of coveRuns(croom, sym).runs) {
+    const { point, dist } = projectOnSegment(from, a, b)
+    if (dist < bestD) {
+      bestD = dist
+      best = point
+    }
+  }
+  return best
 }
 
 /** The kinds of light that run around a room's ceiling: a room has at most one of each. */

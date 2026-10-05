@@ -12,7 +12,7 @@ import {
   sub,
 } from '@/model/geometry'
 import { finishOf, surfaceLayout, wallSurfaceAt } from '@/model/finishes'
-import { ceilingLight, ceilingRoom, ceilingZones, covePath, coveRuns, pocketWidth, SHADOW_GAP, WIRE_COLORS } from '@/model/lighting'
+import { ceilingLight, ceilingRoom, ceilingZones, coveRuns, nearestOnStrip, pocketWidth, SHADOW_GAP, WIRE_COLORS } from '@/model/lighting'
 import { dimensionPoints, isOutdoor, railingRuns, roomOuter, symbolPose } from '@/model/project'
 import { SYMBOL_MAP } from '@/model/symbols'
 import type { PlanTheme } from '@/model/theme'
@@ -371,16 +371,13 @@ function CeilingZones({ room, theme }: { room: Room; theme: PlanTheme }) {
   )
 }
 
-/** Where a wire should end on a light: its center, or for cove lights the nearest point of the strip. */
+/** Where a wire should end on a light: its center, or for a room's LED strip the nearest point of it that's lit. */
 function wireEnd(sym: PlanSymbol, floor: Floor, from: Point): Point {
   if (sym.room) {
     const plain = floor.rooms.find((r) => r.id === sym.room)
     if (plain) {
       const room = ceilingRoom(plain, floor)
-      const { path } = covePath(room, ceilingLight(sym, room))
-      let best = path[0]
-      for (const p of path) if (dist(p, from) < dist(best, from)) best = p
-      return best
+      return nearestOnStrip(room, ceilingLight(sym, room), from) ?? labelPoint(plain.points)
     }
   }
   return symbolPose(sym, floor.rooms)
