@@ -25,11 +25,11 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import { usePlanTheme } from '@/hooks/use-plan-theme'
 import { cn } from '@/lib/utils'
 import { bbox, labelPoint, pointInPolygon } from '@/model/geometry'
-import { isLightOn, LIGHT_COLORS, OTHER_LIGHTS, switchesFor, WIRE_COLORS } from '@/model/lighting'
+import { isLightOn, kelvinHex, kelvinOf, KELVINS, OTHER_LIGHTS, switchesFor, WIRE_COLORS, withKelvin } from '@/model/lighting'
 import { symbolPose, uid } from '@/model/project'
 import { startsShut, SYMBOL_MAP } from '@/model/symbols'
 import { refsOf } from '@/model/items'
-import type { LightColor, Selection } from '@/model/types'
+import type { Selection } from '@/model/types'
 import { currentFloor, draftFloor, useEditor, useFloor } from '@/store/editor'
 import { useUi } from '@/store/ui'
 import { buildProjectGroup, SLAB } from '@/three/buildScene'
@@ -281,33 +281,37 @@ function placeMarkers(ctx: Ctx) {
 
 const mix = (a: string, b: string, t: number) => new THREE.Color(a).lerp(new THREE.Color(b), t)
 
-function setLightColor(ids: string[], color: LightColor) {
+/** Set the color temperature of these lights (K). */
+function setLightKelvin(ids: string[], kelvin: number) {
   useEditor.getState().commit((d) => {
-    for (const s of draftFloor(d).symbols) if (ids.includes(s.id) && s.light) s.light = { ...s.light, color }
+    for (const s of draftFloor(d).symbols) if (ids.includes(s.id) && s.light) s.light = withKelvin(s.light, kelvin)
   })
 }
 
-function ColorDots({ value, onChange }: { value: LightColor | 'mixed'; onChange: (c: LightColor) => void }) {
+/** Color temperatures to pick for a group of lights (`mixed`: theirs differ). */
+function KelvinDots({ value, onChange }: { value: number | 'mixed'; onChange: (k: number) => void }) {
   return (
     <div className="flex gap-1.5">
-      {(Object.keys(LIGHT_COLORS) as LightColor[]).map((c) => (
-        <Tooltip key={c}>
+      {KELVINS.map(({ kelvin, name }) => (
+        <Tooltip key={kelvin}>
           <TooltipTrigger asChild>
             <button
-              onClick={() => onChange(c)}
-              aria-label={LIGHT_COLORS[c].label}
+              onClick={() => onChange(kelvin)}
+              aria-label={`${name}, ${kelvin} K`}
+              aria-pressed={value === kelvin}
               className={cn(
                 'size-4.5 rounded-full border border-black/15 transition-transform hover:scale-110',
-                value === c && 'ring-2 ring-primary ring-offset-1 ring-offset-background',
+                value === kelvin && 'ring-2 ring-primary ring-offset-1 ring-offset-background',
               )}
-              style={{ background: LIGHT_COLORS[c].hex }}
+              style={{ background: kelvinHex(kelvin) }}
             />
           </TooltipTrigger>
           <TooltipContent>
-            {LIGHT_COLORS[c].label} · {LIGHT_COLORS[c].kelvin} K
+            {name} · {kelvin} K
           </TooltipContent>
         </Tooltip>
       ))}
+      {typeof value === 'number' && !KELVINS.some((k) => k.kelvin === value) && <span className="text-[10px] text-muted-foreground tabular-nums">{value} K</span>}
     </div>
   )
 }
@@ -329,9 +333,9 @@ function LightingPanel({ onInside }: { onInside: () => void }) {
     return f && f !== 'switch'
   })
   const other = lights.filter((l) => !switchesFor(floor, l.id).length)
-  const colorOf = (ids: string[]): LightColor | 'mixed' => {
-    const cs = new Set(lights.filter((l) => ids.includes(l.id)).map((l) => l.light?.color ?? 'warm'))
-    return cs.size === 1 ? [...cs][0] : 'mixed'
+  const kelvinOfGroup = (ids: string[]): number | 'mixed' => {
+    const ks = new Set(lights.filter((l) => ids.includes(l.id)).map((l) => kelvinOf(l.light)))
+    return ks.size === 1 ? [...ks][0] : 'mixed'
   }
 
   if (!open) {
@@ -396,7 +400,7 @@ function LightingPanel({ onInside }: { onInside: () => void }) {
               </div>
               {ids.length > 0 && (
                 <div className="mt-1.5 pl-4.5">
-                  <ColorDots value={colorOf(ids)} onChange={(c) => setLightColor(ids, c)} />
+                  <KelvinDots value={kelvinOfGroup(ids)} onChange={(k) => setLightKelvin(ids, k)} />
                 </div>
               )}
             </div>
@@ -416,7 +420,7 @@ function LightingPanel({ onInside }: { onInside: () => void }) {
               />
             </div>
             <div className="mt-1.5">
-              <ColorDots value={colorOf(other.map((o) => o.id))} onChange={(c) => setLightColor(other.map((o) => o.id), c)} />
+              <KelvinDots value={kelvinOfGroup(other.map((o) => o.id))} onChange={(k) => setLightKelvin(other.map((o) => o.id), k)} />
             </div>
           </div>
         )}

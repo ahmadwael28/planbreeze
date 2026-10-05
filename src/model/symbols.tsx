@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react'
-import { LIGHT_COLORS } from './lighting'
+import { lightHex } from './lighting'
 import type { PlanTheme } from './theme'
 import type { CeilingStyle, PlanSymbol } from './types'
 
@@ -235,7 +235,7 @@ export function frameOf(sym: PlanSymbol): FrameColor | null {
   return frames.find((f) => f.hex.toLowerCase() === sym.frame!.toLowerCase()) ?? { name: 'Custom', hex: sym.frame }
 }
 
-const glow = (sym?: PlanSymbol) => LIGHT_COLORS[sym?.light?.color ?? 'warm'].hex
+const glow = (sym?: PlanSymbol) => lightHex(sym?.light)
 
 /** How many seats fit along a sofa run (about 65 cm each), so longer sofas get more cushions, not wider ones. */
 export const seatsAlong = (len: number) => Math.max(1, Math.round(len / 65))

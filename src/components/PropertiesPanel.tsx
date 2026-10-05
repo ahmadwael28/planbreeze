@@ -19,7 +19,6 @@ import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrig
 import { Separator } from '@/components/ui/separator'
 import { Slider } from '@/components/ui/slider'
 import { Switch } from '@/components/ui/switch'
-import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { usePlanTheme } from '@/hooks/use-plan-theme'
 import { cn } from '@/lib/utils'
@@ -54,6 +53,7 @@ import type { Dim } from '@/model/sizes'
 import { useUi } from '@/store/ui'
 import { LengthInput, NumberInput, TextInput } from './LengthInput'
 import { CeilingSection, GrooveLightWalls, HiddenLightControls, LightSection, SwitchSection } from './LightingProps'
+import { Choice } from './Choice'
 import { FloorSection, WallsSection } from './FinishProps'
 
 function Section({ title, children, className }: { title?: ReactNode; children: ReactNode; className?: string }) {
@@ -145,28 +145,16 @@ function RoomProps({ room, units }: { room: Room; units: Units }) {
         <Field label="Name">
           {(id) => <TextInput id={id} value={room.name} onChange={(v) => updateRoom(room.id, (r) => void (r.name = v))} />}
         </Field>
-        <Field label="Type">
-          {() => (
-            <ToggleGroup
-              type="single"
-              size="sm"
-              variant="outline"
-              value={room.kind ?? 'room'}
-              onValueChange={(v) => v && setKind(v === 'room' ? null : (v as OutdoorKind))}
-              className="w-full"
-            >
-              <ToggleGroupItem value="room" className="flex-1">
-                Room
-              </ToggleGroupItem>
-              <ToggleGroupItem value="balcony" className="flex-1">
-                Balcony
-              </ToggleGroupItem>
-              <ToggleGroupItem value="terrace" className="flex-1">
-                Terrace
-              </ToggleGroupItem>
-            </ToggleGroup>
-          )}
-        </Field>
+        <Choice
+          label="Type"
+          value={room.kind ?? 'room'}
+          onChange={(v) => setKind(v === 'room' ? null : v)}
+          options={[
+            { value: 'room', label: 'Room' },
+            { value: 'balcony', label: 'Balcony' },
+            { value: 'terrace', label: 'Terrace' },
+          ]}
+        />
         {balcony && (
           <>
             <Field label="Railing">
@@ -419,78 +407,49 @@ function FabricControls({ sym }: { sym: PlanSymbol }) {
   return (
     <>
       {isBlind ? (
-        <Field label="Fabric">
-          {() => (
-            <ToggleGroup
-              type="single"
-              size="sm"
-              variant="outline"
-              value={fabric}
-              onValueChange={(v) => v && updateSymbol(sym.id, (s) => void (s.fabric = v as NonNullable<PlanSymbol['fabric']>))}
-              className="w-full"
-            >
-              {(['screen', 'blackout'] as const).map((f) => (
-                <ToggleGroupItem key={f} value={f} className="flex-1 capitalize">
-                  {f}
-                </ToggleGroupItem>
-              ))}
-            </ToggleGroup>
-          )}
-        </Field>
+        <Choice
+          label="Fabric"
+          value={fabric}
+          onChange={(v) => updateSymbol(sym.id, (s) => void (s.fabric = v))}
+          options={[
+            { value: 'screen', label: 'Screen' },
+            { value: 'blackout', label: 'Blackout' },
+          ]}
+        />
       ) : (
-        <Field label="Layers">
-          {() => (
-            <div className="space-y-1">
-              <ToggleGroup
-                type="multiple"
-                size="sm"
-                variant="outline"
-                value={curtainLayers(sym)}
-                // At least one layer: emptying it does nothing.
-                onValueChange={(v) =>
-                  v.length &&
-                  updateSymbol(sym.id, (s) => {
-                    s.layers = v as NonNullable<PlanSymbol['layers']>
-                    delete s.sheer
-                    delete s.fabric
-                  })
-                }
-                className="w-full"
-              >
-                {(['sheer', 'curtain', 'blackout'] as const).map((f) => (
-                  <ToggleGroupItem key={f} value={f} className="flex-1 capitalize">
-                    {f}
-                  </ToggleGroupItem>
-                ))}
-              </ToggleGroup>
-              <p className="text-xs text-muted-foreground">Any of them together, from the window out: sheer, blackout, curtain.</p>
-            </div>
-          )}
-        </Field>
+        <Choice
+          multiple
+          label="Layers"
+          value={curtainLayers(sym)}
+          // At least one layer: emptying it does nothing.
+          onChange={(v) =>
+            v.length > 0 &&
+            updateSymbol(sym.id, (s) => {
+              s.layers = v
+              delete s.sheer
+              delete s.fabric
+            })
+          }
+          options={[
+            { value: 'sheer', label: 'Sheer' },
+            { value: 'curtain', label: 'Curtain' },
+            { value: 'blackout', label: 'Blackout' },
+          ]}
+        >
+          <p className="text-xs text-muted-foreground">Any of them together, from the window out: sheer, blackout, curtain.</p>
+        </Choice>
       )}
       {!isBlind && (
-        <Field label="Opens to">
-          {() => (
-            <ToggleGroup
-              type="single"
-              size="sm"
-              variant="outline"
-              value={sym.openSide ?? 'both'}
-              onValueChange={(v) => v && updateSymbol(sym.id, (s) => void (s.openSide = v === 'both' ? undefined : (v as 'left' | 'right')))}
-              className="w-full"
-            >
-              <ToggleGroupItem value="left" className="flex-1">
-                Left
-              </ToggleGroupItem>
-              <ToggleGroupItem value="both" className="flex-1">
-                Both sides
-              </ToggleGroupItem>
-              <ToggleGroupItem value="right" className="flex-1">
-                Right
-              </ToggleGroupItem>
-            </ToggleGroup>
-          )}
-        </Field>
+        <Choice
+          label="Opens to"
+          value={sym.openSide ?? 'both'}
+          onChange={(v) => updateSymbol(sym.id, (s) => void (s.openSide = v === 'both' ? undefined : v))}
+          options={[
+            { value: 'left', label: 'Left' },
+            { value: 'both', label: 'Both sides' },
+            { value: 'right', label: 'Right' },
+          ]}
+        />
       )}
       <Field label={isBlind ? 'Rolled up' : 'Open'}>
         {() => (
@@ -530,39 +489,31 @@ function ShowerGlass({ sym }: { sym: PlanSymbol }) {
   const auto = !sym.screens
   const sides = sym.screens ?? openSides(sym, floor.rooms)
   return (
-    <Field label="Glass on">
-      {(id) => (
-        <div className="space-y-1">
-          <ToggleGroup
-            id={id}
-            type="multiple"
-            variant="outline"
-            size="sm"
-            className="w-full"
-            value={sides}
-            onValueChange={(v) => updateSymbol(sym.id, (s) => void (s.screens = v as NonNullable<PlanSymbol['screens']>))}
-          >
-            {(['front', 'left', 'right', 'back'] as const).map((s) => (
-              <ToggleGroupItem key={s} value={s} className="flex-1 capitalize">
-                {s}
-              </ToggleGroupItem>
-            ))}
-          </ToggleGroup>
-          <p className="text-xs text-muted-foreground">
-            {auto ? (
-              'Glass where there is no wall.'
-            ) : (
-              <>
-                Chosen by hand.{' '}
-                <button className="underline underline-offset-2 hover:text-foreground" onClick={() => updateSymbol(sym.id, (s) => void delete s.screens)}>
-                  Follow the walls
-                </button>
-              </>
-            )}
-          </p>
-        </div>
-      )}
-    </Field>
+    <Choice
+      multiple
+      label="Glass on"
+      value={sides}
+      onChange={(v) => updateSymbol(sym.id, (s) => void (s.screens = v))}
+      options={[
+        { value: 'front', label: 'Front' },
+        { value: 'left', label: 'Left' },
+        { value: 'right', label: 'Right' },
+        { value: 'back', label: 'Back' },
+      ]}
+    >
+      <p className="text-xs text-muted-foreground">
+        {auto ? (
+          'Glass where there is no wall.'
+        ) : (
+          <>
+            Chosen by hand.{' '}
+            <button className="underline underline-offset-2 hover:text-foreground" onClick={() => updateSymbol(sym.id, (s) => void delete s.screens)}>
+              Follow the walls
+            </button>
+          </>
+        )}
+      </p>
+    </Choice>
   )
 }
 
@@ -1056,25 +1007,15 @@ function SymbolProps({ sym, units }: { sym: PlanSymbol; units: Units }) {
           </div>
         )}
         {DOOR_DEFAULT[sym.type] && (
-          <Field label="Doors">
-            {() => (
-              <ToggleGroup
-                type="single"
-                size="sm"
-                variant="outline"
-                value={sym.doors ?? DOOR_DEFAULT[sym.type]}
-                onValueChange={(v) => v && updateSymbol(sym.id, (s) => void (s.doors = v as 'hinged' | 'sliding'))}
-                className="w-full"
-              >
-                <ToggleGroupItem value="hinged" className="flex-1">
-                  Hinged
-                </ToggleGroupItem>
-                <ToggleGroupItem value="sliding" className="flex-1">
-                  Sliding
-                </ToggleGroupItem>
-              </ToggleGroup>
-            )}
-          </Field>
+          <Choice
+            label="Doors"
+            value={sym.doors ?? DOOR_DEFAULT[sym.type]}
+            onChange={(v) => updateSymbol(sym.id, (s) => void (s.doors = v))}
+            options={[
+              { value: 'hinged', label: 'Hinged' },
+              { value: 'sliding', label: 'Sliding' },
+            ]}
+          />
         )}
         {sym.type.startsWith('wardrobe') && (
           <label className="flex items-center justify-between gap-2 text-sm">
@@ -1083,25 +1024,15 @@ function SymbolProps({ sym, units }: { sym: PlanSymbol; units: Units }) {
           </label>
         )}
         {(sym.type === 'sofa-corner' || sym.type === 'wardrobe-corner') && (
-          <Field label="Corner on">
-            {() => (
-              <ToggleGroup
-                type="single"
-                size="sm"
-                variant="outline"
-                value={sym.flipX ? 'right' : 'left'}
-                onValueChange={(v) => v && updateSymbol(sym.id, (s) => void (s.flipX = v === 'right'))}
-                className="w-full"
-              >
-                <ToggleGroupItem value="left" className="flex-1">
-                  Left
-                </ToggleGroupItem>
-                <ToggleGroupItem value="right" className="flex-1">
-                  Right
-                </ToggleGroupItem>
-              </ToggleGroup>
-            )}
-          </Field>
+          <Choice
+            label="Corner on"
+            value={sym.flipX ? 'right' : 'left'}
+            onChange={(v) => updateSymbol(sym.id, (s) => void (s.flipX = v === 'right'))}
+            options={[
+              { value: 'left', label: 'Left' },
+              { value: 'right', label: 'Right' },
+            ]}
+          />
         )}
         {!sym.wall && (
           <Field label="Rotation">

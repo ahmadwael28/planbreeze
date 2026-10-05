@@ -8,7 +8,7 @@ import * as THREE from 'three'
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js'
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js'
 import { inwardNormal, offsetEdges, pointInPolygon, projectOnSegment, signedArea } from '@/model/geometry'
-import { bandInset, ceilingHeightAt, ceilingLight, ceilingOutline, ceilingRoom, ceilingZones, COVE_WIDTH, coveRuns, gapDrops, hiddenLightInGap, LIGHT_COLORS, SHADOW_GAP } from '@/model/lighting'
+import { bandInset, ceilingHeightAt, ceilingLight, ceilingOutline, ceilingRoom, ceilingZones, COVE_WIDTH, coveRuns, gapDrops, hiddenLightInGap, lightHex, SHADOW_GAP } from '@/model/lighting'
 import { symbolPose } from '@/model/project'
 import { frameOf, styleOf } from '@/model/symbols'
 import type { FixtureKind } from '@/model/symbols'
@@ -484,7 +484,7 @@ export function buildFixture(
 
   const handle: LightHandle = { floorId: floor.id, id: sym.id, lights: [], emissive: [], glows: [], glowAt: [], glowColors: [] }
   const ctx: Ctx = {
-    color: new THREE.Color(LIGHT_COLORS[sym.light?.color ?? 'warm'].hex),
+    color: new THREE.Color(lightHex(sym.light)),
     brightness: sym.light?.brightness ?? 1,
     handle,
     room: kind === 'cove' || kind === 'gap' ? sym.room : floor.rooms.find((r) => pointInPolygon(pose, r.points))?.id,
@@ -638,7 +638,7 @@ export function cabinetLights(
   handles: { lights: LightHandle[] },
 ): THREE.Group {
   const handle: LightHandle = { floorId: floor.id, id: sym.id, lights: [], emissive: [], glows: [], glowAt: [], glowColors: [] }
-  const ctx: Ctx = { color: new THREE.Color(LIGHT_COLORS[sym.light?.color ?? 'warm'].hex), brightness: sym.light?.brightness ?? 1, handle, room }
+  const ctx: Ctx = { color: new THREE.Color(lightHex(sym.light)), brightness: sym.light?.brightness ?? 1, handle, room }
   handles.lights.push(handle)
   const g = new THREE.Group()
   for (const s of leds.strips) {

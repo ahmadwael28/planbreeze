@@ -1,11 +1,64 @@
 import polygonClipping from 'polygon-clipping'
 import { offsetEdges, offsetPolygon, pointInPolygon, projectOnSegment, signedArea } from './geometry'
-import type { Ceiling, CeilingStyle, Floor, LightColor, PlanSymbol, Point, Room } from './types'
+import type { Ceiling, CeilingStyle, Floor, LightColor, LightSettings, PlanSymbol, Point, Room } from './types'
 
 export const LIGHT_COLORS: Record<LightColor, { label: string; kelvin: number; hex: string }> = {
   warm: { label: 'Warm', kelvin: 2700, hex: '#ffc88f' },
   white: { label: 'White', kelvin: 4000, hex: '#fff3e6' },
   cool: { label: 'Cool', kelvin: 6000, hex: '#dce8ff' },
+}
+
+/** Color temperatures lamps and LED strips come in, from a candle-like glow to cool daylight. */
+export const KELVINS: { kelvin: number; name: string }[] = [
+  { kelvin: 2200, name: 'Amber glow' },
+  { kelvin: 2700, name: 'Warm white' },
+  { kelvin: 3000, name: 'Soft white' },
+  { kelvin: 3500, name: 'Neutral warm' },
+  { kelvin: 4000, name: 'Neutral white' },
+  { kelvin: 5000, name: 'Daylight' },
+  { kelvin: 6500, name: 'Cool daylight' },
+]
+export const KELVIN_MIN = 2200
+export const KELVIN_MAX = 6500
+
+/** The tint of light at some color temperatures (softened, as eyes adapt to it), to blend between. */
+const TINTS: [number, string][] = [
+  [2200, '#ffb877'],
+  [2700, '#ffc88f'],
+  [3000, '#ffd3a4'],
+  [3500, '#ffe2c4'],
+  [4000, '#fff3e6'],
+  [5000, '#f1f1f6'],
+  [6000, '#dce8ff'],
+  [6500, '#d4e3ff'],
+]
+
+/** The tint of light at a color temperature (K). */
+export function kelvinHex(k: number): string {
+  const t = Math.min(KELVIN_MAX, Math.max(KELVIN_MIN, k))
+  const i = Math.max(0, TINTS.findIndex(([at]) => at >= t) - 1)
+  const [k0, a] = TINTS[i]
+  const [k1, b] = TINTS[Math.min(i + 1, TINTS.length - 1)]
+  const f = k1 === k0 ? 0 : (t - k0) / (k1 - k0)
+  const ch = (hex: string, s: number) => parseInt(hex.slice(1 + s * 2, 3 + s * 2), 16)
+  return `#${[0, 1, 2].map((s) => Math.round(ch(a, s) + (ch(b, s) - ch(a, s)) * f).toString(16).padStart(2, '0')).join('')}`
+}
+
+/** A light's color temperature (K): chosen, or that of its warm / white / cool. */
+export const kelvinOf = (light?: { color?: LightColor; kelvin?: number }) => light?.kelvin ?? LIGHT_COLORS[light?.color ?? 'warm'].kelvin
+
+/** The tint of a light. */
+export const lightHex = (light?: { color?: LightColor; kelvin?: number }) => kelvinHex(kelvinOf(light))
+
+/** Warm, white or cool, for a color temperature. */
+export const colorForKelvin = (k: number): LightColor => (k < 3300 ? 'warm' : k < 5000 ? 'white' : 'cool')
+
+/** A light at a color temperature (K), its warm / white / cool kept in step. */
+export const withKelvin = (light: LightSettings, kelvin: number): LightSettings => ({ ...light, kelvin, color: colorForKelvin(kelvin) })
+
+/** What a color temperature is called (the nearest named one). */
+export function kelvinName(k: number) {
+  return KELVINS.reduce((best, x) => (Math.abs(x.kelvin - k) < Math.abs(best.kelvin - k) ? x : best)).name
 }
 
 export const CEILING_STYLES: Record<CeilingStyle, { name: string; description: string; defaults: Omit<Ceiling, 'style'> }> = {

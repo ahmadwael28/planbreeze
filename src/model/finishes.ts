@@ -434,7 +434,8 @@ export function surfaceLayout(s: Surface, place: Place = 'floor'): Layout | null
     const pieces = Array.from({ length: n }, (_, i) => ({ pts: rect(i * (slat + gap) + gap / 2, -1, slat, H + 2), axis: { x: 0, y: 1 }, id: i }))
     return { block: [n * (slat + gap), H], pieces, angle: turn }
   }
-  if (pattern === 'herringbone') return { ...herringbone(w, len), angle: turn }
+  // Planks at 45° to the walls, or (turned another 45°) parallel to them.
+  if (pattern === 'herringbone') return { ...herringbone(w, len), angle: turn + (s.parallel ? 45 : 0) }
   if (pattern === 'chevron') return { ...chevron(w, len), angle: turn }
   if (def.kind === 'tile') {
     // The long side across (x), the short down (y).

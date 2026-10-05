@@ -5,7 +5,6 @@ import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectSeparator, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
 import { readPhoto } from '@/lib/images'
 import { cn } from '@/lib/utils'
 import { FINISHES, finishOf, FLOOR_GROUPS, PATTERN_NAMES, WALL_GROUPS, WALL_WHITE, wallSurfaceAt } from '@/model/finishes'
@@ -15,6 +14,7 @@ import { uid } from '@/model/project'
 import { formatLength } from '@/model/units'
 import type { Finish, FloorFinish, FloorPattern, Project, ProjectImage, Room, Surface, Units, WallFinish, WallSurface } from '@/model/types'
 import { draftFloor, useEditor } from '@/store/editor'
+import { Choice } from './Choice'
 import { LengthInput, NumberInput } from './LengthInput'
 
 function Field({ label, children }: { label: string; children: (id: string) => ReactNode }) {
@@ -341,29 +341,26 @@ function SurfaceControls<S extends Surface>({
         </Field>
       )}
       {pieces && !(kind === 'tile' && square && (f.pattern === 'straight' || f.pattern === 'diagonal')) && (
-        <Field label="Direction">
-          {() => {
-            const names =
-              place === 'floor' ? ['Horizontal', 'Vertical'] : kind === 'slats' ? ['Upright', 'Lying'] : ['Lying', 'Upright']
-            return (
-              <ToggleGroup
-                type="single"
-                size="sm"
-                variant="outline"
-                value={surface.turned ? 'across' : 'along'}
-                onValueChange={(v) => v && set({ turned: v === 'across' || undefined } as Partial<S>)}
-                className="w-full"
-              >
-                <ToggleGroupItem value="along" className="flex-1">
-                  {names[0]}
-                </ToggleGroupItem>
-                <ToggleGroupItem value="across" className="flex-1">
-                  {names[1]}
-                </ToggleGroupItem>
-              </ToggleGroup>
-            )
-          }}
-        </Field>
+        <Choice
+          label="Direction"
+          value={surface.turned ? 'across' : 'along'}
+          onChange={(v) => set({ turned: v === 'across' || undefined } as Partial<S>)}
+          options={(place === 'floor' ? ['Horizontal', 'Vertical'] : kind === 'slats' ? ['Upright', 'Lying'] : ['Lying', 'Upright']).map((label, i) => ({
+            value: i ? 'across' : 'along',
+            label,
+          }))}
+        />
+      )}
+      {f.pattern === 'herringbone' && (
+        <Choice
+          label="Angle"
+          value={surface.parallel ? 'parallel' : 'diagonal'}
+          onChange={(v) => set({ parallel: v === 'parallel' || undefined } as Partial<S>)}
+          options={[
+            { value: 'diagonal', label: 'At 45°', title: 'Planks at 45° to the walls: the classic herringbone' },
+            { value: 'parallel', label: 'Along walls', title: 'Planks parallel to the walls: a straight herringbone' },
+          ]}
+        />
       )}
       {place === 'wall' && (kind === 'tile' || kind === 'slats') && <PartWay surface={surface as WallSurface} units={units} set={set as (p: Partial<WallSurface>) => void} />}
     </>
@@ -375,25 +372,15 @@ function PartWay({ surface, units, set }: { surface: WallSurface; units: Units; 
   const above = surface.above ?? WALL_WHITE
   return (
     <>
-      <Field label="Up to">
-        {() => (
-          <ToggleGroup
-            type="single"
-            size="sm"
-            variant="outline"
-            value={surface.height ? 'part' : 'full'}
-            onValueChange={(v) => v && set({ height: v === 'part' ? 120 : undefined })}
-            className="w-full"
-          >
-            <ToggleGroupItem value="full" className="flex-1">
-              The ceiling
-            </ToggleGroupItem>
-            <ToggleGroupItem value="part" className="flex-1">
-              Part way
-            </ToggleGroupItem>
-          </ToggleGroup>
-        )}
-      </Field>
+      <Choice
+        label="Up to"
+        value={surface.height ? 'part' : 'full'}
+        onChange={(v) => set({ height: v === 'part' ? 120 : undefined })}
+        options={[
+          { value: 'full', label: 'The ceiling' },
+          { value: 'part', label: 'Part way' },
+        ]}
+      />
       {surface.height && (
         <>
           <Field label="Height">{(id) => <LengthInput id={id} value={surface.height!} units={units} min={10} onChange={(v) => set({ height: v })} />}</Field>

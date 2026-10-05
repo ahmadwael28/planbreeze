@@ -195,8 +195,11 @@ function CurtainPockets({ room, theme }: { room: Room; theme: PlanTheme }) {
   )
 }
 
-/** A room's floor finish on the plan: its tiles' or planks' joints as faint lines, laid from the room's corner. */
-function FloorFinish({ room, theme }: { room: Room; theme: PlanTheme }) {
+/**
+ * A room's floor finish on the plan: its tiles' or planks' joints as faint lines, laid from the room's corner. Their
+ * width follows the zoom by hand, as Chrome draws non-scaling strokes in patterns far too wide at some zooms.
+ */
+function FloorFinish({ room, theme, scale }: { room: Room; theme: PlanTheme; scale: number }) {
   const layout = room.floor && surfaceLayout(room.floor, 'floor')
   if (!layout) return null
   const [bw, bh] = layout.block
@@ -222,8 +225,7 @@ function FloorFinish({ room, theme }: { room: Room; theme: PlanTheme }) {
                   fill="none"
                   stroke={theme.ink}
                   strokeOpacity={0.22}
-                  strokeWidth={0.8}
-                  vectorEffect="non-scaling-stroke"
+                  strokeWidth={0.9 / scale}
                 />
               )),
             ),
@@ -565,7 +567,7 @@ export function PlanLayers({
             fillOpacity={lighting ? 0.55 : 1}
           />
         ))}
-        {!lighting && !forPrint && floor.rooms.map((r) => <FloorFinish key={r.id} room={r} theme={theme} />)}
+        {!lighting && !forPrint && floor.rooms.map((r) => <FloorFinish key={r.id} room={r} theme={theme} scale={scale} />)}
         {!lighting && floor.rooms.map((r) => <WallFinishes key={r.id} room={r} theme={theme} images={images} />)}
       </g>
       {lighting && (

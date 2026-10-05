@@ -27,6 +27,8 @@ export interface Surface {
   pattern?: FloorPattern
   /** Turned a quarter: planks (or long tiles) run the other way. */
   turned?: boolean
+  /** Herringbone with its planks parallel to the walls (a "straight" herringbone), not at 45° to them. */
+  parallel?: boolean
   /** Wallpaper: its design. */
   design?: string
 }
@@ -127,7 +129,10 @@ export interface CoveSettings {
 export type LightColor = 'warm' | 'white' | 'cool'
 
 export interface LightSettings {
+  /** Warm, white or cool: roughly its color temperature (kept in step with `kelvin`, for older plans and the plan view). */
   color: LightColor
+  /** Its color temperature in kelvin (2200 – 6500), when chosen; otherwise that of `color`. */
+  kelvin?: number
   /** 0.1 – 1 */
   brightness: number
 }

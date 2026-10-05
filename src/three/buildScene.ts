@@ -12,7 +12,7 @@ import type { Opening } from '@/model/walls'
 import { readyImage } from '@/lib/images'
 import { cabinetLeds, COLORS, Materials, railingModel, symbolModel } from './furniture'
 import type { CurtainWash } from './furniture'
-import { ceilingHeightAt, ceilingLight, ceilingRoom, coveRuns, LIGHT_COLORS, pocketWidth } from '@/model/lighting'
+import { ceilingHeightAt, ceilingLight, ceilingRoom, coveRuns, lightHex, pocketWidth } from '@/model/lighting'
 import { floorMaterial, wallMaterial } from './finishTextures'
 import type { Photo } from './finishTextures'
 import { bakeGlows, buildCeilings, buildFixture, cabinetLights } from './lighting3d'
@@ -298,7 +298,7 @@ export function buildProjectGroup(project: Project, opts: BuildOptions): THREE.G
       const run = pocketRuns.find((r) => projectOnSegment(at, r.a, r.b).dist < pocketWidth(r.room) + 6 && pointInPolygon(at, r.room.points))
       if (!run) return undefined
       return {
-        color: new THREE.Color(LIGHT_COLORS[run.light.light?.color ?? 'warm'].hex),
+        color: new THREE.Color(lightHex(run.light.light)),
         add: (m) => curtainWashes.push({ floorId: floor.id, lightId: run.light.id, m, base: 0.55 * (run.light.light?.brightness ?? 1) }),
       }
     }

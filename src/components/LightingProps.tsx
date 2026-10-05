@@ -4,15 +4,37 @@ import { Cable, Lightbulb, Plus, SlidersHorizontal, Trash2, X } from 'lucide-rea
 import { Button } from '@/components/ui/button'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Slider } from '@/components/ui/slider'
-import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
 import { cn } from '@/lib/utils'
 import { bbox, dist, polygonPath } from '@/model/geometry'
-import { bandAt, bandInset, CEILING_STYLES, ceilingRoom, followsBand, HIDDEN_GAP, hasTrayEdge, hiddenLightInGap, LIGHT_COLORS, pocketWidth, pruneControls, roomColumns, switchesFor, WIRE_COLORS } from '@/model/lighting'
+import {
+  bandAt,
+  bandInset,
+  CEILING_STYLES,
+  ceilingRoom,
+  followsBand,
+  HIDDEN_GAP,
+  hasTrayEdge,
+  hiddenLightInGap,
+  KELVIN_MAX,
+  KELVIN_MIN,
+  kelvinHex,
+  kelvinName,
+  kelvinOf,
+  KELVINS,
+  lightHex,
+  pocketWidth,
+  pruneControls,
+  roomColumns,
+  switchesFor,
+  WIRE_COLORS,
+  withKelvin,
+} from '@/model/lighting'
 import { newSymbol, uid } from '@/model/project'
 import { SYMBOL_MAP } from '@/model/symbols'
 import { formatLength } from '@/model/units'
-import type { CeilingStyle, LightColor, PlanSymbol, Room, TrackModule, Units } from '@/model/types'
+import type { CeilingStyle, PlanSymbol, Room, TrackModule, Units } from '@/model/types'
 import { applyCeiling, draftFloor, toggleWire, useEditor, useFloor } from '@/store/editor'
+import { Choice } from './Choice'
 import { LengthInput } from './LengthInput'
 
 export function updateSymbol(id: string, recipe: (s: PlanSymbol) => void) {
@@ -31,24 +53,54 @@ function Row({ label, children }: { label: string; children: ReactNode }) {
   )
 }
 
-/** Warm / white / cool picker. */
-export function LightColorPicker({ value, onChange }: { value: LightColor; onChange: (c: LightColor) => void }) {
+/** The track of the color temperature slider: amber to cool daylight. */
+const KELVIN_TRACK = `linear-gradient(to right, ${[KELVIN_MIN, 3000, 4000, 5000, KELVIN_MAX].map(kelvinHex).join(', ')})`
+
+/**
+ * A light's color temperature: the ones lamps usually come in as swatches, and any in between on the slider (`onLive`
+ * while it's dragged).
+ */
+export function KelvinPicker({ value, onChange, onLive }: { value: number; onChange: (k: number) => void; onLive: (k: number) => void }) {
   return (
-    <div className="grid grid-cols-3 gap-1 rounded-lg bg-muted p-1">
-      {(Object.keys(LIGHT_COLORS) as LightColor[]).map((c) => (
-        <button
-          key={c}
-          onClick={() => onChange(c)}
-          className={cn(
-            'flex items-center justify-center gap-1.5 rounded-md py-1 text-xs font-medium transition-colors',
-            value === c ? 'bg-background shadow-sm' : 'text-muted-foreground hover:text-foreground',
-          )}
-          title={`${LIGHT_COLORS[c].label} · ${LIGHT_COLORS[c].kelvin} K`}
-        >
-          <span className="size-3 rounded-full border border-black/10" style={{ background: LIGHT_COLORS[c].hex }} />
-          {LIGHT_COLORS[c].label}
-        </button>
-      ))}
+    <div className="space-y-2">
+      <div className="flex justify-between gap-2 text-sm">
+        <span className="text-muted-foreground">Color temperature</span>
+        <span className="truncate tabular-nums">
+          {value} K <span className="text-muted-foreground">· {kelvinName(value)}</span>
+        </span>
+      </div>
+      <div className="grid grid-cols-7 gap-0.5" role="group" aria-label="Color temperature">
+        {KELVINS.map(({ kelvin, name }) => (
+          <button
+            key={kelvin}
+            type="button"
+            title={`${name} · ${kelvin} K`}
+            aria-label={`${name}, ${kelvin} K`}
+            aria-pressed={value === kelvin}
+            onClick={() => onChange(kelvin)}
+            className="flex min-w-0 flex-col items-center gap-1 rounded-md py-1 outline-none hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring"
+          >
+            <span
+              className={cn(
+                'size-5 rounded-full border border-black/15 shadow-sm',
+                value === kelvin && 'ring-2 ring-primary ring-offset-2 ring-offset-background',
+              )}
+              style={{ background: kelvinHex(kelvin) }}
+            />
+            <span className={cn('text-[10px] tabular-nums', value === kelvin ? 'font-semibold text-foreground' : 'text-muted-foreground')}>{kelvin}</span>
+          </button>
+        ))}
+      </div>
+      <Slider
+        min={KELVIN_MIN}
+        max={KELVIN_MAX}
+        step={100}
+        value={[value]}
+        onValueChange={([k]) => onLive(k)}
+        aria-label="Color temperature, any value"
+        style={{ '--kelvin-track': KELVIN_TRACK } as React.CSSProperties}
+        className="[&_[data-slot=slider-range]]:bg-transparent [&_[data-slot=slider-track]]:border [&_[data-slot=slider-track]]:bg-(image:--kelvin-track)"
+      />
     </div>
   )
 }
@@ -228,17 +280,16 @@ function GrooveLight({ room, sym, label, hint, units, onToggle }: { room: Room; 
 /** Going around columns built into the walls, or stopping at them. */
 function AtColumns({ value, onChange }: { value: 'wrap' | 'stop'; onChange: (v: 'wrap' | 'stop') => void }) {
   return (
-    <div className="space-y-1.5">
-      <span className="text-sm text-muted-foreground">At columns in the walls</span>
-      <ToggleGroup type="single" size="sm" variant="outline" value={value} onValueChange={(v) => v && onChange(v as 'wrap' | 'stop')} className="w-full">
-        <ToggleGroupItem value="wrap" className="flex-1">
-          Go around
-        </ToggleGroupItem>
-        <ToggleGroupItem value="stop" className="flex-1">
-          Stop
-        </ToggleGroupItem>
-      </ToggleGroup>
-    </div>
+    <Choice
+      stacked
+      label="At columns in the walls"
+      value={value}
+      onChange={onChange}
+      options={[
+        { value: 'wrap', label: 'Go around' },
+        { value: 'stop', label: 'Stop' },
+      ]}
+    />
   )
 }
 
@@ -252,29 +303,22 @@ export function HiddenLightControls({ room, sym, units }: { room: Room; sym: Pla
   return (
     <div className="space-y-3">
       {hasTrayEdge(room) && (
-        <div className="space-y-1.5">
-          <span className="text-sm text-muted-foreground">Where</span>
-          <ToggleGroup
-            type="single"
-            size="sm"
-            variant="outline"
-            value={sym.cove?.at ?? 'walls'}
-            onValueChange={(v) => v && updateSymbol(sym.id, (s) => void (s.cove = { ...s.cove, at: v as 'walls' | 'inner' }))}
-            className="w-full"
-          >
-            <ToggleGroupItem value="walls" className="flex-1">
-              Along the walls
-            </ToggleGroupItem>
-            <ToggleGroupItem value="inner" className="flex-1">
-              Inside the {style === 'stepped' ? 'steps' : 'tray'}
-            </ToggleGroupItem>
-          </ToggleGroup>
+        <Choice
+          stacked
+          label="Where"
+          value={sym.cove?.at ?? 'walls'}
+          onChange={(v) => updateSymbol(sym.id, (s) => void (s.cove = { ...s.cove, at: v }))}
+          options={[
+            { value: 'walls', label: 'Along the walls' },
+            { value: 'inner', label: `Inside the ${style === 'stepped' ? 'steps' : 'tray'}` },
+          ]}
+        >
           <p className="text-xs text-muted-foreground">
             {sym.cove?.at === 'inner'
               ? 'On top of the lowered band, hidden behind its edge, washing the raised middle with light.'
               : 'In a gap between the gypsum and the walls, washing them with light.'}
           </p>
-        </div>
+        </Choice>
       )}
       <WallPicker
         room={room}
@@ -674,7 +718,16 @@ export function LightSection({ sym, units }: { sym: PlanSymbol; units: Units }) 
   const hangs = def?.fixture === 'pendant' || def?.fixture === 'linear-pendant' || def?.fixture === 'chandelier'
   return (
     <div className="space-y-3">
-      <LightColorPicker value={light.color} onChange={(c) => updateSymbol(sym.id, (s) => void (s.light = { ...light, color: c }))} />
+      <KelvinPicker
+        value={kelvinOf(light)}
+        onChange={(k) => updateSymbol(sym.id, (s) => void (s.light = withKelvin(light, k)))}
+        onLive={(k) =>
+          useEditor.getState().mutate((d) => {
+            const s = draftFloor(d).symbols.find((x) => x.id === sym.id)
+            if (s) s.light = withKelvin(light, k)
+          })
+        }
+      />
       <div className="space-y-2">
         <div className="flex justify-between text-sm">
           <span className="text-muted-foreground">Brightness</span>
@@ -764,7 +817,7 @@ export function SwitchSection({ sym }: { sym: PlanSymbol }) {
             {lights.map((l) => (
               <li key={l.id} className="flex items-center justify-between gap-2 rounded-md bg-muted/60 px-2 py-1 text-sm">
                 <span className="flex min-w-0 items-center gap-2">
-                  <span className="size-2.5 shrink-0 rounded-full" style={{ background: LIGHT_COLORS[l.light?.color ?? 'warm'].hex }} />
+                  <span className="size-2.5 shrink-0 rounded-full border border-black/10" style={{ background: lightHex(l.light) }} />
                   <span className="truncate">{name(l)}</span>
                 </span>
                 <Button variant="ghost" size="icon-xs" aria-label="Disconnect" onClick={() => toggleWire(sym.id, l.id)}>
