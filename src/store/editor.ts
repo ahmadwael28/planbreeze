@@ -20,6 +20,7 @@ import type { Clip } from '@/model/items'
 import { CEILING_STYLES, mergeRoomLights, OTHER_LIGHTS, pruneControls, remapEdges, remapEdgeValues, ROOM_LIGHTS } from '@/model/lighting'
 import { columnIntoWall, dimensionPoints, roomOuter } from '@/model/project'
 import { personDepth, personSupport } from '@/model/people'
+import { behindSofa } from '@/model/placement'
 import { SYMBOL_MAP } from '@/model/symbols'
 import type {
   CeilingStyle,
@@ -425,6 +426,25 @@ export function convertColumns(ids: string[], into: 'wall' | 'free'): number {
       for (const s of draftFloor(d).symbols) if (changes.has(s.id)) Object.assign(s, changes.get(s.id))
     })
   return changes.size
+}
+
+/**
+ * Put a sofa table behind the nearest sofa (or corner sofa). `live` makes no undo step (the end of a drag, which has
+ * one). Returns false when there's no sofa near it.
+ */
+export function placeBehindSofa(id: string, live = false): boolean {
+  const st = useEditor.getState()
+  const floor = currentFloor(st)
+  const table = floor.symbols.find((s) => s.id === id)
+  const at = table && behindSofa(table, floor.symbols)
+  if (!at) return false
+  const recipe = (d: Project) => {
+    const s = draftFloor(d).symbols.find((x) => x.id === id)
+    if (s) Object.assign(s, at, { flipX: false, flipY: false })
+  }
+  if (live) st.mutate(recipe)
+  else st.commit(recipe)
+  return true
 }
 
 /**

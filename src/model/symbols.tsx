@@ -246,13 +246,23 @@ export const chairsAlong = (len: number) => Math.max(1, Math.floor((len + 10) / 
 export const SOFA = { arm: 20, back: 22, seat: 95 }
 const AMBER = '#f59e0b'
 
-/** How a person looks in 3D (one color, like an architect's scale figure). */
-export const PERSON_LOOKS: FrameColor[] = [
-  { name: 'Grey', hex: '#a3a8b0' },
-  { name: 'Light', hex: '#e4e0d8' },
-  { name: 'Sand', hex: '#c9ac8c' },
-  { name: 'Blue', hex: '#5d7fa3' },
-  { name: 'Dark', hex: '#45474c' },
+/** What a person wears on top (their trousers go with it). */
+export const OUTFITS: FrameColor[] = [
+  { name: 'Denim', hex: '#4f6f9c' },
+  { name: 'White', hex: '#ecebe6' },
+  { name: 'Terracotta', hex: '#b5543f' },
+  { name: 'Olive', hex: '#6b7a4b' },
+  { name: 'Black', hex: '#2b2c2f' },
+  { name: 'Mustard', hex: '#c8973b' },
+]
+
+/** Skin tones for people. */
+export const SKIN_TONES: FrameColor[] = [
+  { name: 'Fair', hex: '#f2cfb0' },
+  { name: 'Light', hex: '#e2b48f' },
+  { name: 'Medium', hex: '#c68c62' },
+  { name: 'Tan', hex: '#a26a43' },
+  { name: 'Deep', hex: '#6f452b' },
 ]
 
 /** A person seen from above: standing (shoulders, head, toes), sitting (legs forward) or lying (head at the back). */
@@ -799,6 +809,25 @@ export const SYMBOLS: SymbolDef[] = [
         <>
           {k.box(w, d, 4)}
           <rect x={-w / 2 + 6} y={-d / 2 + 6} width={w - 12} height={d - 12} rx={2} {...k.thin} />
+        </>
+      )
+    },
+  },
+  {
+    // A narrow table behind a sofa, a little lower than its back.
+    type: 'sofa-table',
+    name: 'Sofa table',
+    keywords: 'console behind sofa table',
+    category: 'Living',
+    width: 150,
+    depth: 35,
+    height: 70,
+    render: (w, d, t) => {
+      const k = kit(t)
+      return (
+        <>
+          {k.box(w, d, 2)}
+          <line x1={-w / 2 + 6} y1={0} x2={w / 2 - 6} y2={0} {...k.thin} strokeDasharray="4 3" />
         </>
       )
     },
@@ -1779,8 +1808,8 @@ export const SYMBOLS: SymbolDef[] = [
     width: 45,
     depth: 30,
     height: 175,
-    frames: PERSON_LOOKS,
-    frameLabel: 'Look',
+    frames: OUTFITS,
+    frameLabel: 'Outfit',
     render: (w, d, t, sym) => personGlyph(w, d, t, sym),
   },
   {

@@ -318,9 +318,10 @@ export function buildProjectGroup(project: Project, opts: BuildOptions): THREE.G
       // Curtains and blinds hang from the ceiling above them (up in a curtain pocket if there's one).
       const hangs = sym.type === 'curtain' || sym.type === 'blind'
       // People sit or lie on whatever they're on, at its height.
+      const on = sym.type === 'person' ? personSupport(sym, floor.symbols) : null
       const obj =
         sym.type === 'person'
-          ? personModel(sym, mats, hl, personSupport(sym, floor.symbols)?.height)
+          ? personModel(sym, mats, hl, on ? { height: on.height, type: on.item.type } : undefined)
           : symbolModel(
               sym,
               mats,

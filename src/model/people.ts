@@ -2,7 +2,8 @@
  * People in the plan, to judge sizes by: how tall and broad they are, and whether they stand, sit or lie down. Seats
  * and beds take them at the right height, facing the right way (the plan's sizes are in cm).
  */
-import { SOFA, seatsAlong } from './symbols'
+import { itemFrame } from './placement'
+import { frameOf, OUTFITS, SKIN_TONES, SOFA, seatsAlong } from './symbols'
 import type { PlanSymbol, Point } from './types'
 
 export type PersonPose = NonNullable<PlanSymbol['pose']>
@@ -40,48 +41,13 @@ const HOLDS: Record<string, { name: string; sit?: number | 'top'; lie?: number |
 /** Where a person settles on something: what it is, how high they are off the floor, and their pose in the plan. */
 export interface Support {
   item: PlanSymbol
+  /** What it's called ("sofa"). */
   name: string
   /** Height of the seat or mattress they're on (cm). */
   height: number
   x: number
   y: number
   rotation: number
-}
-
-/** An item's own frame: to and from its local coordinates (its back toward -y), flips included. */
-function frameOf(item: PlanSymbol) {
-  const r = (item.rotation * Math.PI) / 180
-  const c = Math.cos(r)
-  const s = Math.sin(r)
-  const fx = item.flipX ? -1 : 1
-  const fy = item.flipY ? -1 : 1
-  return {
-    local: (p: Point): Point => {
-      const dx = p.x - item.x
-      const dy = p.y - item.y
-      return { x: (dx * c + dy * s) * fx, y: (-dx * s + dy * c) * fy }
-    },
-    world: (l: Point): Point => {
-      const x = l.x * fx
-      const y = l.y * fy
-      return { x: item.x + x * c - y * s, y: item.y + x * s + y * c }
-    },
-    /** The plan rotation (degrees) of something facing `dir` (local). */
-    facing: (dir: Point) => {
-      const x = dir.x * fx
-      const y = dir.y * fy
-      const wx = x * c - y * s
-      const wy = x * s + y * c
-      return Math.round((((Math.atan2(-wx, wy) * 180) / Math.PI) % 360 + 360) % 360)
-    },
-    /** Which way a plan rotation faces, in local terms. */
-    dirOf: (rotation: number) => {
-      const a = (rotation * Math.PI) / 180
-      const wx = -Math.sin(a)
-      const wy = Math.cos(a)
-      return { x: (wx * c + wy * s) * fx, y: (-wx * s + wy * c) * fy }
-    },
-  }
 }
 
 const nearest = (v: number, list: number[]) => list.reduce((b, x) => (Math.abs(x - v) < Math.abs(b - v) ? x : b), list[0])
@@ -111,7 +77,8 @@ function settle(item: PlanSymbol, pose: 'sit' | 'lie', l: Point, face: Point, H:
       if (pose === 'lie') return { at: { x: 0, y: back / 2 }, dir: { x: face.x < 0 ? -1 : 1, y: 0 } }
       const n = one ? 1 : seatsAlong(w - 2 * Math.min(SOFA.arm, w * 0.09))
       const cushions = Array.from({ length: n }, (_, i) => -inner / 2 + (inner * (i + 0.5)) / n)
-      return { at: { x: nearest(l.x, cushions), y: -d / 2 + back + D / 2 }, dir: { x: 0, y: 1 } }
+      // A little forward, as they lean back into the cushions.
+      return { at: { x: nearest(l.x, cushions), y: -d / 2 + back + D / 2 + 4 }, dir: { x: 0, y: 1 } }
     }
     case 'sofa-corner': {
       const arm = Math.min(SOFA.arm, w * 0.12, d * 0.12)
@@ -127,11 +94,11 @@ function settle(item: PlanSymbol, pose: 'sit' | 'lie', l: Point, face: Point, H:
         // Down the side, facing across.
         const n = seatsAlong(runY)
         const ys = Array.from({ length: n }, (_, i) => T + seat + (runY * (i + 0.5)) / n)
-        return { at: { x: L + back + 12 + D / 2, y: nearest(l.y, ys) }, dir: { x: 1, y: 0 } }
+        return { at: { x: L + back + 16 + D / 2, y: nearest(l.y, ys) }, dir: { x: 1, y: 0 } }
       }
       const n = seatsAlong(runX)
       const xs = Array.from({ length: n }, (_, i) => L + back + (runX * (i + 0.5)) / n)
-      return { at: { x: nearest(l.x, xs), y: T + back + 12 + D / 2 }, dir: { x: 0, y: 1 } }
+      return { at: { x: nearest(l.x, xs), y: T + back + 16 + D / 2 }, dir: { x: 0, y: 1 } }
     }
     case 'bed-double':
     case 'bed-single': {
@@ -167,7 +134,7 @@ export function personSupport(person: PlanSymbol, symbols: PlanSymbol[]): Suppor
   for (const item of symbols) {
     const hold = HOLDS[item.type]?.[pose]
     if (!hold || item.id === person.id) continue
-    const f = frameOf(item)
+    const f = itemFrame(item)
     const l = f.local(person)
     if (Math.abs(l.x) > item.width / 2 + 15 || Math.abs(l.y) > item.depth / 2 + 15) continue
     const away = Math.hypot(l.x / item.width, l.y / item.depth)
@@ -186,4 +153,51 @@ export function personSupport(person: PlanSymbol, symbols: PlanSymbol[]): Suppor
     }
   }
   return best
+}
+
+/**
+ * How a person rests on what they're on: how far they lean back sitting (radians; into a sofa's cushions, a little
+ * against a chair), and how far their head and shoulders are raised lying (on a pillow, or a sofa's arm).
+ */
+export function restOn(type: string | undefined): { lean: number; raise: number } {
+  switch (type) {
+    case 'sofa':
+    case 'sofa-corner':
+    case 'armchair':
+      return { lean: 0.22, raise: 0.2 }
+    case 'chair':
+      return { lean: 0.07, raise: 0 }
+    case 'bed-double':
+    case 'bed-single':
+      return { lean: 0, raise: 0.17 }
+  }
+  return { lean: 0, raise: 0 }
+}
+
+/** Trousers that go with each outfit's top. */
+const TROUSERS: Record<string, string> = {
+  '#4f6f9c': '#c9bda5',
+  '#ecebe6': '#3b4a66',
+  '#b5543f': '#3a3633',
+  '#6b7a4b': '#cdbf9f',
+  '#2b2c2f': '#5b5f66',
+  '#c8973b': '#2f3a52',
+}
+const HAIR = ['#2a1c13', '#4b3021', '#151515', '#8c6a3e', '#6f6a64', '#5a3a22']
+
+/**
+ * How a person looks: their top (the outfit chosen), trousers to go with it, skin (chosen, or one of the tones), and
+ * hair and shoes that vary from person to person.
+ */
+export function personLook(p: PlanSymbol) {
+  const hash = [...p.id].reduce((h, c) => (Math.imul(h, 31) + c.charCodeAt(0)) >>> 0, 7)
+  const top = frameOf(p)?.hex ?? OUTFITS[0].hex
+  return {
+    top,
+    trousers: TROUSERS[top.toLowerCase()] ?? '#34404f',
+    skin: p.style ?? SKIN_TONES[hash % SKIN_TONES.length].hex,
+    hair: p.height > 0 && hash % 11 === 0 ? '#bdb7ad' : HAIR[(hash >>> 3) % HAIR.length],
+    longHair: (hash >>> 5) % 3 === 0,
+    shoes: (hash >>> 7) % 2 ? '#2b2b2b' : '#e6e3dc',
+  }
 }

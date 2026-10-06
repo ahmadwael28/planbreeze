@@ -8,7 +8,7 @@ import {
   AlignHorizontalSpaceAround,
   AlignVerticalDistributeCenter,
   AlignVerticalSpaceAround,
-  Box, ClipboardCopy, Columns2, Copy, FlipHorizontal2, Group, Ungroup, FlipVertical2, ImageOff, Lightbulb, Link2Off, Lock, Ruler, RotateCw, SplitSquareHorizontal, Trash2, Video } from 'lucide-react'
+  Box, ClipboardCopy, Columns2, Copy, Sofa, FlipHorizontal2, Group, Ungroup, FlipVertical2, ImageOff, Lightbulb, Link2Off, Lock, Ruler, RotateCw, SplitSquareHorizontal, Trash2, Video } from 'lucide-react'
 import { toast } from 'sonner'
 import { arrange, arrangeable, layoutOf, spacingOf, wouldMove } from '@/model/arrange'
 import type { Unit } from '@/model/arrange'
@@ -24,16 +24,17 @@ import { usePlanTheme } from '@/hooks/use-plan-theme'
 import { cn } from '@/lib/utils'
 import { area, dist, perimeter } from '@/model/geometry'
 import { DEFAULT_RAILING, isOutdoor, OUTDOOR, RAILING_THICKNESS, ROOM_COLORS, roomOuter, setWallLength, symbolPose } from '@/model/project'
-import { CABINETS, curtainLayers, frameOf, givesLight, hasGlass, STYLES, styleOf, SYMBOL_MAP } from '@/model/symbols'
+import { CABINETS, curtainLayers, frameOf, givesLight, hasGlass, SKIN_TONES, STYLES, styleOf, SYMBOL_MAP } from '@/model/symbols'
 import type { FrameColor } from '@/model/symbols'
 import { formatArea, formatLength } from '@/model/units'
-import { PERSON, PERSON_PRESETS, personSupport, POSE_NAMES } from '@/model/people'
+import { PERSON, PERSON_PRESETS, personLook, personSupport, POSE_NAMES } from '@/model/people'
 import type { Dimension, ItemRef, OutdoorKind, PlanSymbol, RailingStyle, Room, SavedView, Units } from '@/model/types'
 import {
   arrangeSelection,
   autoDimension,
   centerSelection,
   convertColumns,
+  placeBehindSofa,
   updatePerson,
   copySelection,
   rotateSelection,
@@ -924,6 +925,27 @@ function PersonControls({ sym, units }: { sym: PlanSymbol; units: Units }) {
           />
         )}
       </Field>
+      <Field label="Skin">
+        {() => (
+          <div className="flex flex-wrap items-center gap-1.5 py-1">
+            {SKIN_TONES.map((c) => {
+              const on = personLook(sym).skin === c.hex
+              return (
+                <button
+                  key={c.hex}
+                  type="button"
+                  title={c.name}
+                  aria-label={`Skin: ${c.name}`}
+                  aria-pressed={on}
+                  onClick={() => updateSymbol(sym.id, (s) => void (s.style = c.hex))}
+                  className={cn('size-6 rounded-full border shadow-sm', on && 'ring-2 ring-primary ring-offset-2 ring-offset-background')}
+                  style={{ background: c.hex }}
+                />
+              )
+            })}
+          </div>
+        )}
+      </Field>
       <Choice
         label="Pose"
         value={pose}
@@ -1141,6 +1163,21 @@ function SymbolProps({ sym, units }: { sym: PlanSymbol; units: Units }) {
             <span className="text-muted-foreground">Glass doors</span>
             <Switch size="sm" checked={!!sym.glass} onCheckedChange={(on) => updateSymbol(sym.id, (s) => void (s.glass = on || undefined))} />
           </label>
+        )}
+        {sym.type === 'sofa-table' && (
+          <div className="space-y-1.5">
+            <Button
+              variant="outline"
+              size="sm"
+              className="w-full"
+              onClick={() => {
+                if (!placeBehindSofa(sym.id)) toast.error('There is no sofa near it. Move it close to the back of one first.')
+              }}
+            >
+              <Sofa /> Put it behind the sofa
+            </Button>
+            <p className="text-xs text-muted-foreground">Drag it near a sofa's back (or either back of a corner sofa) and it tucks in behind it.</p>
+          </div>
         )}
         {(sym.type === 'column' || sym.type === 'wall-post') && (
           <div className="space-y-1.5">

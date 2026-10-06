@@ -14,6 +14,7 @@ import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js'
 import { inwardNormal, signedArea } from '@/model/geometry'
 import { openSides } from '@/model/guides'
 import type { Side } from '@/model/guides'
+import { personLook, restOn } from '@/model/people'
 import { chairsAlong, cornerArm, curtainLayers, curtainPanels, frameOf, hasGlass, panelWidth, seatsAlong, SOFA, startsShut, styleOf } from '@/model/symbols'
 import type { PlanSymbol, Point, Room } from '@/model/types'
 
@@ -318,96 +319,162 @@ function sliding(slide: number, build: (g: THREE.Group) => void) {
 // People
 
 /** A rounded limb from a to b. */
-function limb(a: THREE.Vector3, b: THREE.Vector3, r: number, mat: Mat) {
+function limb(a: THREE.Vector3, b: THREE.Vector3, r: number, mat: Mat, rEnd = r) {
   const dir = b.clone().sub(a)
   const len = dir.length()
-  const m = mesh(new THREE.CapsuleGeometry(r, Math.max(0.1, len), 4, 12), mat)
+  const m =
+    rEnd === r
+      ? mesh(new THREE.CapsuleGeometry(r, Math.max(0.1, len), 4, 12), mat)
+      : mesh(new THREE.CylinderGeometry(rEnd, r, Math.max(0.1, len), 14), mat)
   m.position.copy(a).addScaledVector(dir, 0.5)
   if (len > 0) m.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir.normalize())
   return m
 }
 
+/** An ellipsoid (radii x, y, z) centered at the point. */
+function ellipsoid(rx: number, ry: number, rz: number, at: THREE.Vector3, mat: Mat, cap = 1) {
+  const m = mesh(new THREE.SphereGeometry(1, 24, 16, 0, Math.PI * 2, 0, Math.PI * cap), mat)
+  m.scale.set(rx, ry, rz)
+  m.position.copy(at)
+  return m
+}
+
 /**
- * A person, like an architect's scale figure: one color, H tall and W across the shoulders, in its plan footprint
- * (front toward +z). Standing on the floor; sitting on a seat `seat` cm high (the floor without one), back at the back
- * of the footprint; or lying on a surface that high, head at the back.
+ * A person: H tall and W across the shoulders, skin, hair, top, trousers and shoes, in their plan footprint (front
+ * toward +z). Standing on the floor; sitting on what they're on (`on.height` up, the floor without it), leaning back
+ * into a sofa; or lying on it (head at the back of the footprint, on a pillow in bed).
  */
-export function personModel(sym: PlanSymbol, mats: Materials, hl: boolean, seat?: number): THREE.Group {
+export function personModel(sym: PlanSymbol, mats: Materials, hl: boolean, on?: { height: number; type: string }): THREE.Group {
   const H = sym.height
   const W = sym.width
   const D = sym.depth
   const pose = sym.pose ?? 'stand'
-  const mat = mats.get(frameOf(sym)?.hex ?? '#a3a8b0', hl, 'satin')
-  const g = new THREE.Group()
-  const v = (x: number, y: number, z: number) => new THREE.Vector3(x, y, z)
-  const r = { thigh: W * 0.14, shin: W * 0.1, arm: W * 0.085, fore: W * 0.07, neck: W * 0.1 }
-
-  /** Torso from hips (y) up, centered at z: belly, chest, shoulders, neck and head. */
-  const upper = (y: number, z: number, tilt = 0) => {
-    const t = new THREE.Group()
-    t.add(rbox(W * 0.78, H * 0.16, W * 0.46, W * 0.18, 0, 0, 0, mat))
-    t.add(rbox(W * 0.95, H * 0.15, W * 0.5, W * 0.2, 0, H * 0.14, 0, mat))
-    for (const s of [-1, 1]) t.add(blob(W * 0.11, s * (W / 2 - W * 0.1), H * 0.27, 0, mat))
-    t.add(cylinder(r.neck, H * 0.05, 0, H * 0.285, 0, mat))
-    const head = blob(H * 0.062, 0, H * 0.41, W * 0.02, mat)
-    head.scale.set(0.78, 1, 0.92)
-    t.add(head)
-    t.position.set(0, y, z)
-    t.rotation.x = tilt
-    return t
+  const look = personLook(sym)
+  const m = {
+    skin: mats.get(look.skin, hl, 'satin'),
+    hair: mats.get(look.hair, hl, 'fabric'),
+    top: mats.get(look.top, hl, 'fabric'),
+    trousers: mats.get(look.trousers, hl, 'fabric'),
+    shoes: mats.get(look.shoes, hl, 'satin'),
+    eyes: mats.get('#2b2522', hl, 'gloss'),
   }
+  const { lean, raise } = restOn(on?.type)
+  const v = (x: number, y: number, z: number) => new THREE.Vector3(x, y, z)
+  // Children have bigger heads for their size.
+  const headK = H < 150 ? 1 + (150 - H) / 220 : 1
+  const r = { thigh: W * 0.135, shin: W * 0.1, ankle: W * 0.07, arm: W * 0.085, fore: W * 0.07, hand: W * 0.075, neck: W * 0.085 }
+  const hipY = H * 0.52
 
-  /** Standing on the floor, its back `zb` from the footprint's middle. */
-  const standing = (zb: number) => {
+  /**
+   * Hips up, its pivot at the hips (so it can lean): waist, chest, shoulders, neck and head with hair. `tilt` leans it
+   * (negative: back). Arms are added separately, so hands can stay on the lap.
+   */
+  const upperBody = (tilt: number) => {
+    const u = new THREE.Group()
+    // Hips and torso as smooth bodies of revolution, flattened front to back.
+    const body = (profile: [number, number][], mat: Mat) => {
+      const b = mesh(new THREE.LatheGeometry(profile.map(([rx, y]) => new THREE.Vector2(rx * W, y * H)), 32), mat)
+      b.scale.z = 0.56
+      return b
+    }
+    u.add(body([[0.01, -0.075], [0.33, -0.07], [0.41, -0.035], [0.41, 0.02], [0.385, 0.06]], m.trousers))
+    u.add(body([[0.39, 0.035], [0.37, 0.09], [0.42, 0.16], [0.465, 0.23], [0.47, 0.265], [0.36, 0.295], [0.13, 0.31], [0.001, 0.312]], m.top))
+    for (const s of [-1, 1]) u.add(ellipsoid(W * 0.12, W * 0.12, W * 0.13, v(s * (W / 2 - W * 0.12), H * 0.27, 0), m.top))
+    u.add(cylinder(r.neck, H * 0.05, 0, H * 0.3, W * 0.02, m.skin))
+    const head = v(0, H * 0.37 + H * 0.06 * (headK - 1), W * 0.03)
+    const hx = H * 0.043 * headK
+    const hy = H * 0.062 * headK
+    const hz = H * 0.053 * headK
+    u.add(ellipsoid(hx, hy, hz, head, m.skin))
+    for (const s of [-1, 1]) u.add(ellipsoid(hx * 0.18, hy * 0.24, hz * 0.14, v(s * hx * 0.98, head.y, head.z - hz * 0.05), m.skin)) // ears
+    u.add(ellipsoid(hx * 0.16, hy * 0.17, hz * 0.2, v(0, head.y - hy * 0.12, head.z + hz * 0.95), m.skin)) // nose
+    for (const s of [-1, 1]) {
+      u.add(ellipsoid(hx * 0.11, hy * 0.08, hz * 0.06, v(s * hx * 0.36, head.y + hy * 0.06, head.z + hz * 0.9), m.eyes))
+      u.add(ellipsoid(hx * 0.2, hy * 0.035, hz * 0.06, v(s * hx * 0.37, head.y + hy * 0.2, head.z + hz * 0.88), m.hair)) // brows
+    }
+    // Hair: a cap over the top and back of the head; long hair falls to the shoulders.
+    const cap = ellipsoid(hx * 1.07, hy * 1.04, hz * 1.08, v(head.x, head.y + hy * 0.08, head.z - hz * 0.06), m.hair, 0.5)
+    cap.rotation.x = -0.35
+    u.add(cap)
+    if (look.longHair) u.add(rbox(hx * 1.9, hy * 1.5, hz * 0.7, hz * 0.3, 0, head.y - hy * 1.25, head.z - hz * 0.65, m.hair))
+    u.position.y = hipY
+    u.rotation.x = tilt
+    return u
+  }
+  /** A point on the upper body (hip-relative, before it leans), where it ends up once it leans. */
+  const onUpper = (p: THREE.Vector3, tilt: number, at: THREE.Vector3) => p.clone().applyAxisAngle(v(1, 0, 0), tilt).add(at)
+
+  const g = new THREE.Group()
+  const standing = (raiseBy = 0) => {
     const s = new THREE.Group()
     for (const side of [-1, 1]) {
-      const x = side * W * 0.2
-      s.add(limb(v(x, H * 0.51, zb), v(x, H * 0.285, zb + 1), r.thigh, mat))
-      s.add(limb(v(x, H * 0.285, zb + 1), v(x, H * 0.055, zb), r.shin, mat))
-      s.add(rbox(W * 0.2, H * 0.045, H * 0.15, 2, x, 0, zb + H * 0.045, mat))
-      const sx = side * (W / 2 - r.arm * 0.6)
-      s.add(limb(v(sx, H * 0.79, zb), v(sx * 1.04, H * 0.63, zb - 1), r.arm, mat))
-      s.add(limb(v(sx * 1.04, H * 0.63, zb - 1), v(sx * 0.98, H * 0.48, zb + 2), r.fore, mat))
+      const x = side * W * 0.19
+      s.add(limb(v(x, hipY, 0), v(x, H * 0.28, 0.5), r.thigh, m.trousers, r.shin * 1.15))
+      s.add(limb(v(x, H * 0.28, 0.5), v(x, H * 0.065, 0), r.shin * 1.15, m.trousers, r.ankle))
+      s.add(rbox(W * 0.2, H * 0.05, H * 0.15, 2.5, x, 0, H * 0.04, m.shoes))
     }
-    s.add(upper(H * 0.5, zb))
+    s.add(upperBody(raiseBy))
+    // Arms hang at the sides.
+    for (const side of [-1, 1]) {
+      const at = v(0, hipY, 0)
+      const shoulder = onUpper(v(side * (W / 2 - r.arm * 0.7), H * 0.285, 0), raiseBy, at)
+      const elbow = onUpper(v(side * (W / 2 - r.arm * 0.4), H * 0.125, -1), raiseBy, at)
+      const wrist = onUpper(v(side * (W / 2 - r.arm * 0.6), -H * 0.035, 2), raiseBy, at)
+      s.add(limb(shoulder, elbow, r.arm, m.top))
+      s.add(limb(elbow, wrist, r.fore, m.top, r.fore * 0.85))
+      s.add(ellipsoid(r.hand * 0.8, r.hand * 1.4, r.hand, wrist.clone().add(v(0, -r.hand, 0)), m.skin))
+    }
     return s
   }
 
   if (pose === 'lie') {
-    // Standing, laid on its back: head toward -z, toes up, back on the surface; head to feet along the footprint.
-    const s = standing(0)
+    // Standing, laid on its back: head toward -z, toes up, back on the surface; head and shoulders up on the pillow.
+    const s = standing(raise)
     s.rotation.x = -Math.PI / 2
-    s.position.set(0, (seat ?? 0) + W * 0.25 + 1, H / 2)
+    s.position.set(0, (on?.height ?? 0) + W * 0.25 + 1, H / 2)
     g.add(s)
-  } else if (pose === 'sit') {
-    const S = seat ?? 0
-    const zb = -D / 2 + W * 0.25
-    const hipY = S + r.thigh
+    return g
+  }
+  if (pose === 'sit') {
+    const S = on?.height ?? 0
+    const zb = -D / 2 + W * 0.25 // the middle of the torso, front to back
+    const seatY = S + r.thigh
     const kneeZ = zb + H * 0.245
     const onFloor = S < 15
+    const tilt = -lean
     for (const side of [-1, 1]) {
       const x = side * W * 0.19
-      g.add(limb(v(x, hipY, zb + 2), v(x, hipY, kneeZ), r.thigh, mat))
+      g.add(limb(v(x, seatY, zb + 3), v(x, seatY, kneeZ), r.thigh, m.trousers, r.shin * 1.15))
       if (onFloor) {
         // On the floor: legs out in front.
-        g.add(limb(v(x, hipY, kneeZ), v(x, r.shin, kneeZ + H * 0.23), r.shin, mat))
-        g.add(rbox(W * 0.2, H * 0.1, H * 0.05, 2, x, 0, kneeZ + H * 0.25, mat))
+        g.add(limb(v(x, seatY, kneeZ), v(x, r.ankle, kneeZ + H * 0.22), r.shin * 1.15, m.trousers, r.ankle))
+        g.add(rbox(W * 0.2, H * 0.12, H * 0.05, 2.5, x, 0, kneeZ + H * 0.25, m.shoes))
       } else {
-        const ankleY = Math.max(H * 0.05, hipY - H * 0.235)
-        g.add(limb(v(x, hipY, kneeZ), v(x, ankleY, kneeZ + 2), r.shin, mat))
-        g.add(rbox(W * 0.2, H * 0.045, H * 0.15, 2, x, ankleY - H * 0.05, kneeZ + H * 0.05, mat))
+        const ankleY = Math.max(H * 0.065, seatY - H * 0.215)
+        g.add(limb(v(x, seatY, kneeZ), v(x, ankleY, kneeZ + 3), r.shin * 1.15, m.trousers, r.ankle))
+        g.add(rbox(W * 0.2, H * 0.05, H * 0.15, 2.5, x, ankleY - H * 0.065, kneeZ + H * 0.06, m.shoes))
       }
-      const sx = side * (W / 2 - r.arm * 0.6)
-      const shoulderY = hipY + H * 0.29
-      const elbow = v(sx * 1.02, shoulderY - H * 0.16, zb + 4)
-      g.add(limb(v(sx, shoulderY, zb), elbow, r.arm, mat))
-      g.add(limb(elbow, v(side * W * 0.22, hipY + r.thigh + 2, zb + H * 0.16), r.fore, mat))
     }
-    g.add(upper(hipY - 2, zb, -0.05))
-  } else {
-    g.add(standing(-D / 2 + W * 0.25))
+    const body = upperBody(tilt)
+    body.position.set(0, seatY - H * 0.01, zb)
+    g.add(body)
+    // Arms from the shoulders, hands resting on the thighs.
+    const at = body.position.clone()
+    for (const side of [-1, 1]) {
+      const shoulder = onUpper(v(side * (W / 2 - r.arm * 0.7), H * 0.285, 0), tilt, at)
+      const hand = v(side * W * 0.23, seatY + r.thigh + 2, zb + H * 0.15)
+      const elbow = v(side * (W / 2 - r.arm * 0.2), (shoulder.y + hand.y) / 2 - H * 0.03, (shoulder.z + hand.z) / 2 - H * 0.04)
+      g.add(limb(shoulder, elbow, r.arm, m.top))
+      g.add(limb(elbow, hand, r.fore, m.top, r.fore * 0.85))
+      g.add(ellipsoid(r.hand * 0.8, r.hand * 0.6, r.hand * 1.4, hand.clone().add(v(0, 0, r.hand * 1.2)), m.skin))
+    }
+    return g
   }
-  return g
+  g.add(standing())
+  g.position.z = -D / 2 + W * 0.25
+  const out = new THREE.Group()
+  out.add(g)
+  return out
 }
 
 // ---------------------------------------------------------------------------
@@ -456,6 +523,29 @@ function coffeeTable(k: Kit, w: number, d: number, h: number) {
   g.add(rbox(24, 2.5, 17, 0.4, -w * 0.2, h, 0, k.q(COLORS.books[1], 'satin')))
   g.add(rbox(21, 2, 15, 0.4, -w * 0.2 + 1, h + 2.5, 0.5, k.q(COLORS.books[6], 'satin')))
   g.add(lathe([[0, 0], [5, 0], [9, 6], [9.5, 6.5], [0.1, 1.2]], w * 0.2, h, 0, k.q(COLORS.ceramic, 'ceramic')))
+  return g
+}
+
+/** A sofa table: a slim top on a light frame, a shelf below, and a lamp and a few things on it. */
+function sofaTable(k: Kit, w: number, d: number, h: number) {
+  const g = new THREE.Group()
+  const wood = k.q(COLORS.wood, 'wood')
+  const metal = k.q(COLORS.dark, 'metal')
+  g.add(rbox(w, 3.5, d, 1, 0, h - 3.5, 0, wood))
+  g.add(rbox(w - 8, 2, d - 6, 0.6, 0, 16, 0, wood)) // shelf
+  for (const sx of [-1, 1]) {
+    // A U-shaped steel end frame at each end.
+    for (const sz of [-1, 1]) g.add(box(2.5, h - 3.5, 2.5, sx * (w / 2 - 4), 0, sz * (d / 2 - 3), metal))
+    g.add(box(2.5, 2.5, d - 6, sx * (w / 2 - 4), 14, 0, metal))
+  }
+  // A lamp at one end, books and a vase at the other.
+  const lx = w / 2 - Math.min(22, w * 0.18)
+  g.add(cylinder(6, 2, lx, h, 0, metal))
+  g.add(cylinder(1, 30, lx, h + 2, 0, metal))
+  g.add(cylinder(9, 18, lx, h + 30, 0, k.q(COLORS.linen, 'fabric'), 1, 12))
+  g.add(rbox(22, 3, 16, 0.4, -w / 2 + 20, h, 0, k.q(COLORS.books[2], 'satin')))
+  g.add(rbox(20, 2.5, 15, 0.4, -w / 2 + 21, h + 3, 0, k.q(COLORS.books[5], 'satin')))
+  g.add(lathe([[0, 0], [4, 0], [5, 6], [3, 14], [3.4, 18], [0.1, 18]], -w / 2 + 42, h, 0, k.q(COLORS.ceramic, 'ceramic')))
   return g
 }
 
@@ -1923,6 +2013,9 @@ export function symbolModel(
       break
     case 'coffee-table':
       g = coffeeTable(k, w, d, h)
+      break
+    case 'sofa-table':
+      g = sofaTable(k, w, d, h)
       break
     case 'desk':
       g = desk(k, w, d, h)

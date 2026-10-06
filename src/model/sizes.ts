@@ -32,6 +32,7 @@ const RULES: Record<string, Rules> = {
   'sofa-corner': { width: [180, 450], depth: [150, 400], height: [60, 110] },
   armchair: { width: [50, 130], depth: [60, 130], height: [60, 120] },
   'coffee-table': { width: [40, 200], depth: [40, 150], height: [25, 60] },
+  'sofa-table': { width: [60, 300], depth: [20, 50], height: [55, 90] },
   'tv-unit': { width: [80, 400], depth: [25, 70], height: [30, 90] },
   'tv-stand': { width: [60, 400], depth: [25, 70], height: [30, 90] },
   'display-cabinet': { width: [60, 300], depth: [30, 60], height: [120, 260] },

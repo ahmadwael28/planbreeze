@@ -31,6 +31,7 @@ import {
   draftFloor,
   splitWall,
   toggleWire,
+  placeBehindSofa,
   updatePerson,
   useEditor,
 } from '@/store/editor'
@@ -741,6 +742,8 @@ export function Canvas() {
     setMovingMulti(false)
     // A person dropped onto a seat or bed settles onto it.
     if (d?.type === 'symbol' && d.moved && d.orig.type === 'person' && d.orig.pose) updatePerson(d.id, {}, true)
+    // A sofa table dropped near a sofa tucks in behind it.
+    if (d?.type === 'symbol' && d.moved && d.orig.type === 'sofa-table') placeBehindSofa(d.id, true)
     if (d?.type === 'marquee') {
       setMarquee(null)
       const st = useEditor.getState()

@@ -67,6 +67,8 @@ interface Ctx {
   tour: { points: Viewpoint[]; active: string | null } | null
   markers: Map<string, HTMLElement>
   flight: Flight | null
+  /** The camera swinging round to the top view or back (see glideTo). */
+  glide: Glide | null
   /** Doors swinging or sliding open or shut: the part, from and to (0 shut … 1 open), and when it started (ms). */
   doorAnims: { part: THREE.Object3D; from: number; to: number; t0: number }[]
   /** The few real lights, lent to the fixtures that matter from where the camera is; handed out again when it moves. */
@@ -223,6 +225,44 @@ function highlight(ctx: Ctx, sel: Selection | null) {
 }
 
 const DOOR_MS = 650
+const GLIDE_MS = 900
+
+/** A camera move to a framing: it swings round its target, which slides across, easing in and out. */
+interface Glide {
+  from: { target: THREE.Vector3; at: THREE.Spherical }
+  to: { target: THREE.Vector3; at: THREE.Spherical }
+  t0: number
+}
+
+/** Start a glide from where the camera is to look at `target` from `pos`. */
+function glideTo(ctx: Ctx, pos: THREE.Vector3, target: THREE.Vector3) {
+  const at = (p: THREE.Vector3, t: THREE.Vector3) => new THREE.Spherical().setFromVector3(p.clone().sub(t))
+  const from = { target: ctx.controls.target.clone(), at: at(ctx.camera.position, ctx.controls.target) }
+  const to = { target: target.clone(), at: at(pos, target) }
+  // Round the shorter way.
+  const dTheta = to.at.theta - from.at.theta
+  if (dTheta > Math.PI) to.at.theta -= Math.PI * 2
+  else if (dTheta < -Math.PI) to.at.theta += Math.PI * 2
+  ctx.flight = null
+  ctx.glide = { from, to, t0: performance.now() }
+  ctx.controls.enabled = false
+}
+
+/** Move a glide on; true once it's done. */
+function stepGlide(ctx: Ctx, now: number): boolean {
+  const g = ctx.glide!
+  const u = Math.min(1, (now - g.t0) / GLIDE_MS)
+  const e = u < 0.5 ? 4 * u * u * u : 1 - (-2 * u + 2) ** 3 / 2
+  const s = new THREE.Spherical(
+    THREE.MathUtils.lerp(g.from.at.radius, g.to.at.radius, e),
+    THREE.MathUtils.lerp(g.from.at.phi, g.to.at.phi, e),
+    THREE.MathUtils.lerp(g.from.at.theta, g.to.at.theta, e),
+  )
+  ctx.controls.target.lerpVectors(g.from.target, g.to.target, e)
+  ctx.camera.position.setFromSpherical(s).add(ctx.controls.target)
+  ctx.camera.lookAt(ctx.controls.target)
+  return u >= 1
+}
 
 /** The symbol a 3D object belongs to. */
 const pickedId = (o: THREE.Object3D) => (o.userData.pick as PickInfo | undefined)?.id ?? ''
@@ -527,6 +567,7 @@ export default function Viewer3D() {
       tour: null,
       markers: new Map(),
       flight: null,
+      glide: null,
       doorAnims: [],
       pool,
       poolDirty: true,
@@ -593,6 +634,15 @@ export default function Viewer3D() {
         }
         ctx.dirty = true
       }
+      if (ctx.glide) {
+        ctx.poolDirty = true
+        ctx.movedAt = now
+        if (stepGlide(ctx, now)) {
+          ctx.glide = null
+          controls.enabled = true
+        }
+        ctx.dirty = true
+      }
       if (ctx.doorAnims.length) {
         const now = performance.now()
         ctx.doorAnims = ctx.doorAnims.filter((a) => {
@@ -653,25 +703,32 @@ export default function Viewer3D() {
   }, [visible])
 
   // ---------- camera helpers ----------
-  const frame = useCallback((mode: 'perspective' | 'top') => {
+  /** Frame the whole model from above or at an angle; `animate` swings the camera there instead of jumping. */
+  const frame = useCallback((mode: 'perspective' | 'top', animate = false) => {
     const ctx = ctxRef.current
     if (!ctx?.content) return
     const box = new THREE.Box3().setFromObject(ctx.content)
     ctx.controls.maxPolarAngle = Math.PI / 2 - 0.02
-    if (box.isEmpty()) {
-      ctx.controls.target.set(0, 0, 0)
-      ctx.camera.position.set(8, 9, 12)
-    } else {
+    const target = new THREE.Vector3()
+    const pos = new THREE.Vector3(8, 9, 12)
+    if (!box.isEmpty()) {
       const center = box.getCenter(new THREE.Vector3())
       const size = box.getSize(new THREE.Vector3())
       const radius = Math.max(size.x, size.z, size.y) * 0.75 + 1
       const fov = (ctx.camera.fov * Math.PI) / 180
       const distance = radius / Math.sin(fov / 2)
-      ctx.controls.target.set(center.x, mode === 'top' ? 0 : size.y * 0.25, center.z)
-      if (mode === 'top') ctx.camera.position.set(center.x, distance, center.z + 0.01)
-      else ctx.camera.position.set(center.x + distance * 0.45, distance * 0.62, center.z + distance * 0.65)
+      target.set(center.x, mode === 'top' ? 0 : size.y * 0.25, center.z)
+      if (mode === 'top') pos.set(center.x, distance, center.z + 0.01)
+      else pos.set(center.x + distance * 0.45, distance * 0.62, center.z + distance * 0.65)
     }
-    ctx.controls.update()
+    if (animate) {
+      glideTo(ctx, pos, target)
+    } else {
+      ctx.glide = null
+      ctx.controls.target.copy(target)
+      ctx.camera.position.copy(pos)
+      ctx.controls.update()
+    }
     ctx.dirty = true
   }, [])
 
@@ -1104,7 +1161,7 @@ export default function Viewer3D() {
               size="icon-sm"
               onClick={() => {
                 exitTour()
-                frame('top')
+                frame('top', true)
               }}
               aria-label="Top view"
             >
@@ -1120,7 +1177,7 @@ export default function Viewer3D() {
               size="icon-sm"
               onClick={() => {
                 exitTour()
-                frame('perspective')
+                frame('perspective', true)
               }}
               aria-label="Reset camera"
             >
