@@ -1048,7 +1048,17 @@ function SymbolProps({ sym, units }: { sym: PlanSymbol; units: Units }) {
         {STYLES[sym.type] && (
           <Field label="Style">
             {(id) => (
-              <Select value={styleOf(sym)} onValueChange={(v) => updateSymbol(sym.id, (s) => void (s.style = v))}>
+              <Select
+                value={styleOf(sym)}
+                onValueChange={(v) =>
+                  updateSymbol(sym.id, (s) => {
+                    s.style = v
+                    // Made as tall as it usually is in that style (a slim hood, a tall mantel one).
+                    const height = STYLES[s.type].find((p) => p.id === v)?.height
+                    if (height) s.height = height
+                  })
+                }
+              >
                 <SelectTrigger id={id} size="sm" className="w-full">
                   <SelectValue />
                 </SelectTrigger>
@@ -1081,6 +1091,39 @@ function SymbolProps({ sym, units }: { sym: PlanSymbol; units: Units }) {
             <label className="flex items-center justify-between gap-2 text-sm">
               <span className="flex items-center gap-1.5">
                 <Lightbulb className="size-4" /> LED strip
+              </span>
+              <Switch size="sm" checked={!!sym.led} onCheckedChange={(on) => updateSymbol(sym.id, (s) => void (s.led = on || undefined))} />
+            </label>
+            {sym.led && <LightSection sym={sym} units={units} />}
+          </div>
+        )}
+        {sym.type === 'wall-cabinet' && (
+          <div className="space-y-3 rounded-lg bg-muted/60 p-3">
+            <Choice
+              label="Fronts"
+              value={sym.fronts ?? 'doors'}
+              onChange={(v) => updateSymbol(sym.id, (s) => void (v === 'doors' ? delete s.fronts : (s.fronts = v as 'glass' | 'open')))}
+              options={[
+                { value: 'doors', label: 'Doors' },
+                { value: 'glass', label: 'Glass doors' },
+                { value: 'open', label: 'Open shelves' },
+              ]}
+            />
+            <label className="flex items-center justify-between gap-2 text-sm">
+              <span className="flex items-center gap-1.5">
+                <Lightbulb className="size-4" /> Light under it
+              </span>
+              <Switch size="sm" checked={!!sym.led} onCheckedChange={(on) => updateSymbol(sym.id, (s) => void (s.led = on || undefined))} />
+            </label>
+            {sym.led && <LightSection sym={sym} units={units} />}
+          </div>
+        )}
+        {sym.type === 'range-hood' && (
+          <div className="space-y-3 rounded-lg bg-muted/60 p-3">
+            {styleOf(sym) !== 'built-in' && <p className="text-xs text-muted-foreground">Its chimney goes up to the ceiling.</p>}
+            <label className="flex items-center justify-between gap-2 text-sm">
+              <span className="flex items-center gap-1.5">
+                <Lightbulb className="size-4" /> Hood lights
               </span>
               <Switch size="sm" checked={!!sym.led} onCheckedChange={(on) => updateSymbol(sym.id, (s) => void (s.led = on || undefined))} />
             </label>
@@ -1184,7 +1227,7 @@ function SymbolProps({ sym, units }: { sym: PlanSymbol; units: Units }) {
             )}
           </Field>
         )}
-        {def?.elevation !== undefined && !def.fixture && (!def.wallMount || ['ac-split', 'towel-rail', 'towel-radiator'].includes(sym.type)) && (
+        {def?.elevation !== undefined && !def.fixture && (!def.wallMount || ['ac-split', 'towel-rail', 'towel-radiator', 'wall-cabinet', 'range-hood'].includes(sym.type)) && (
           <Field label="Above the floor">
             {(id) => (
               <LengthInput

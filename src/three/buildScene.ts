@@ -7,7 +7,7 @@ import { SYMBOL_MAP } from '@/model/symbols'
 import type { PlanTheme } from '@/model/theme'
 import type { Floor, Point, Project, Room, Selection, Surface } from '@/model/types'
 import { startsAtFloor, wallBands, wallSurfaceAt } from '@/model/finishes'
-import { cutsFor, nicheDepth, wallBehind, wallOpenings, wallPatches } from '@/model/walls'
+import { cutsFor, nicheDepth, roomFaces, wallBehind, wallOpenings, wallPatches } from '@/model/walls'
 import type { Opening } from '@/model/walls'
 import { readyImage } from '@/lib/images'
 import { cabinetLeds, COLORS, Materials, personModel, railingModel, symbolModel } from './furniture'
@@ -115,34 +115,26 @@ function rectGeo(o: THREE.Vector3, u: THREE.Vector3, v: THREE.Vector3, lu: numbe
   return geo
 }
 
-/** Skirting boards along the inside of a room's walls, broken at doorways. */
-function skirting(room: Room, openings: Opening[], base: number): THREE.BufferGeometry[] {
-  const pts = room.points
-  const n = pts.length
-  const sa = signedArea(pts)
+/** Skirting boards along the inside of a room's walls (and any other's standing into it), broken at doorways. */
+function skirting(room: Room, rooms: Room[], openings: Opening[], base: number): THREE.BufferGeometry[] {
   const H = 8
   const T = 1.2
   const geos: THREE.BufferGeometry[] = []
-  for (let i = 0; i < n; i++) {
-    const a = pts[i]
-    const b = pts[(i + 1) % n]
-    const L = dist(a, b)
-    if (L < 5 || startsAtFloor(wallSurfaceAt(room, i))) continue // tiles and slats come down to the floor
-    const dir = normalize(sub(b, a))
-    const inn = inwardNormal(a, b, sa)
+  for (const f of roomFaces(room, rooms)) {
+    if (f.s2 - f.s1 < 5 || startsAtFloor(wallSurfaceAt(room, f.edge))) continue // tiles and slats come down to the floor
     const piece = (s1: number, s2: number) => {
       if (s2 - s1 < 2) return
-      const p1 = add(a, mul(dir, s1))
-      const p2 = add(a, mul(dir, s2))
-      geos.push(prism([p1, p2, add(p2, mul(inn, T)), add(p1, mul(inn, T))], 0, H, base))
+      const p1 = add(f.a, mul(f.dir, s1))
+      const p2 = add(f.a, mul(f.dir, s2))
+      geos.push(prism([p1, p2, add(p2, mul(f.inward, T)), add(p1, mul(f.inward, T))], 0, H, base))
     }
-    let cur = 0
-    for (const c of cutsFor(openings, a, dir, mul(inn, -1), room.wallThickness, L)) {
+    let cur = f.s1
+    for (const c of cutsFor(openings, f.a, f.dir, mul(f.inward, -1), f.t, f.s2)) {
       if (c.bottom > 1) continue // windows don't reach the floor
       piece(cur, c.s1)
       cur = Math.max(cur, c.s2)
     }
-    piece(cur, L)
+    piece(cur, f.s2)
   }
   return geos
 }
@@ -269,7 +261,7 @@ export function buildProjectGroup(project: Project, opts: BuildOptions): THREE.G
 
     // Walls (merged per room so each room stays pickable), with skirting boards.
     const openings = wallOpenings(floor)
-    const skirts = floor.rooms.filter((r) => r.points.length >= 3 && !isOutdoor(r)).flatMap((r) => skirting(r, openings, floorBase))
+    const skirts = floor.rooms.filter((r) => r.points.length >= 3 && !isOutdoor(r)).flatMap((r) => skirting(r, floor.rooms, openings, floorBase))
     if (skirts.length) {
       const merged = mergeGeometries(skirts)
       skirts.forEach((g) => g.dispose())
@@ -339,7 +331,7 @@ export function buildProjectGroup(project: Project, opts: BuildOptions): THREE.G
       const pose = symbolPose(sym, floor.rooms)
       const hl = isSelected(sel, 'symbol', sym.id)
       // Curtains and blinds hang from the ceiling above them (up in a curtain pocket if there's one).
-      const hangs = sym.type === 'curtain' || sym.type === 'blind' || sym.type === 'ac-cassette' || sym.type === 'ac-slot'
+      const hangs = ['curtain', 'blind', 'ac-cassette', 'ac-slot', 'range-hood'].includes(sym.type)
       // People sit or lie on whatever they're on, at its height.
       const on = sym.type === 'person' ? personSupport(sym, floor.symbols) : null
       const obj =
@@ -407,6 +399,8 @@ export function buildProjectGroup(project: Project, opts: BuildOptions): THREE.G
       let elevation = def?.wall ? (sym.elevation ?? def.sill ?? 0) : (sym.elevation ?? 0)
       // A wall split air conditioner stays a hand's width under the ceiling there (a gypsum one may be lower).
       if (sym.type === 'ac-split') elevation = Math.max(0, Math.min(elevation, ceilingHeightAt(floor, pose) - sym.height - 10))
+      // A range hood stays under the ceiling.
+      if (sym.type === 'range-hood') elevation = Math.max(0, Math.min(elevation, ceilingHeightAt(floor, pose) - sym.height))
       obj.position.set(pose.x, floorBase + elevation, pose.y)
       obj.rotation.y = (-pose.rotation * Math.PI) / 180
       obj.scale.set(sym.flipX ? -1 : 1, 1, sym.flipY ? -1 : 1)

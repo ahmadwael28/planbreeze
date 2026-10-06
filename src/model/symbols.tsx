@@ -72,6 +72,8 @@ export interface ItemStyle {
   id: string
   name: string
   kind: 'Modern' | 'Classic' | 'Industrial'
+  /** How tall the item usually is in this style (cm): it's made that tall when the style is picked. */
+  height?: number
 }
 
 /** Pendant light styles; the first is the default. */
@@ -117,6 +119,23 @@ export const VANITY_FINISHES: FrameColor[] = [
   { name: 'Black', hex: '#2c2c2e' },
 ]
 
+/** Range hood styles: under a chimney up to the ceiling (against a wall or over an island), or built in. */
+export const HOOD_STYLES: ItemStyle[] = [
+  { id: 'pyramid', name: 'Pyramid chimney', kind: 'Modern', height: 45 },
+  { id: 'box', name: 'Slim chimney', kind: 'Modern', height: 8 },
+  { id: 'glass', name: 'Angled glass', kind: 'Modern', height: 40 },
+  { id: 'built-in', name: 'Under a cabinet', kind: 'Modern', height: 15 },
+  { id: 'island', name: 'Island', kind: 'Modern', height: 45 },
+  { id: 'mantel', name: 'Mantel', kind: 'Classic', height: 60 },
+]
+
+export const HOOD_FINISHES: FrameColor[] = [
+  { name: 'Steel', hex: '#c9ccd0' },
+  { name: 'Black', hex: '#2c2c2e' },
+  { name: 'White', hex: '#f4f3ef' },
+  { name: 'Cream', hex: '#ece4d4' },
+]
+
 /** Towel colors. */
 export const TOWELS: FrameColor[] = [
   { name: 'White', hex: '#f4f2ee' },
@@ -145,6 +164,7 @@ export const STYLES: Record<string, ItemStyle[]> = {
   'coffee-corner': COFFEE_STYLES,
   'dressing-table': DRESSING_STYLES,
   'bath-vanity': VANITY_STYLES,
+  'range-hood': HOOD_STYLES,
 }
 
 /** A dressing table's mirror: how wide and high, round or not, and the bottom of it above the table top (cm). */
@@ -1310,6 +1330,73 @@ export const SYMBOLS: SymbolDef[] = [
           ].map(([a, b]) => (
             <circle key={`${a}${b}`} cx={(a * w) / 4.5} cy={(b * d) / 4.5} r={Math.min(w, d) / 7} {...k.line} />
           ))}
+        </>
+      )
+    },
+  },
+  {
+    // Seen from above, drawn dashed: it's overhead, over the counter.
+    type: 'wall-cabinet',
+    name: 'Upper cabinet',
+    keywords: 'wall cabinet upper kitchen cupboard overhead glass open shelves',
+    category: 'Kitchen',
+    width: 80,
+    depth: 35,
+    height: 70,
+    elevation: 145,
+    wallMount: true,
+    frames: VANITY_FINISHES,
+    frameLabel: 'Finish',
+    render: (w, d, t, sym) => {
+      const k = kit(t)
+      const n = Math.max(1, Math.round(w / 50))
+      return (
+        <>
+          <rect x={-w / 2} y={-d / 2} width={w} height={d} {...k.s()} fillOpacity={0.5} strokeDasharray="6 4" />
+          {sym?.fronts !== 'open' &&
+            Array.from({ length: n - 1 }, (_, i) => {
+              const x = -w / 2 + (w * (i + 1)) / n
+              return <line key={i} x1={x} y1={d / 2 - 8} x2={x} y2={d / 2} {...k.thin} strokeDasharray="3 2" />
+            })}
+          {sym?.fronts === 'glass' && <line x1={-w / 2 + 3} y1={d / 2 - 2.5} x2={w / 2 - 3} y2={d / 2 - 2.5} {...k.thin} strokeDasharray="3 2" />}
+        </>
+      )
+    },
+  },
+  {
+    // Over the hob, drawn dashed; its chimney (the small box) goes up to the ceiling.
+    type: 'range-hood',
+    name: 'Range hood',
+    keywords: 'range hood extractor cooker hood chimney kitchen exhaust vent',
+    category: 'Kitchen',
+    width: 90,
+    depth: 50,
+    height: 45,
+    elevation: 155,
+    wallMount: true,
+    frames: HOOD_FINISHES,
+    frameLabel: 'Finish',
+    render: (w, d, t, sym) => {
+      const k = kit(t)
+      const style = sym ? styleOf(sym) : 'pyramid'
+      const cw = Math.min(w * 0.35, 30)
+      const cd = Math.min(d * 0.55, 26)
+      const cy = style === 'island' ? 0 : -d / 2 + cd / 2
+      const sloped = style === 'pyramid' || style === 'island' || style === 'mantel'
+      return (
+        <>
+          <rect x={-w / 2} y={-d / 2} width={w} height={d} rx={1.5} {...k.s()} fillOpacity={0.5} strokeDasharray="6 4" />
+          {sloped &&
+            [
+              [-1, -1],
+              [1, -1],
+              [1, 1],
+              [-1, 1],
+            ].map(([sx, sy]) => (
+              <line key={`${sx}${sy}`} x1={(sx * w) / 2} y1={(sy * d) / 2} x2={(sx * cw) / 2} y2={cy + (sy * cd) / 2} {...k.thin} />
+            ))}
+          {style !== 'built-in' && <rect x={-cw / 2} y={cy - cd / 2} width={cw} height={cd} {...k.s(t.fill2)} />}
+          {style === 'built-in' && <line x1={-w / 2 + 4} y1={d / 2 - 6} x2={w / 2 - 4} y2={d / 2 - 6} {...k.thin} />}
         </>
       )
     },

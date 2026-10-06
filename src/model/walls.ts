@@ -1,7 +1,8 @@
 /** Doors, windows and niches in walls, and the finishes on the walls around them. */
-import { add, dist, dot, inwardNormal, mul, normalize, pointInPolygon, projectOnSegment, signedArea, sub } from './geometry'
+import polygonClipping from 'polygon-clipping'
+import { add, area, bbox, dist, dot, inwardNormal, mul, normalize, pointInPolygon, projectOnSegment, signedArea, sub } from './geometry'
 import { wallBands, wallSurfaceAt } from './finishes'
-import { isOutdoor, symbolPose } from './project'
+import { isOutdoor, roomOuter, symbolPose } from './project'
 import { SYMBOL_MAP } from './symbols'
 import type { Floor, Point, Room, WallSurface } from './types'
 
@@ -93,13 +94,13 @@ export function cutsFor(openings: Opening[], a: Point, dir: Point, out: Point, t
     .sort((p, q) => p.s1 - q.s1)
 }
 
-/** The parts of a stretch of wall (0…L along, z0…z1 up) left around its openings, as [s1, s2, z0, z1]. */
-export function aroundCuts(cuts: Cut[], L: number, z0: number, z1: number): [number, number, number, number][] {
+/** The parts of a stretch of wall (`from`…L along, z0…z1 up) left around its openings, as [s1, s2, z0, z1]. */
+export function aroundCuts(cuts: Cut[], L: number, z0: number, z1: number, from = 0): [number, number, number, number][] {
   const out: [number, number, number, number][] = []
   const piece = (s1: number, s2: number, a: number, b: number) => {
     if (s2 - s1 >= 0.5 && b - a >= 0.5) out.push([s1, s2, a, b])
   }
-  let cur = 0
+  let cur = from
   for (const c of cuts) {
     if (c.s1 > cur) piece(cur, c.s1, z0, z1)
     const s1 = Math.max(c.s1, cur)
@@ -109,6 +110,100 @@ export function aroundCuts(cuts: Cut[], L: number, z0: number, z1: number): [num
   }
   piece(cur, L, z0, z1)
   return out
+}
+
+/**
+ * A stretch of wall seen from inside a room: part of the room's own wall, or of another room's wall standing into it
+ * (thicker than the gap between the rooms, rooms drawn touching or overlapping, a closet built in the room).
+ */
+export interface WallFace {
+  /** The room's wall it is, or stands in front of or nearest to: whose finish it takes. */
+  edge: number
+  /** It runs from s1 to s2 (cm) along `dir` from `a`, facing `inward`, into the room. */
+  a: Point
+  dir: Point
+  inward: Point
+  s1: number
+  s2: number
+  /** How thick the wall it's the face of is. */
+  t: number
+}
+
+/** How far in front of a room's wall another's can stand and still be finished like it, lined up with it (cm). */
+const IN_FRONT = 60
+
+/** The faces of the walls around a room, seen from inside it. */
+export function roomFaces(room: Room, rooms: Room[]): WallFace[] {
+  const pts = room.points
+  const sa = signedArea(pts)
+  const edges = pts.map((a, i) => {
+    const b = pts[(i + 1) % pts.length]
+    return { a, b, L: dist(a, b), dir: normalize(sub(b, a)), inward: inwardNormal(a, b, sa) }
+  })
+  const own = () =>
+    edges.flatMap((e, i): WallFace[] => (e.L < 0.5 ? [] : [{ edge: i, a: e.a, dir: e.dir, inward: e.inward, s1: 0, s2: e.L, t: room.wallThickness }]))
+  // What stands in the room: other rooms' walls, and smaller rooms themselves where they overlap it.
+  const box = bbox(pts)
+  const others = rooms
+    .filter((r) => r !== room && r.points.length >= 3 && !isOutdoor(r))
+    .map((r) => ({ r, outer: roomOuter(r) }))
+    .filter(({ outer }) => {
+      const b = bbox(outer)
+      return b.minX < box.maxX && b.maxX > box.minX && b.minY < box.maxY && b.maxY > box.minY
+    })
+  if (!others.length) return own()
+  const ring = (p: Point[]) => p.map((q) => [q.x, q.y] as [number, number])
+  const mine = area(pts)
+  let free: [number, number][][][]
+  try {
+    free = polygonClipping.difference(
+      [ring(pts)],
+      ...others.map(({ r, outer }) => (area(r.points) < mine ? [ring(outer)] : [ring(outer), ring(r.points)])),
+    )
+  } catch {
+    return own()
+  }
+  const rings = free.flatMap((poly) => poly.map((r, k) => ({ pts: r.slice(0, -1).map(([x, y]) => ({ x, y })), hole: k > 0 })))
+  const left = rings.reduce((s, r) => s + (r.hole ? -1 : 1) * area(r.pts), 0)
+  if (mine - left < 1) return own()
+
+  // The thickness of the wall right behind a face.
+  const behind = (p: Point) => others.find(({ outer }) => pointInPolygon(p, outer))?.r.wallThickness ?? room.wallThickness
+  const faces: WallFace[] = []
+  for (const r of rings) {
+    // The room is inside the outlines left, outside the holes in them.
+    const sr = signedArea(r.pts) * (r.hole ? -1 : 1)
+    r.pts.forEach((p, j) => {
+      const q = r.pts[(j + 1) % r.pts.length]
+      if (dist(p, q) < 0.5) return
+      const dir = normalize(sub(q, p))
+      const inward = inwardNormal(p, q, sr)
+      const m = mul(add(p, q), 0.5)
+      // Along one of the room's walls or in front of it, facing the same way: measured along that wall, so tiles line up.
+      let best: { i: number; off: number } | null = null
+      edges.forEach((e, i) => {
+        if (e.L < 0.5 || dot(inward, e.inward) < 0.999) return
+        const off = dot(sub(m, e.a), e.inward)
+        const s = dot(sub(m, e.a), e.dir)
+        if (off < -0.5 || off > IN_FRONT || s < -0.5 || s > e.L + 0.5) return
+        if (!best || off < best.off) best = { i, off }
+      })
+      const t = behind(sub(m, mul(inward, 0.5)))
+      if (best) {
+        const { i, off } = best as { i: number; off: number }
+        const e = edges[i]
+        const a = off < 0.5 ? e.a : add(e.a, mul(e.inward, off))
+        const s1 = dot(sub(p, a), e.dir)
+        const s2 = dot(sub(q, a), e.dir)
+        faces.push({ edge: i, a, dir: e.dir, inward: e.inward, s1: Math.min(s1, s2), s2: Math.max(s1, s2), t: off < 0.5 ? room.wallThickness : t })
+        return
+      }
+      // Any other face: finished like the room's nearest wall.
+      const near = edges.reduce((b, e, i) => (projectOnSegment(m, e.a, e.b).dist < projectOnSegment(m, edges[b].a, edges[b].b).dist ? i : b), 0)
+      faces.push({ edge: near, a: p, dir, inward, s1: 0, s2: dist(p, q), t })
+    })
+  }
+  return faces
 }
 
 /** One finished stretch of a room's wall: the finish, and the parts of it around doors and windows. */
@@ -128,23 +223,16 @@ export function wallPatches(floor: Floor, top: (room: Room) => number, openings 
   const out: WallPatch[] = []
   for (const room of floor.rooms) {
     if (room.points.length < 3 || isOutdoor(room) || (!room.walls && !room.wallFinishes)) continue
-    const pts = room.points
-    const sa = signedArea(pts)
-    pts.forEach((a, i) => {
-      const s = wallSurfaceAt(room, i)
-      if (!s) return
-      const b = pts[(i + 1) % pts.length]
-      const L = dist(a, b)
-      if (L < 1) return
-      const dir = normalize(sub(b, a))
-      const inward = inwardNormal(a, b, sa)
+    for (const f of roomFaces(room, floor.rooms)) {
+      const s = wallSurfaceAt(room, f.edge)
+      if (!s || f.s2 - f.s1 < 1) continue
       // A niche in the neighbor's side of the wall leaves this side whole.
-      const cuts = cutsFor(openings, a, dir, mul(inward, -1), room.wallThickness, L).filter((c) => c.side !== 'outer')
+      const cuts = cutsFor(openings, f.a, f.dir, mul(f.inward, -1), f.t, f.s2).filter((c) => c.side !== 'outer')
       for (const band of wallBands(s, top(room))) {
-        const parts = aroundCuts(cuts, L, band.z0, band.z1)
-        if (parts.length) out.push({ room, edge: i, surface: band.surface, a, dir, inward, parts })
+        const parts = aroundCuts(cuts, f.s2, band.z0, band.z1, f.s1)
+        if (parts.length) out.push({ room, edge: f.edge, surface: band.surface, a: f.a, dir: f.dir, inward: f.inward, parts })
       }
-    })
+    }
   }
   return out
 }

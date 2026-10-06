@@ -824,7 +824,7 @@ function front(
   z: number,
   color: string,
   pull: 'bar' | 'post' | 'knob' | 'none',
-  pullAt: 'top' | 'middle' | 'side' = 'top',
+  pullAt: 'top' | 'middle' | 'side' | 'bottom' = 'top',
   side = 1,
 ) {
   g.add(rbox(w, h, 1.8, 0.5, x, y, z, k.q(color, 'satin')))
@@ -832,7 +832,7 @@ function front(
   const hz = z + 1.6
   const metal = k.q(COLORS.chrome, 'chrome')
   if (pull === 'knob') g.add(mesh(new THREE.SphereGeometry(1.4, 12, 8), metal).translateX(x).translateY(y + h / 2).translateZ(hz))
-  else if (pull === 'bar') g.add(box(Math.min(w * 0.5, 30), 1.2, 1.4, x, pullAt === 'top' ? y + h - 7 : y + h / 2, hz, metal))
+  else if (pull === 'bar') g.add(box(Math.min(w * 0.5, 30), 1.2, 1.4, x, pullAt === 'top' ? y + h - 7 : pullAt === 'bottom' ? y + 5 : y + h / 2, hz, metal))
   else g.add(box(1.2, Math.min(h * 0.4, 34), 1.4, pullAt === 'side' ? x + side * (w / 2 - 5) : x, y + h / 2 - Math.min(h * 0.2, 17), hz, metal))
 }
 
@@ -1202,6 +1202,16 @@ export interface CabinetLeds {
 
 export function cabinetLeds(sym: PlanSymbol): CabinetLeds | null {
   const { width: w, depth: d, height: h } = sym
+  if (sym.type === 'wall-cabinet') {
+    // Under it, along the front, lighting the counter.
+    return { strips: [{ x: 0, y: -0.4, z: d / 2 - 5, len: w - 6, axis: 'x' }], spots: [{ x: 0, y: -1, z: d / 2 - 8, angle: 1.3, intensity: 4 }] }
+  }
+  if (sym.type === 'range-hood') {
+    // Lamps under the canopy, lighting the hob.
+    const xs = w >= 80 ? [-w / 4, w / 4] : [0]
+    const z = styleOf(sym) === 'built-in' ? d / 2 - 8 : d / 6
+    return { strips: xs.map((x) => ({ x, y: -0.5, z, len: 5, axis: 'x' as const })), spots: xs.map((x) => ({ x, y: -1, z, angle: 0.9, intensity: 3 })) }
+  }
   if (sym.type === 'shower-niche') {
     // Along the top of the recess, lighting what stands in it.
     const r = nicheDepth(d)
@@ -1966,6 +1976,110 @@ function towelRadiator(k: Kit, sym: PlanSymbol, w: number, d: number, h: number)
   return g
 }
 
+/** A kitchen upper cabinet: solid doors with pulls along their bottom, or glass doors or open shelves with crockery. */
+function wallCabinet(k: Kit, sym: PlanSymbol, w: number, d: number, h: number) {
+  const g = new THREE.Group()
+  const color = frameOf(sym)?.hex ?? '#f4f3ef'
+  const body = k.q(color, ['#c19a6b', '#6e4b33'].includes(color.toLowerCase()) ? 'wood' : 'satin')
+  const t = 1.8
+  const n = Math.max(1, Math.round(w / 50))
+  const dw = w / n
+  if (!sym.fronts) {
+    g.add(rbox(w, h, d - 2, 0.5, 0, 0, -1, body))
+    for (let i = 0; i < n; i++) front(k, g, dw - 0.6, h - 0.6, -w / 2 + dw * (i + 0.5), 0.3, d / 2 - 1, color, 'bar', 'bottom')
+    return g
+  }
+  // Back, sides, top and bottom, shelves of cups, glasses and jars.
+  g.add(box(w, h, t, 0, 0, -d / 2 + t / 2, body))
+  for (const s of [-1, 1]) g.add(box(t, h, d - 2, s * (w / 2 - t / 2), 0, -1, body))
+  for (const y of [0, h - t]) g.add(box(w, t, d - 2, 0, y, -1, body))
+  const rand = random(sym.id)
+  const levels = Math.max(1, Math.round((h - 2 * t) / 30))
+  const gap = (h - 2 * t) / levels
+  for (let i = 0; i < levels; i++) {
+    const y = t + i * gap
+    if (i > 0) g.add(box(w - 2 * t, t, d - 4, 0, y - t, -1.5, body))
+    cupsAndJars(k, g, rand, -w / 2 + t + 2, w / 2 - t - 12, y, -1.5)
+  }
+  if (sym.fronts === 'glass') {
+    for (let i = 0; i < n; i++) {
+      const x = -w / 2 + dw * (i + 0.5)
+      const fw = dw - 0.6
+      const z = d / 2 - 1
+      for (const s of [-1, 1]) g.add(box(4, h - 0.6, 1.8, x + s * (fw / 2 - 2), 0.3, z, body))
+      for (const y of [0.3, h - 4.3]) g.add(box(fw - 8, 4, 1.8, x, y, z, body))
+      g.add(box(fw - 8, h - 8.6, 0.4, x, 4.3, z, k.glass()))
+      g.add(box(Math.min(fw * 0.5, 30), 1.2, 1.4, x, 5, z + 1.6, k.q(COLORS.chrome, 'chrome')))
+    }
+  }
+  return g
+}
+
+/** A box tapering from w × d at its bottom to tw × td at its top, h up from y, the top's middle at z = tz. */
+function frustum(w: number, d: number, tw: number, td: number, h: number, tz: number, y: number, mat: THREE.Material) {
+  const geo = new THREE.BoxGeometry(1, 1, 1)
+  const p = geo.attributes.position
+  for (let i = 0; i < p.count; i++) {
+    const top = p.getY(i) > 0
+    p.setXYZ(i, p.getX(i) * (top ? tw : w), top ? h : 0, top ? tz + p.getZ(i) * td : p.getZ(i) * d)
+  }
+  geo.computeVertexNormals()
+  return mesh(geo, mat).translateY(y)
+}
+
+/**
+ * A range hood, its bottom at the item's elevation, in one of HOOD_STYLES: its chimney goes on up to the ceiling,
+ * `above` cm over its top, unless it's built in under a cabinet. Grease filters underneath.
+ */
+function rangeHood(k: Kit, sym: PlanSymbol, w: number, d: number, h: number, above: number) {
+  const g = new THREE.Group()
+  const color = frameOf(sym)?.hex ?? '#c9ccd0'
+  const body = k.q(color, color.toLowerCase() === '#c9ccd0' ? 'metal' : 'satin')
+  const style = styleOf(sym)
+  const cw = Math.min(w * 0.35, 30)
+  const cd = Math.min(d * 0.55, 26)
+  const cz = style === 'island' ? 0 : -d / 2 + cd / 2
+  g.add(box(w - 6, 0.4, d - 6, 0, -0.2, 0, k.q('#52525b', 'metal'))) // filters
+  switch (style) {
+    case 'built-in':
+      g.add(rbox(w, h, d, 0.5, 0, 0, 0, body))
+      g.add(box(w - 2, 3.5, 1.2, 0, 0.3, d / 2 + 0.4, k.q('#a1a1aa', 'metal'))) // pull-out visor
+      return g
+    case 'box':
+      g.add(rbox(w, h, d, 0.5, 0, 0, 0, body))
+      break
+    case 'glass': {
+      // A slim steel base, the motor housing at the back, a glass canopy sloping up from the front to it.
+      g.add(rbox(w, 5, d, 0.5, 0, 0, 0, body))
+      g.add(box(cw + 6, h - 5, cd, 0, 5, cz, body))
+      const run = d - cd
+      const rise = h - 5
+      const glass = mesh(new THREE.BoxGeometry(w - 2, Math.hypot(run, rise), 0.8), k.glass())
+      glass.position.set(0, 5 + rise / 2, d / 2 - run / 2)
+      glass.rotation.x = -Math.atan2(run, rise)
+      g.add(glass)
+      break
+    }
+    case 'mantel': {
+      // A painted canopy with a lip and a cornice, a chimney breast above it.
+      const bw = w * 0.72
+      const bd = d * 0.62
+      const bz = -d / 2 + bd / 2
+      g.add(rbox(w + 2, 8, d + 1, 0.8, 0, 0, 0.5, body))
+      g.add(frustum(w, d, bw, bd, h - 14, bz, 8, body))
+      g.add(rbox(bw + 4, 6, bd + 2.5, 0.8, 0, h - 6, bz + 1.25, body))
+      if (above > 1) g.add(box(bw, above, bd, 0, h, bz, body))
+      return g
+    }
+    default:
+      // Pyramid, against the wall or over an island: a lip, then sloping up to the chimney.
+      g.add(box(w, 5, d, 0, 0, 0, body))
+      g.add(frustum(w, d, cw, cd, h - 5, cz, 5, body))
+  }
+  if (above > 1) g.add(box(cw, above, cd, 0, h, cz, body))
+  return g
+}
+
 function plant(k: Kit, sym: PlanSymbol, w: number, h: number) {
   const g = new THREE.Group()
   const rand = random(sym.id)
@@ -2460,6 +2574,12 @@ export function symbolModel(
       break
     case 'towel-radiator':
       g = towelRadiator(k, sym, w, d, h)
+      break
+    case 'wall-cabinet':
+      g = wallCabinet(k, sym, w, d, h)
+      break
+    case 'range-hood':
+      g = rangeHood(k, sym, w, d, h, ceilingH - (sym.elevation ?? 155) - h)
       break
     case 'counter':
       g = kitchen(k, w, d, h, {})

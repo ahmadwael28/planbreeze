@@ -68,6 +68,8 @@ const RULES: Record<string, Rules> = {
   'shower-niche': { width: [15, 150], height: [20, 150] },
   'towel-rail': { width: [30, 120], depth: [6, 15], height: [3, 10] },
   'towel-radiator': { width: [35, 80], depth: [6, 15], height: [50, 180] },
+  'wall-cabinet': { width: [30, 150], depth: [25, 45], height: [30, 110] },
+  'range-hood': { width: [50, 150], depth: [30, 70], height: [5, 90] },
   toilet: { width: [35, 50], depth: [45, 75], height: [35, 110] },
   washbasin: { width: [30, 200], depth: [30, 60], height: [60, 100] },
   bathtub: { width: [120, 200], depth: [60, 100], height: [40, 70] },

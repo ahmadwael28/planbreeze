@@ -228,6 +228,8 @@ export interface PlanSymbol {
   onFloor?: boolean
   /** Bathroom vanities: what's above them, a mirror cabinet (default), a mirror or nothing. */
   mirror?: 'cabinet' | 'plain' | 'none'
+  /** Kitchen upper cabinets: glass doors or open shelves instead of solid doors. */
+  fronts?: 'glass' | 'open'
   /** People: standing (default), sitting or lying down (see model/people). */
   pose?: 'stand' | 'sit' | 'lie'
 }
