@@ -316,7 +316,7 @@ export function buildProjectGroup(project: Project, opts: BuildOptions): THREE.G
       const pose = symbolPose(sym, floor.rooms)
       const hl = isSelected(sel, 'symbol', sym.id)
       // Curtains and blinds hang from the ceiling above them (up in a curtain pocket if there's one).
-      const hangs = sym.type === 'curtain' || sym.type === 'blind'
+      const hangs = sym.type === 'curtain' || sym.type === 'blind' || sym.type === 'ac-cassette' || sym.type === 'ac-slot'
       // People sit or lie on whatever they're on, at its height.
       const on = sym.type === 'person' ? personSupport(sym, floor.symbols) : null
       const obj =
@@ -345,7 +345,9 @@ export function buildProjectGroup(project: Project, opts: BuildOptions): THREE.G
           })
         }
       }
-      const elevation = def?.wall ? (sym.elevation ?? def.sill ?? 0) : (sym.elevation ?? 0)
+      let elevation = def?.wall ? (sym.elevation ?? def.sill ?? 0) : (sym.elevation ?? 0)
+      // A wall split air conditioner stays a hand's width under the ceiling there (a gypsum one may be lower).
+      if (sym.type === 'ac-split') elevation = Math.max(0, Math.min(elevation, ceilingHeightAt(floor, pose) - sym.height - 10))
       obj.position.set(pose.x, floorBase + elevation, pose.y)
       obj.rotation.y = (-pose.rotation * Math.PI) / 180
       obj.scale.set(sym.flipX ? -1 : 1, 1, sym.flipY ? -1 : 1)

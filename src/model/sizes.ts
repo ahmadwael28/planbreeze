@@ -50,12 +50,19 @@ const RULES: Record<string, Rules> = {
   wardrobe: { width: [40, 600], depth: [40, 80], height: [150, 300] },
   'wardrobe-corner': { width: [100, 500], depth: [100, 500], height: [150, 300] },
   nightstand: { width: [30, 80], depth: [25, 60], height: [35, 80] },
+  'dressing-table': { width: [70, 180], depth: [35, 60], height: [70, 82] },
   desk: { width: [60, 300], depth: [40, 100], height: [65, 110] },
   // Kitchen
   counter: { width: [30, 1000], depth: [30, 150], height: [70, 110] },
   'kitchen-sink': { width: [40, 200], depth: [40, 120], height: [70, 110] },
   stove: { width: [45, 120], depth: [50, 70], height: [80, 100] },
   fridge: { width: [50, 120], depth: [55, 90], height: [80, 220] },
+  // Air conditioning
+  'ac-split': { width: [60, 130], depth: [17, 32], height: [24, 36] },
+  'ac-cassette': { width: [55, 100], depth: [55, 100], height: [20, 35] },
+  'ac-slot': { width: [40, 400], depth: [6, 30] },
+  'ac-floor': { width: [35, 65], depth: [22, 45], height: [140, 200] },
+  'ac-outdoor': { width: [60, 110], depth: [25, 45], height: [45, 110] },
   // Bathroom
   toilet: { width: [35, 50], depth: [45, 75], height: [35, 110] },
   washbasin: { width: [30, 200], depth: [30, 60], height: [60, 100] },

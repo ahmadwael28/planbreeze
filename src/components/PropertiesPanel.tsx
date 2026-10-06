@@ -1071,6 +1071,25 @@ function SymbolProps({ sym, units }: { sym: PlanSymbol; units: Units }) {
           </Field>
         )}
         {(sym.type === 'curtain' || sym.type === 'blind') && <FabricControls sym={sym} />}
+        {sym.type === 'dressing-table' && (
+          <div className="space-y-3 rounded-lg bg-muted/60 p-3">
+            <label className="flex items-center justify-between gap-2 text-sm">
+              <span>Stool</span>
+              <Switch
+                size="sm"
+                checked={sym.stool !== false}
+                onCheckedChange={(on) => updateSymbol(sym.id, (s) => void (on ? delete s.stool : (s.stool = false)))}
+              />
+            </label>
+            <label className="flex items-center justify-between gap-2 text-sm">
+              <span className="flex items-center gap-1.5">
+                <Lightbulb className="size-4" /> {styleOf(sym) === 'hollywood' ? 'Bulbs lit' : 'Mirror light'}
+              </span>
+              <Switch size="sm" checked={!!sym.led} onCheckedChange={(on) => updateSymbol(sym.id, (s) => void (s.led = on || undefined))} />
+            </label>
+            {sym.led && <LightSection sym={sym} units={units} />}
+          </div>
+        )}
         {CABINETS.has(sym.type) && (
           <div className="space-y-3 rounded-lg bg-muted/60 p-3">
             {sym.type !== 'coffee-corner' && (
@@ -1102,7 +1121,7 @@ function SymbolProps({ sym, units }: { sym: PlanSymbol; units: Units }) {
             )}
           </Field>
         )}
-        {def?.elevation !== undefined && !def.fixture && !def.wallMount && (
+        {def?.elevation !== undefined && !def.fixture && (!def.wallMount || sym.type === 'ac-split') && (
           <Field label="Above the floor">
             {(id) => (
               <LengthInput

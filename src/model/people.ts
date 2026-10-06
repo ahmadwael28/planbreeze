@@ -36,6 +36,7 @@ const HOLDS: Record<string, { name: string; sit?: number | 'top'; lie?: number |
   'bed-double': { name: 'bed', sit: 'top', lie: 'top' },
   'bed-single': { name: 'bed', sit: 'top', lie: 'top' },
   toilet: { name: 'toilet', sit: 44 },
+  'dressing-table': { name: 'dressing table stool', sit: 46 },
 }
 
 /** Where a person settles on something: what it is, how high they are off the floor, and their pose in the plan. */
@@ -67,6 +68,10 @@ function settle(item: PlanSymbol, pose: 'sit' | 'lie', l: Point, face: Point, H:
       return { at: { x: 0, y: -d / 2 + 5 + D / 2 }, dir: { x: 0, y: 1 } }
     case 'toilet':
       return { at: { x: 0, y: -d / 2 + Math.min(20, d * 0.3) + 2 + D / 2 }, dir: { x: 0, y: 1 } }
+    case 'dressing-table':
+      // On its stool, facing the mirror, knees under the table.
+      if (item.stool === false) return null
+      return { at: { x: 0, y: d / 2 + 6 + 14 - D / 2 }, dir: { x: 0, y: -1 } }
     case 'armchair':
     case 'sofa': {
       // As the 3D model has it: its back, back cushions (about 12 cm out from the back) and seat cushions.

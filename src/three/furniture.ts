@@ -15,7 +15,7 @@ import { inwardNormal, signedArea } from '@/model/geometry'
 import { openSides } from '@/model/guides'
 import type { Side } from '@/model/guides'
 import { personLook, restOn } from '@/model/people'
-import { chairsAlong, cornerArm, curtainLayers, curtainPanels, frameOf, hasGlass, panelWidth, seatsAlong, SOFA, startsShut, styleOf } from '@/model/symbols'
+import { chairsAlong, cornerArm, curtainLayers, curtainPanels, frameOf, hasGlass, panelWidth, seatsAlong, SOFA, startsShut, styleOf, vanityMirror } from '@/model/symbols'
 import type { PlanSymbol, Point, Room } from '@/model/types'
 
 export const COLORS = {
@@ -523,6 +523,152 @@ function coffeeTable(k: Kit, w: number, d: number, h: number) {
   g.add(rbox(24, 2.5, 17, 0.4, -w * 0.2, h, 0, k.q(COLORS.books[1], 'satin')))
   g.add(rbox(21, 2, 15, 0.4, -w * 0.2 + 1, h + 2.5, 0.5, k.q(COLORS.books[6], 'satin')))
   g.add(lathe([[0, 0], [5, 0], [9, 6], [9.5, 6.5], [0.1, 1.2]], w * 0.2, h, 0, k.q(COLORS.ceramic, 'ceramic')))
+  return g
+}
+
+// ---------- Air conditioning ----------
+
+const AC_WHITE = '#f3f3f1'
+const AC_DARK = '#2b2d31'
+
+/** A disc facing the front (+z), r across, at (x, y, z). */
+function disc(r: number, depth: number, x: number, y: number, z: number, mat: Mat) {
+  const m = mesh(new THREE.CylinderGeometry(r, r, depth, 36), mat)
+  m.rotation.x = Math.PI / 2
+  m.position.set(x, y, z)
+  return m
+}
+
+/** A wall split unit: a rounded white casing, the outlet and its flap along the bottom front, a small display. */
+function acSplit(k: Kit, w: number, d: number, h: number) {
+  const g = new THREE.Group()
+  const white = k.q(AC_WHITE, 'satin')
+  const dark = k.q(AC_DARK, 'satin')
+  g.add(rbox(w, h, d, Math.min(7, h * 0.28), 0, 0, 0, white))
+  g.add(box(w - 12, h * 0.16, 1, 0, h * 0.06, d / 2 - 0.6, dark)) // outlet
+  const flap = box(w - 14, 0.8, 7, 0, h * 0.04, d / 2 - 1, white)
+  flap.rotation.x = 0.55
+  g.add(flap)
+  for (let i = 0; i < 6; i++) g.add(box(w - 16, 0.3, 0.7, 0, h - 0.2, -d / 2 + 4 + i * 2.2, dark)) // intake on top
+  g.add(box(9, 2.2, 0.4, w / 2 - 15, h * 0.52, d / 2 + 0.05, dark)) // display
+  g.add(box(0.9, 0.9, 0.3, w / 2 - 9, h * 0.52 + 0.65, d / 2 + 0.2, k.q('#38bdf8', 'gloss')))
+  return g
+}
+
+/** A ceiling cassette: a flush panel with an intake grille in the middle and an outlet slot along each side. */
+function acCassette(k: Kit, w: number, d: number, top: number) {
+  const g = new THREE.Group()
+  const white = k.q(AC_WHITE, 'satin')
+  const dark = k.q(AC_DARK, 'satin')
+  g.add(rbox(w, 3, d, 1, 0, top - 3, 0, white))
+  const gw = w * 0.5
+  const gd = d * 0.5
+  g.add(box(gw, 0.4, gd, 0, top - 3.3, 0, k.q('#e2e2df', 'satin')))
+  for (let i = 1; i < 8; i++) g.add(box(gw - 2, 0.2, 0.4, 0, top - 3.45, -gd / 2 + (gd * i) / 8, k.q('#c9c9c5', 'satin')))
+  const s = Math.min(w, d) * 0.36
+  for (const v of [-1, 1]) {
+    g.add(box(s, 0.5, 4, 0, top - 3.4, v * (d / 2 - 7), dark))
+    g.add(box(4, 0.5, s, v * (w / 2 - 7), top - 3.4, 0, dark))
+  }
+  return g
+}
+
+/** A linear slot diffuser of a ducted system: a white frame flush in the ceiling with two dark slots. */
+function acSlot(k: Kit, w: number, d: number, top: number) {
+  const g = new THREE.Group()
+  g.add(box(w, 1, d, 0, top - 1, 0, k.q(AC_WHITE, 'satin')))
+  for (const v of [-1, 1]) g.add(box(w - 4, 0.4, d * 0.22, 0, top - 1.2, (v * d) / 5, k.q(AC_DARK, 'satin')))
+  return g
+}
+
+/** A floor-standing unit: a tall slim casing, its vertical outlet up the front, a display, and a dark base. */
+function acFloor(k: Kit, w: number, d: number, h: number) {
+  const g = new THREE.Group()
+  const white = k.q(AC_WHITE, 'satin')
+  const dark = k.q(AC_DARK, 'satin')
+  g.add(box(w * 0.92, 5, d * 0.92, 0, 0, 0, dark))
+  g.add(rbox(w, h - 5, d, 5, 0, 5, 0, white))
+  g.add(rbox(w * 0.5, h * 0.36, 1.2, 0.5, 0, h * 0.56, d / 2 - 0.4, dark)) // outlet
+  for (let i = 0; i < 9; i++) g.add(box(0.5, h * 0.34, 1, -w * 0.22 + (w * 0.44 * i) / 8, h * 0.57, d / 2 + 0.1, white)) // louvres
+  g.add(box(w * 0.28, 4, 0.4, 0, h * 0.44, d / 2 + 0.05, dark)) // display
+  for (let i = 0; i < 10; i++) g.add(box(w * 0.7, 0.4, 0.6, 0, 12 + i * 2.2, d / 2 - 0.1, dark)) // intake at the bottom
+  return g
+}
+
+/** An outdoor unit: a grey casing with a fan behind a round grille, side vents and feet. */
+function acOutdoor(k: Kit, w: number, d: number, h: number) {
+  const g = new THREE.Group()
+  const casing = k.q('#d9dad6', 'satin')
+  const dark = k.q('#3a3c40', 'metal')
+  for (const sx of [-1, 1]) g.add(box(6, 4, d - 4, sx * (w / 2 - 8), 0, 0, dark)) // feet
+  g.add(rbox(w, h - 4, d, 1.5, 0, 4, 0, casing))
+  const r = Math.min(w * 0.3, (h - 4) * 0.4)
+  const cx = -w * 0.12
+  const cy = 4 + (h - 4) / 2
+  g.add(disc(r, 1, cx, cy, d / 2 - 0.3, dark))
+  for (let i = 1; i <= 4; i++) {
+    const ring = mesh(new THREE.TorusGeometry((r * i) / 4.4, 0.35, 6, 32), casing)
+    ring.position.set(cx, cy, d / 2 + 0.3)
+    g.add(ring)
+  }
+  g.add(box(r * 2, 0.6, 0.6, cx, cy - 0.3, d / 2 + 0.4, casing))
+  g.add(box(0.6, r * 2, 0.6, cx, cy - r, d / 2 + 0.4, casing))
+  for (let i = 0; i < 8; i++) g.add(box(w * 0.18, 0.5, 0.6, w / 2 - w * 0.14, 10 + i * ((h - 18) / 8), d / 2, dark)) // vents
+  return g
+}
+
+// ---------- Dressing table ----------
+
+/** A dressing table: drawers either side of a knee space, legs, its mirror (framed, round or ringed with bulbs) and stool. */
+function dressingTable(k: Kit, sym: PlanSymbol, w: number, d: number, h: number) {
+  const g = new THREE.Group()
+  const style = styleOf(sym)
+  const body = style === 'classic' ? k.q(COLORS.wood, 'wood') : k.q('#f2f0ea', 'satin')
+  const trim = style === 'classic' ? k.q(COLORS.woodDark, 'wood') : k.q('#c9a86a', 'metal')
+  const glass = k.q('#dbe6ec', 'gloss')
+  g.add(rbox(w, 3, d, 1, 0, h - 3, 0, body))
+  // Drawers either side, a shallow one over the knee space.
+  const dw = w * 0.3
+  for (const s of [-1, 1]) {
+    const x = s * (w / 2 - dw / 2)
+    g.add(rbox(dw, h * 0.45, d - 2, 1, x, h * 0.55 - 3, -1, body))
+    for (const y of [h * 0.55 + 1, h * 0.55 + h * 0.22]) {
+      g.add(box(dw - 4, h * 0.2, 0.8, x, y - 1, d / 2 - 1.5, body))
+      g.add(cylinder(0.9, 1.6, x, y + h * 0.09, d / 2, trim))
+    }
+    for (const sz of [-1, 1]) g.add(leg(x + s * (dw / 2 - 3), sz * (d / 2 - 4), h * 0.55 - 3, trim, 1.8, 1.3))
+  }
+  g.add(box(w - dw * 2, 10, d - 2, 0, h - 13, -1, body))
+  // The mirror on the back of the top.
+  const m = vanityMirror(sym)
+  const z = -d / 2 + 4
+  if (m.round) {
+    const r = m.w / 2
+    const ring = mesh(new THREE.TorusGeometry(r, 1.6, 10, 48), trim)
+    ring.position.set(0, h + m.bottom + r, z)
+    g.add(ring)
+    g.add(disc(r - 0.5, 0.6, 0, h + m.bottom + r, z, glass))
+    g.add(box(4, m.bottom + 2, 4, 0, h, z, trim)) // stand
+  } else {
+    g.add(rbox(m.w, m.h, 3, 1, 0, h + m.bottom, z - 1, style === 'hollywood' ? body : trim))
+    g.add(box(m.w - 6, m.h - 6, 0.5, 0, h + m.bottom + 3, z + 0.7, glass))
+    if (style === 'hollywood') {
+      // Bulbs up the sides and across the top.
+      const bulb = k.q('#fff7e6', 'gloss')
+      const n = 5
+      for (let i = 0; i < n; i++) {
+        const y = h + m.bottom + 8 + ((m.h - 16) * i) / (n - 1)
+        for (const s of [-1, 1]) g.add(blob(2.4, s * (m.w / 2 - 3), y, z + 2, bulb))
+      }
+      for (let i = 1; i < 4; i++) g.add(blob(2.4, -m.w / 2 + 3 + ((m.w - 6) * i) / 4, h + m.bottom + m.h - 3, z + 2, bulb))
+    }
+  }
+  // Its stool, tucked in.
+  if (sym.stool !== false) {
+    const sz = d / 2 + 6
+    g.add(cylinder(17, 8, 0, 38, sz, k.q(COLORS.accent2, 'fabric')))
+    for (const [sx, s2] of CORNERS) g.add(leg(sx * 11, sz + s2 * 11, 38, trim, 1.4, 1.1))
+  }
   return g
 }
 
@@ -1055,6 +1201,26 @@ export interface CabinetLeds {
 
 export function cabinetLeds(sym: PlanSymbol): CabinetLeds | null {
   const { width: w, depth: d, height: h } = sym
+  if (sym.type === 'dressing-table') {
+    // Around the mirror (its bulbs, for Hollywood style), lighting the face in front of it.
+    const m = vanityMirror(sym)
+    const z = -d / 2 + 6
+    const y0 = h + m.bottom
+    const spots = [{ x: 0, y: y0 + m.h * 0.6, z: z + 4, angle: 1.3, intensity: 3 }]
+    if (styleOf(sym) === 'hollywood') {
+      const strips: CabinetLeds['strips'] = []
+      for (let i = 0; i < 5; i++) for (const s of [-1, 1]) strips.push({ x: s * (m.w / 2 - 3), y: y0 + 8 + ((m.h - 16) * i) / 4, z: z + 1, len: 3, axis: 'x' })
+      return { strips, spots }
+    }
+    return {
+      strips: [
+        { x: 0, y: y0 + m.h + 0.5, z, len: m.w * (m.round ? 0.6 : 1), axis: 'x' },
+        { x: -m.w / 2 - 0.5, y: y0 + m.h / 2, z, len: m.h * (m.round ? 0.6 : 1), axis: 'y' },
+        { x: m.w / 2 + 0.5, y: y0 + m.h / 2, z, len: m.h * (m.round ? 0.6 : 1), axis: 'y' },
+      ],
+      spots,
+    }
+  }
   if (sym.type === 'display-cabinet') {
     // Profiles up the front corners of the vitrine and along under its top.
     const y0 = Math.min(85, h * 0.42) + 2.5
@@ -2016,6 +2182,24 @@ export function symbolModel(
       break
     case 'sofa-table':
       g = sofaTable(k, w, d, h)
+      break
+    case 'dressing-table':
+      g = dressingTable(k, sym, w, d, h)
+      break
+    case 'ac-split':
+      g = acSplit(k, w, d, h)
+      break
+    case 'ac-cassette':
+      g = acCassette(k, w, d, ceilingH)
+      break
+    case 'ac-slot':
+      g = acSlot(k, w, d, ceilingH)
+      break
+    case 'ac-floor':
+      g = acFloor(k, w, d, h)
+      break
+    case 'ac-outdoor':
+      g = acOutdoor(k, w, d, h)
       break
     case 'desk':
       g = desk(k, w, d, h)

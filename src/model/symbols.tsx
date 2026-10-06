@@ -102,11 +102,28 @@ export const COFFEE_STYLES: ItemStyle[] = [
   { id: 'cart', name: 'Bar cart', kind: 'Classic' },
 ]
 
+export const DRESSING_STYLES: ItemStyle[] = [
+  { id: 'classic', name: 'Framed mirror', kind: 'Classic' },
+  { id: 'round', name: 'Round mirror', kind: 'Modern' },
+  { id: 'hollywood', name: 'Hollywood bulbs', kind: 'Modern' },
+]
+
 /** Items that come in styles, and theirs (the first is the default). */
 export const STYLES: Record<string, ItemStyle[]> = {
   pendant: PENDANT_STYLES,
   chandelier: CHANDELIER_STYLES,
   'coffee-corner': COFFEE_STYLES,
+  'dressing-table': DRESSING_STYLES,
+}
+
+/** A dressing table's mirror: how wide and high, round or not, and the bottom of it above the table top (cm). */
+export function vanityMirror(sym: PlanSymbol) {
+  const style = styleOf(sym)
+  if (style === 'round') {
+    const r = Math.min(sym.width * 0.32, 38)
+    return { round: true, w: r * 2, h: r * 2, bottom: 8 }
+  }
+  return { round: false, w: Math.min(sym.width * (style === 'hollywood' ? 0.8 : 0.7), 110), h: style === 'hollywood' ? 72 : 80, bottom: 2 }
 }
 
 export const styleOf = (sym: PlanSymbol) => sym.style ?? STYLES[sym.type]?.[0].id
@@ -1150,6 +1167,28 @@ export const SYMBOLS: SymbolDef[] = [
     },
   },
   {
+    type: 'dressing-table',
+    name: 'Dressing table',
+    keywords: 'vanity makeup mirror dresser table stool',
+    category: 'Bedroom',
+    width: 110,
+    depth: 45,
+    height: 76,
+    render: (w, d, t, sym) => {
+      const k = kit(t)
+      const m = vanityMirror(sym ?? ({ type: 'dressing-table', width: w } as PlanSymbol))
+      return (
+        <>
+          {sym?.stool !== false && <circle cx={0} cy={d / 2 + 6} r={17} {...k.s(t.fill2)} />}
+          {k.box(w, d, 2)}
+          <line x1={-w / 2 + w * 0.32} y1={-d / 2 + 6} x2={-w / 2 + w * 0.32} y2={d / 2} {...k.thin} />
+          <line x1={w / 2 - w * 0.32} y1={-d / 2 + 6} x2={w / 2 - w * 0.32} y2={d / 2} {...k.thin} />
+          <rect x={-m.w / 2} y={-d / 2 + 1} width={m.w} height={4} rx={m.round ? 2 : 0.5} {...k.s(t.tint('#bae6fd'))} />
+        </>
+      )
+    },
+  },
+  {
     type: 'nightstand',
     name: 'Nightstand',
     category: 'Bedroom',
@@ -1370,6 +1409,116 @@ export const SYMBOLS: SymbolDef[] = [
   },
 
   // ---------- Electrical ----------
+  {
+    type: 'ac-split',
+    name: 'Wall AC',
+    keywords: 'ac aircon air conditioning conditioner split unit hvac cooling heating',
+    category: 'Electrical',
+    width: 90,
+    depth: 22,
+    height: 30,
+    wallMount: true,
+    elevation: 210,
+    render: (w, d, t) => {
+      const k = kit(t)
+      // The unit, and the air it blows into the room.
+      return (
+        <>
+          {k.box(w, d, 4)}
+          <line x1={-w / 2 + 6} y1={d / 2 - 5} x2={w / 2 - 6} y2={d / 2 - 5} {...k.thin} />
+          {[-0.3, 0, 0.3].map((f) => (
+            <line key={f} x1={f * w} y1={d / 2 + 4} x2={f * w * 1.6} y2={d / 2 + 34} {...k.thin} strokeDasharray="4 4" />
+          ))}
+        </>
+      )
+    },
+  },
+  {
+    type: 'ac-cassette',
+    name: 'Ceiling AC',
+    keywords: 'ac aircon air conditioning conditioner cassette ceiling 4 way hvac cooling',
+    category: 'Electrical',
+    width: 70,
+    depth: 70,
+    height: 25,
+    render: (w, d, t) => {
+      const k = kit(t)
+      const s = Math.min(w, d) * 0.36
+      return (
+        <>
+          {k.box(w, d, 3)}
+          <rect x={-w * 0.25} y={-d * 0.25} width={w * 0.5} height={d * 0.5} {...k.thin} />
+          {[-1, 1].map((v) => (
+            <g key={v}>
+              <rect x={-s / 2} y={v * (d / 2 - 7) - 2} width={s} height={4} {...k.s(t.fill2)} />
+              <rect x={v * (w / 2 - 7) - 2} y={-s / 2} width={4} height={s} {...k.s(t.fill2)} />
+            </g>
+          ))}
+        </>
+      )
+    },
+  },
+  {
+    type: 'ac-slot',
+    name: 'AC slot diffuser',
+    keywords: 'ac aircon air conditioning ducted concealed linear slot diffuser grille hvac',
+    category: 'Electrical',
+    width: 150,
+    depth: 12,
+    height: 5,
+    render: (w, d, t) => {
+      const k = kit(t)
+      return (
+        <>
+          {k.box(w, d, 1)}
+          {[-1, 1].map((v) => (
+            <line key={v} x1={-w / 2 + 3} y1={(v * d) / 5} x2={w / 2 - 3} y2={(v * d) / 5} {...k.line} />
+          ))}
+        </>
+      )
+    },
+  },
+  {
+    type: 'ac-floor',
+    name: 'Floor AC',
+    keywords: 'ac aircon air conditioning conditioner floor standing tower cabinet hvac cooling',
+    category: 'Electrical',
+    width: 50,
+    depth: 32,
+    height: 180,
+    render: (w, d, t) => {
+      const k = kit(t)
+      return (
+        <>
+          {k.box(w, d, 6)}
+          {[-0.25, 0, 0.25].map((f) => (
+            <line key={f} x1={f * w} y1={d / 2 - 2} x2={f * w} y2={d / 2 - 9} {...k.thin} />
+          ))}
+        </>
+      )
+    },
+  },
+  {
+    type: 'ac-outdoor',
+    name: 'Outdoor AC',
+    keywords: 'ac aircon air conditioning outdoor unit condenser compressor balcony hvac',
+    category: 'Electrical',
+    width: 85,
+    depth: 32,
+    height: 60,
+    render: (w, d, t) => {
+      const k = kit(t)
+      const r = Math.min(w * 0.3, d * 0.42)
+      return (
+        <>
+          {k.box(w, d, 2)}
+          <circle cx={-w * 0.12} cy={0} r={r} {...k.thin} />
+          <line x1={-w * 0.12 - r} y1={0} x2={-w * 0.12 + r} y2={0} {...k.thin} />
+          <line x1={-w * 0.12} y1={-r} x2={-w * 0.12} y2={r} {...k.thin} />
+        </>
+      )
+    },
+  },
   {
     type: 'outlet',
     name: 'Outlet',

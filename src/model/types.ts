@@ -216,6 +216,8 @@ export interface PlanSymbol {
   frame?: string
   /** Magnetic tracks: the modules clipped into them. */
   modules?: TrackModule[]
+  /** Dressing tables: with their stool (unless false). */
+  stool?: boolean
   /** People: standing (default), sitting or lying down (see model/people). */
   pose?: 'stand' | 'sit' | 'lie'
 }
