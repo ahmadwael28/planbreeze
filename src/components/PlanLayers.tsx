@@ -14,6 +14,7 @@ import {
 import { finishOf, surfaceLayout, wallSurfaceAt } from '@/model/finishes'
 import { ceilingLight, ceilingRoom, ceilingZones, coveRuns, nearestOnStrip, pocketWidth, SHADOW_GAP, WIRE_COLORS } from '@/model/lighting'
 import { dimensionPoints, isOutdoor, railingRuns, roomOuter, symbolPose } from '@/model/project'
+import { bottomUp } from '@/model/stacking'
 import { SYMBOL_MAP } from '@/model/symbols'
 import type { PlanTheme } from '@/model/theme'
 import { formatArea, formatLength } from '@/model/units'
@@ -545,11 +546,9 @@ export function PlanLayers({
   const fadedSet = new Set(faded)
   const fade = (s: PlanSymbol) => fadedSet.has(SYMBOL_MAP.get(s.type)?.category ?? '')
   const isFixture = (s: PlanSymbol) => !!SYMBOL_MAP.get(s.type)?.fixture
-  // People on top, sitting on what's under them.
-  const furniture = floor.symbols
-    .filter((s) => !s.wall && !isFixture(s) && s.type !== 'gypsum-box')
-    .sort((a, b) => Number(a.type === 'person') - Number(b.type === 'person'))
-  const fixtures = floor.symbols.filter((s) => isFixture(s) && !s.room)
+  // Seen from above, higher things are drawn over lower ones (a wall TV over the unit under it, people over their seats).
+  const furniture = bottomUp(floor.symbols.filter((s) => !s.wall && !isFixture(s) && s.type !== 'gypsum-box'), floor)
+  const fixtures = bottomUp(floor.symbols.filter((s) => isFixture(s) && !s.room), floor)
   const coves = floor.symbols.filter((s) => s.room)
   const boxes = floor.symbols.filter((s) => s.type === 'gypsum-box')
   const roomById = new Map(floor.rooms.map((r) => [r.id, r]))
