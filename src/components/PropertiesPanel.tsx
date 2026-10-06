@@ -1071,6 +1071,47 @@ function SymbolProps({ sym, units }: { sym: PlanSymbol; units: Units }) {
           </Field>
         )}
         {(sym.type === 'curtain' || sym.type === 'blind') && <FabricControls sym={sym} />}
+        {sym.type === 'bath-vanity' && (
+          <div className="space-y-3 rounded-lg bg-muted/60 p-3">
+            {sym.width >= 110 && (
+              <Choice
+                label="Sinks"
+                value={sym.sinks === 2 ? 'two' : 'one'}
+                onChange={(v) => updateSymbol(sym.id, (s) => void (v === 'two' ? (s.sinks = 2) : delete s.sinks))}
+                options={[
+                  { value: 'one', label: 'One' },
+                  { value: 'two', label: 'Two' },
+                ]}
+              />
+            )}
+            <Choice
+              label="Mounted"
+              value={sym.onFloor ? 'floor' : 'wall'}
+              onChange={(v) => updateSymbol(sym.id, (s) => void (v === 'floor' ? (s.onFloor = true) : delete s.onFloor))}
+              options={[
+                { value: 'wall', label: 'On the wall' },
+                { value: 'floor', label: 'On the floor' },
+              ]}
+            />
+            <Choice
+              label="Above it"
+              value={sym.mirror ?? 'cabinet'}
+              onChange={(v) => updateSymbol(sym.id, (s) => void (v === 'cabinet' ? delete s.mirror : (s.mirror = v)))}
+              options={[
+                { value: 'cabinet', label: 'Mirror cabinet' },
+                { value: 'plain', label: 'Mirror' },
+                { value: 'none', label: 'Nothing' },
+              ]}
+            />
+            <label className="flex items-center justify-between gap-2 text-sm">
+              <span className="flex items-center gap-1.5">
+                <Lightbulb className="size-4" /> {(sym.mirror ?? 'cabinet') === 'none' ? 'Light under it' : 'Mirror light'}
+              </span>
+              <Switch size="sm" checked={!!sym.led} onCheckedChange={(on) => updateSymbol(sym.id, (s) => void (s.led = on || undefined))} />
+            </label>
+            {sym.led && <LightSection sym={sym} units={units} />}
+          </div>
+        )}
         {sym.type === 'dressing-table' && (
           <div className="space-y-3 rounded-lg bg-muted/60 p-3">
             <label className="flex items-center justify-between gap-2 text-sm">

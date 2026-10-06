@@ -64,6 +64,7 @@ const RULES: Record<string, Rules> = {
   'ac-floor': { width: [35, 65], depth: [22, 45], height: [140, 200] },
   'ac-outdoor': { width: [60, 110], depth: [25, 45], height: [45, 110] },
   // Bathroom
+  'bath-vanity': { width: [40, 200], depth: [35, 60], height: [75, 95] },
   toilet: { width: [35, 50], depth: [45, 75], height: [35, 110] },
   washbasin: { width: [30, 200], depth: [30, 60], height: [60, 100] },
   bathtub: { width: [120, 200], depth: [60, 100], height: [40, 70] },

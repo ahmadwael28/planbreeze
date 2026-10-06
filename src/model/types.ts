@@ -218,6 +218,12 @@ export interface PlanSymbol {
   modules?: TrackModule[]
   /** Dressing tables: with their stool (unless false). */
   stool?: boolean
+  /** Bathroom vanities: one sink (default) or two. */
+  sinks?: number
+  /** Bathroom vanities: standing on the floor rather than hung on the wall. */
+  onFloor?: boolean
+  /** Bathroom vanities: what's above them, a mirror cabinet (default), a mirror or nothing. */
+  mirror?: 'cabinet' | 'plain' | 'none'
   /** People: standing (default), sitting or lying down (see model/people). */
   pose?: 'stand' | 'sit' | 'lie'
 }

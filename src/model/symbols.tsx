@@ -102,6 +102,27 @@ export const COFFEE_STYLES: ItemStyle[] = [
   { id: 'cart', name: 'Bar cart', kind: 'Classic' },
 ]
 
+export const VANITY_STYLES: ItemStyle[] = [
+  { id: 'integrated', name: 'Built-in basin', kind: 'Modern' },
+  { id: 'vessel', name: 'Bowl on top', kind: 'Modern' },
+]
+
+/** Finishes bathroom vanities come in. */
+export const VANITY_FINISHES: FrameColor[] = [
+  { name: 'White', hex: '#f4f3ef' },
+  { name: 'Oak', hex: '#c19a6b' },
+  { name: 'Walnut', hex: '#6e4b33' },
+  { name: 'Grey', hex: '#8d8f91' },
+  { name: 'Sage', hex: '#93a28a' },
+  { name: 'Black', hex: '#2c2c2e' },
+]
+
+/** A bathroom vanity's sinks: how many (two only on wide ones), where along it, and their size (cm). */
+export function vanitySinks(sym: Pick<PlanSymbol, 'width' | 'depth' | 'sinks'>) {
+  const n = sym.sinks === 2 && sym.width >= 110 ? 2 : 1
+  return { xs: n === 2 ? [-sym.width / 4, sym.width / 4] : [0], rx: Math.min((sym.width / n) * 0.32, 25), rz: Math.min(sym.depth * 0.3, 17), z: 2 }
+}
+
 export const DRESSING_STYLES: ItemStyle[] = [
   { id: 'classic', name: 'Framed mirror', kind: 'Classic' },
   { id: 'round', name: 'Round mirror', kind: 'Modern' },
@@ -114,6 +135,7 @@ export const STYLES: Record<string, ItemStyle[]> = {
   chandelier: CHANDELIER_STYLES,
   'coffee-corner': COFFEE_STYLES,
   'dressing-table': DRESSING_STYLES,
+  'bath-vanity': VANITY_STYLES,
 }
 
 /** A dressing table's mirror: how wide and high, round or not, and the bottom of it above the table top (cm). */
@@ -1336,6 +1358,34 @@ export const SYMBOLS: SymbolDef[] = [
           {k.box(w, d, 4)}
           <ellipse cx={0} cy={d * 0.06} rx={w * 0.36} ry={d * 0.3} {...k.s(t.fill2)} />
           <circle cx={0} cy={-d / 2 + 6} r={2.5} {...k.s(t.ink)} />
+        </>
+      )
+    },
+  },
+  {
+    type: 'bath-vanity',
+    name: 'Bathroom vanity',
+    keywords: 'vanity sink basin washbasin bathroom cabinet mirror cabinet double sink unit',
+    category: 'Bathroom',
+    width: 80,
+    depth: 48,
+    height: 85,
+    wallMount: true,
+    frames: VANITY_FINISHES,
+    frameLabel: 'Finish',
+    render: (w, d, t, sym) => {
+      const k = kit(t)
+      const s = vanitySinks({ width: w, depth: d, sinks: sym?.sinks })
+      return (
+        <>
+          {k.box(w, d, 2)}
+          {(sym?.mirror ?? 'cabinet') === 'cabinet' && <rect x={-w / 2 + 1} y={-d / 2 + 1} width={w - 2} height={14} {...k.thin} strokeDasharray="4 3" />}
+          {s.xs.map((x) => (
+            <g key={x}>
+              <ellipse cx={x} cy={s.z} rx={s.rx} ry={s.rz} {...k.s(t.fill2)} />
+              <circle cx={x} cy={s.z - s.rz - 4} r={2} {...k.s(t.ink)} />
+            </g>
+          ))}
         </>
       )
     },
