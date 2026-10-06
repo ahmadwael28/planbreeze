@@ -6,8 +6,8 @@ import { isOutdoor, railingRuns, roomOuter, symbolPose } from '@/model/project'
 import { SYMBOL_MAP } from '@/model/symbols'
 import type { PlanTheme } from '@/model/theme'
 import type { Floor, Point, Project, Room, Selection, Surface } from '@/model/types'
-import { FINISHES, startsAtFloor, wallSurfaceAt } from '@/model/finishes'
-import { cutsFor, wallOpenings, wallPatches } from '@/model/walls'
+import { startsAtFloor, wallBands, wallSurfaceAt } from '@/model/finishes'
+import { cutsFor, nicheDepth, wallBehind, wallOpenings, wallPatches } from '@/model/walls'
 import type { Opening } from '@/model/walls'
 import { readyImage } from '@/lib/images'
 import { cabinetLeds, COLORS, Materials, personModel, railingModel, symbolModel } from './furniture'
@@ -85,11 +85,34 @@ function roomWalls(room: Room, openings: Opening[], height: number, base: number
       const s1 = Math.max(c.s1, cur)
       piece(s1, c.s2, 0, Math.min(c.bottom, height))
       piece(s1, c.s2, Math.min(c.top, height), height)
+      // A niche goes only part way in: the rest of the wall stays, behind it (or in front, for the neighbor's wall).
+      if (c.recess && c.s2 - s1 >= 0.5 && Math.min(c.top, height) - c.bottom >= 0.5) {
+        const r = c.recess
+        const quad =
+          c.side === 'inner'
+            ? [add(inner(s1), mul(out, r)), add(inner(c.s2), mul(out, r)), outerAt(c.s2), outerAt(s1)]
+            : [inner(s1), inner(c.s2), sub(outerAt(c.s2), mul(out, r)), sub(outerAt(s1), mul(out, r))]
+        geos.push(prism(quad, c.bottom, Math.min(c.top, height), base))
+      }
       cur = Math.max(cur, c.s2)
     }
     piece(cur, L, 0, height)
   }
   return geos
+}
+
+/**
+ * A rectangle from corner o along u (lu long) and up v (lv), unit vectors in cm, facing u × v, with texture
+ * coordinates in cm from (u0, v0): for wall finishes on columns and in niches.
+ */
+function rectGeo(o: THREE.Vector3, u: THREE.Vector3, v: THREE.Vector3, lu: number, lv: number, u0 = 0, v0 = 0) {
+  const p = [o, o.clone().addScaledVector(u, lu), o.clone().addScaledVector(u, lu).addScaledVector(v, lv), o.clone().addScaledVector(v, lv)]
+  const geo = new THREE.BufferGeometry()
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(p.flatMap((q) => [q.x, q.y, q.z]), 3))
+  geo.setAttribute('uv', new THREE.Float32BufferAttribute([u0, v0, u0 + lu, v0, u0 + lu, v0 + lv, u0, v0 + lv], 2))
+  geo.setIndex([0, 1, 2, 0, 2, 3])
+  geo.computeVertexNormals()
+  return geo
 }
 
 /** Skirting boards along the inside of a room's walls, broken at doorways. */
@@ -334,15 +357,51 @@ export function buildProjectGroup(project: Project, opts: BuildOptions): THREE.G
               sym.type === 'curtain' ? washFor(pose) : undefined,
             )
       if (!obj.children.length) continue
-      // A column in a wall is painted like the walls of its room.
+      const up = new THREE.Vector3(0, 1, 0)
+      const v3 = (x: number, y: number, z: number) => new THREE.Vector3(x, y, z)
+      // A column in a wall is finished like the wall it's on (tiles to their height, paint, wallpaper…): its sides
+      // and front, the finish carrying on round it; no skirting where tiles come down to the floor.
       if (sym.type === 'wall-post') {
-        const near = (r: Room) => r.points.some((p, i) => projectOnSegment(pose, p, r.points[(i + 1) % r.points.length]).dist < Math.max(sym.width, sym.depth))
-        const room = floor.rooms.find((r) => pointInPolygon(pose, r.points)) ?? floor.rooms.find(near)
-        if (room?.walls && FINISHES[room.walls.finish].kind === 'paint') {
-          const paint = wallMat({ finish: 'paint', color: room.walls.color ?? FINISHES.paint.colors[0].hex })
-          obj.traverse((o) => {
-            if (o instanceof THREE.Mesh) o.material = paint
-          })
+        const at = wallBehind(pose, sym.depth, floor.rooms)
+        const s = at && wallSurfaceAt(at.room, at.edge)
+        if (s) {
+          const w = sym.width
+          const d = sym.depth
+          const faces = [
+            { o: v3(-w / 2 - 0.3, 0, -d / 2), n: v3(-1, 0, 0), len: d, u0: 0 },
+            { o: v3(-w / 2, 0, d / 2 + 0.3), n: v3(0, 0, 1), len: w, u0: d },
+            { o: v3(w / 2 + 0.3, 0, d / 2), n: v3(1, 0, 0), len: d, u0: d + w },
+          ]
+          for (const band of wallBands(s, floor.height)) {
+            for (const f of faces) {
+              const geo = rectGeo(f.o.clone().setY(band.z0), up.clone().cross(f.n), up, f.len, band.z1 - band.z0, f.u0, band.z0)
+              obj.add(mesh(geo, wallMat(band.surface)))
+            }
+          }
+          if (startsAtFloor(s)) obj.children.filter((o) => o.userData.skirt).forEach((o) => obj.remove(o))
+        }
+      }
+      // A shower niche is lined with the wall's finish (where the wall has one): its back, sides, top and sill.
+      if (sym.type === 'shower-niche' && sym.wall) {
+        const room = floor.rooms.find((r) => r.id === sym.wall!.roomId)
+        const s = room && wallSurfaceAt(room, sym.wall.edge)
+        if (s) {
+          const t = pose.wallThickness ?? sym.depth
+          const r = nicheDepth(t)
+          const w = sym.width
+          const h = sym.height
+          const sill = sym.elevation ?? def?.sill ?? 0
+          const band = wallBands(s, floor.height).find((b) => sill + h / 2 <= b.z1) ?? wallBands(s, floor.height)[0]
+          const mat = wallMat(band.surface)
+          const zb = t / 2 - r
+          const lining = [
+            rectGeo(v3(-w / 2, 0, zb + 0.3), v3(1, 0, 0), up, w, h, 0, sill),
+            rectGeo(v3(-w / 2, h - 0.3, zb), v3(1, 0, 0), v3(0, 0, 1), w, r),
+            rectGeo(v3(-w / 2, 0.3, t / 2), v3(1, 0, 0), v3(0, 0, -1), w, r),
+            rectGeo(v3(-w / 2 + 0.3, 0, t / 2), v3(0, 0, -1), up, r, h, 0, sill),
+            rectGeo(v3(w / 2 - 0.3, 0, zb), v3(0, 0, 1), up, r, h, 0, sill),
+          ]
+          for (const geo of lining) obj.add(mesh(geo, mat))
         }
       }
       let elevation = def?.wall ? (sym.elevation ?? def.sill ?? 0) : (sym.elevation ?? 0)

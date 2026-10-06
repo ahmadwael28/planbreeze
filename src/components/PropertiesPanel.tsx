@@ -1071,6 +1071,28 @@ function SymbolProps({ sym, units }: { sym: PlanSymbol; units: Units }) {
           </Field>
         )}
         {(sym.type === 'curtain' || sym.type === 'blind') && <FabricControls sym={sym} />}
+        {sym.type === 'shower-niche' && (
+          <div className="space-y-3 rounded-lg bg-muted/60 p-3">
+            <p className="text-xs text-muted-foreground">Recessed into the wall and lined with the wall's finish (its tiles, if it's tiled).</p>
+            <label className="flex items-center justify-between gap-2 text-sm">
+              <span>Glass shelf</span>
+              <Switch size="sm" checked={!!sym.shelf} onCheckedChange={(on) => updateSymbol(sym.id, (s) => void (s.shelf = on || undefined))} />
+            </label>
+            <label className="flex items-center justify-between gap-2 text-sm">
+              <span className="flex items-center gap-1.5">
+                <Lightbulb className="size-4" /> LED strip
+              </span>
+              <Switch size="sm" checked={!!sym.led} onCheckedChange={(on) => updateSymbol(sym.id, (s) => void (s.led = on || undefined))} />
+            </label>
+            {sym.led && <LightSection sym={sym} units={units} />}
+          </div>
+        )}
+        {(sym.type === 'towel-rail' || sym.type === 'towel-radiator') && (
+          <label className="flex items-center justify-between gap-2 text-sm">
+            <span className="text-muted-foreground">Towel on it</span>
+            <Switch size="sm" checked={sym.towel !== false} onCheckedChange={(on) => updateSymbol(sym.id, (s) => void (on ? delete s.towel : (s.towel = false)))} />
+          </label>
+        )}
         {sym.type === 'bath-vanity' && (
           <div className="space-y-3 rounded-lg bg-muted/60 p-3">
             {sym.width >= 110 && (
@@ -1162,7 +1184,7 @@ function SymbolProps({ sym, units }: { sym: PlanSymbol; units: Units }) {
             )}
           </Field>
         )}
-        {def?.elevation !== undefined && !def.fixture && (!def.wallMount || sym.type === 'ac-split') && (
+        {def?.elevation !== undefined && !def.fixture && (!def.wallMount || ['ac-split', 'towel-rail', 'towel-radiator'].includes(sym.type)) && (
           <Field label="Above the floor">
             {(id) => (
               <LengthInput

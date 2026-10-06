@@ -117,6 +117,15 @@ export const VANITY_FINISHES: FrameColor[] = [
   { name: 'Black', hex: '#2c2c2e' },
 ]
 
+/** Towel colors. */
+export const TOWELS: FrameColor[] = [
+  { name: 'White', hex: '#f4f2ee' },
+  { name: 'Grey', hex: '#9a9c9e' },
+  { name: 'Sage', hex: '#9fae98' },
+  { name: 'Sand', hex: '#d8c3a5' },
+  { name: 'Navy', hex: '#34435e' },
+]
+
 /** A bathroom vanity's sinks: how many (two only on wide ones), where along it, and their size (cm). */
 export function vanitySinks(sym: Pick<PlanSymbol, 'width' | 'depth' | 'sinks'>) {
   const n = sym.sinks === 2 && sym.width >= 110 ? 2 : 1
@@ -1386,6 +1395,79 @@ export const SYMBOLS: SymbolDef[] = [
               <circle cx={x} cy={s.z - s.rz - 4} r={2} {...k.s(t.ink)} />
             </g>
           ))}
+        </>
+      )
+    },
+  },
+  {
+    // A recess in the wall (tiled like it), with a sill; part of the wall's depth.
+    type: 'shower-niche',
+    name: 'Shower niche',
+    keywords: 'niche recess shelf shower bathroom alcove wall',
+    category: 'Bathroom',
+    width: 30,
+    depth: 10,
+    height: 60,
+    sill: 110,
+    wall: true,
+    render: (w, d, t, sym) => {
+      const k = kit(t)
+      const r = Math.max(2, Math.min(9, d - 3))
+      return (
+        <>
+          {k.opening(w, d)}
+          <rect x={-w / 2} y={-d / 2} width={w} height={d - r} fill={t.wall} stroke="none" />
+          <rect x={-w / 2} y={d / 2 - r} width={w} height={r} {...k.s()} />
+          {sym?.shelf && <line x1={-w / 2} y1={d / 2 - r / 2} x2={w / 2} y2={d / 2 - r / 2} {...k.thin} strokeDasharray="3 2" />}
+        </>
+      )
+    },
+  },
+  {
+    type: 'towel-rail',
+    name: 'Towel rail',
+    keywords: 'towel bar rail holder bathroom hook',
+    category: 'Bathroom',
+    width: 60,
+    depth: 10,
+    height: 6,
+    wallMount: true,
+    elevation: 110,
+    frames: TOWELS,
+    frameLabel: 'Towel',
+    render: (w, d, t) => {
+      const k = kit(t)
+      return (
+        <>
+          {[-1, 1].map((s) => (
+            <rect key={s} x={s * (w / 2 - 3) - 1.5} y={-d / 2} width={3} height={d - 2} {...k.s()} />
+          ))}
+          <rect x={-w / 2} y={d / 2 - 3} width={w} height={2.5} rx={1.2} {...k.s(t.fill2)} />
+        </>
+      )
+    },
+  },
+  {
+    type: 'towel-radiator',
+    name: 'Heated towel rail',
+    keywords: 'towel radiator ladder heated warmer rail bathroom',
+    category: 'Bathroom',
+    width: 50,
+    depth: 10,
+    height: 120,
+    wallMount: true,
+    elevation: 15,
+    frames: TOWELS,
+    frameLabel: 'Towel',
+    render: (w, d, t) => {
+      const k = kit(t)
+      return (
+        <>
+          <rect x={-w / 2} y={-d / 2 + 2} width={w} height={d - 2} rx={1.5} {...k.s()} />
+          {[-1, 1].map((s) => (
+            <circle key={s} cx={s * (w / 2 - 2)} cy={d / 2 - 3} r={1.8} {...k.s(t.fill2)} />
+          ))}
+          <line x1={-w / 2 + 2} y1={d / 2 - 3} x2={w / 2 - 2} y2={d / 2 - 3} {...k.line} />
         </>
       )
     },

@@ -15,6 +15,7 @@ import { inwardNormal, signedArea } from '@/model/geometry'
 import { openSides } from '@/model/guides'
 import type { Side } from '@/model/guides'
 import { personLook, restOn } from '@/model/people'
+import { nicheDepth } from '@/model/walls'
 import { chairsAlong, cornerArm, curtainLayers, curtainPanels, frameOf, hasGlass, panelWidth, seatsAlong, SOFA, startsShut, styleOf, vanityMirror, vanitySinks } from '@/model/symbols'
 import type { PlanSymbol, Point, Room } from '@/model/types'
 
@@ -1201,6 +1202,11 @@ export interface CabinetLeds {
 
 export function cabinetLeds(sym: PlanSymbol): CabinetLeds | null {
   const { width: w, depth: d, height: h } = sym
+  if (sym.type === 'shower-niche') {
+    // Along the top of the recess, lighting what stands in it.
+    const r = nicheDepth(d)
+    return { strips: [{ x: 0, y: h - 1.2, z: d / 2 - 1.5, len: w - 2, axis: 'x' }], spots: [{ x: 0, y: h - 2, z: d / 2 - r / 2, angle: 1.2, intensity: 2 }] }
+  }
   if (sym.type === 'bath-vanity') {
     // Under the mirror cabinet onto the basin, around a mirror, or (with nothing above) under a wall-hung vanity.
     const above = sym.mirror ?? 'cabinet'
@@ -1891,8 +1897,72 @@ function wallPost(k: Kit, w: number, d: number, floorH: number) {
   const g = new THREE.Group()
   g.add(box(w, floorH, d, 0, 0, 0, k.q(COLORS.wall)))
   const skirt = k.q(COLORS.white, 'satin')
-  g.add(box(w + 2.4, 8, 1.2, 0, 0, d / 2 + 0.6, skirt))
-  for (const s of [-1, 1]) g.add(box(1.2, 8, d, s * (w / 2 + 0.6), 0, 0, skirt))
+  // Its skirting (left off when its wall's tiles come down to the floor; see buildScene).
+  const skirts = [box(w + 2.4, 8, 1.2, 0, 0, d / 2 + 0.6, skirt), ...[-1, 1].map((s) => box(1.2, 8, d, s * (w / 2 + 0.6), 0, 0, skirt))]
+  for (const s of skirts) g.add(Object.assign(s, { userData: { skirt: true } }))
+  return g
+}
+
+/** A shower niche's own parts (the recess itself is cut into the wall): a stone sill, and a glass shelf if it has one. */
+function showerNiche(k: Kit, sym: PlanSymbol, w: number, h: number, wallT: number) {
+  const g = new THREE.Group()
+  const r = nicheDepth(wallT)
+  g.add(box(w + 1, 1.5, r + 1.5, 0, -1.2, wallT / 2 - r / 2 + 0.75, k.q(COLORS.stone, 'satin')))
+  if (sym.shelf) g.add(box(w - 0.6, 0.8, r - 0.6, 0, h / 2, wallT / 2 - r / 2, k.glass()))
+  return g
+}
+
+/** A towel rail: two posts from the wall and the bar, a towel folded over it. */
+function towelRail(k: Kit, sym: PlanSymbol, w: number, d: number, h: number) {
+  const g = new THREE.Group()
+  const chrome = k.q(COLORS.chrome, 'chrome')
+  const y = h / 2
+  for (const s of [-1, 1]) {
+    g.add(cylinder(2.2, 0.8, s * (w / 2 - 3), y, -d / 2 + 0.4, chrome))
+    g.add(box(1.4, 1.4, d - 2, s * (w / 2 - 3), y - 0.7, -d / 2 + (d - 2) / 2, chrome))
+  }
+  const bar = mesh(new THREE.CylinderGeometry(1, 1, w - 2, 16), chrome)
+  bar.rotation.z = Math.PI / 2
+  bar.position.set(0, y, d / 2 - 2)
+  g.add(bar)
+  if (sym.towel !== false) {
+    const towel = k.q(frameOf(sym)?.hex ?? '#f4f2ee', 'cloth')
+    const tw = Math.min(w - 12, 70)
+    const roll = mesh(new THREE.CylinderGeometry(2.2, 2.2, tw, 14), towel)
+    roll.rotation.z = Math.PI / 2
+    roll.position.set(0, y, d / 2 - 2)
+    g.add(roll)
+    for (const z of [-2.1, 2.1]) g.add(rbox(tw, 42, 1.2, 0.5, 0, y - 42, d / 2 - 2 + z, towel))
+  }
+  return g
+}
+
+/** A heated towel rail: a ladder of chrome rungs between two uprights, standing off the wall, a towel over it. */
+function towelRadiator(k: Kit, sym: PlanSymbol, w: number, d: number, h: number) {
+  const g = new THREE.Group()
+  const chrome = k.q(COLORS.chrome, 'chrome')
+  const z = d / 2 - 3
+  for (const s of [-1, 1]) {
+    g.add(cylinder(1.6, h, s * (w / 2 - 2), 0, z, chrome))
+    for (const y of [h * 0.12, h * 0.88]) g.add(box(1.2, 1.2, d - 3, s * (w / 2 - 2), y, -d / 2 + (d - 3) / 2, chrome))
+  }
+  const n = Math.max(4, Math.round(h / 8))
+  for (let i = 0; i < n; i++) {
+    const rung = mesh(new THREE.CylinderGeometry(1.1, 1.1, w - 4, 12), chrome)
+    rung.rotation.z = Math.PI / 2
+    rung.position.set(0, 4 + ((h - 8) * i) / (n - 1), z)
+    g.add(rung)
+  }
+  if (sym.towel !== false) {
+    const towel = k.q(frameOf(sym)?.hex ?? '#f4f2ee', 'cloth')
+    const tw = w - 8
+    const top = h * 0.72
+    for (const dz of [-2, 2.4]) g.add(rbox(tw, 34, 1.2, 0.5, 0, top - 34, z + dz, towel))
+    const fold = mesh(new THREE.CylinderGeometry(2.3, 2.3, tw, 14), towel)
+    fold.rotation.z = Math.PI / 2
+    fold.position.set(0, top, z + 0.2)
+    g.add(fold)
+  }
   return g
 }
 
@@ -2381,6 +2451,15 @@ export function symbolModel(
       break
     case 'bath-vanity':
       g = bathVanity(k, sym, w, d, h)
+      break
+    case 'shower-niche':
+      g = showerNiche(k, sym, w, h, wallT)
+      break
+    case 'towel-rail':
+      g = towelRail(k, sym, w, d, h)
+      break
+    case 'towel-radiator':
+      g = towelRadiator(k, sym, w, d, h)
       break
     case 'counter':
       g = kitchen(k, w, d, h, {})

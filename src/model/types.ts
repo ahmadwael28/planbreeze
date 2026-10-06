@@ -218,6 +218,10 @@ export interface PlanSymbol {
   modules?: TrackModule[]
   /** Dressing tables: with their stool (unless false). */
   stool?: boolean
+  /** Towel rails: with a towel on them (unless false). */
+  towel?: boolean
+  /** Shower niches: a glass shelf across the middle. */
+  shelf?: boolean
   /** Bathroom vanities: one sink (default) or two. */
   sinks?: number
   /** Bathroom vanities: standing on the floor rather than hung on the wall. */

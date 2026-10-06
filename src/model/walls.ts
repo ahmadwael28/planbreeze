@@ -1,5 +1,5 @@
-/** Doors and windows in walls, and the finishes on the walls around them. */
-import { add, dist, dot, inwardNormal, mul, normalize, signedArea, sub } from './geometry'
+/** Doors, windows and niches in walls, and the finishes on the walls around them. */
+import { add, dist, dot, inwardNormal, mul, normalize, pointInPolygon, projectOnSegment, signedArea, sub } from './geometry'
 import { wallBands, wallSurfaceAt } from './finishes'
 import { isOutdoor, symbolPose } from './project'
 import { SYMBOL_MAP } from './symbols'
@@ -11,6 +11,36 @@ export interface Opening {
   width: number
   bottom: number
   top: number
+  /** A niche: only this deep (cm), from the face of the wall toward `facing` (the room it's in). */
+  recess?: number
+  facing?: Point
+}
+
+/** How deep shower niches are recessed into their wall (cm), less in a thin wall. */
+export const NICHE_DEPTH = 9
+export const nicheDepth = (wallThickness: number) => Math.max(2, Math.min(NICHE_DEPTH, wallThickness - 3))
+
+/**
+ * The wall something stands against (a column in a wall): the room, and the edge nearest its back (the middle of its
+ * back side, `depth` behind its center in the plan).
+ */
+export function wallBehind(pose: { x: number; y: number; rotation: number }, depth: number, rooms: Room[]): { room: Room; edge: number } | null {
+  const r = (pose.rotation * Math.PI) / 180
+  const back = { x: pose.x + (depth / 2) * Math.sin(r), y: pose.y - (depth / 2) * Math.cos(r) }
+  let best: { room: Room; edge: number } | null = null
+  let bestD = Math.max(15, depth)
+  const inside = rooms.filter((room) => !isOutdoor(room) && pointInPolygon(pose, room.points))
+  for (const room of inside.length ? inside : rooms) {
+    room.points.forEach((a, i) => {
+      const b = room.points[(i + 1) % room.points.length]
+      const d = projectOnSegment(back, a, b).dist
+      if (d < bestD) {
+        bestD = d
+        best = { room, edge: i }
+      }
+    })
+  }
+  return best
 }
 
 /** Every door and window on the floor, as a hole in its wall. */
@@ -28,6 +58,10 @@ export function wallOpenings(floor: Floor): Opening[] {
       width: sym.width,
       bottom,
       top: bottom + sym.height,
+      ...(sym.type === 'shower-niche' && {
+        recess: nicheDepth(pose.wallThickness ?? sym.depth),
+        facing: { x: -Math.sin(r) * (sym.flipY ? -1 : 1), y: Math.cos(r) * (sym.flipY ? -1 : 1) },
+      }),
     })
   }
   return out
@@ -38,6 +72,9 @@ export interface Cut {
   s2: number
   bottom: number
   top: number
+  /** A niche this deep: in the wall's inner face (the room's side), or its outer face (the neighbor's). */
+  recess?: number
+  side?: 'inner' | 'outer'
 }
 
 /** Openings lying in the wall along a→b (including ones attached to an overlapping wall of a neighbor room). */
@@ -48,7 +85,9 @@ export function cutsFor(openings: Opening[], a: Point, dir: Point, out: Point, t
     .filter((o) => Math.abs(dot(sub(o.center, centerLine), out)) < t / 2 + 1)
     .map((o) => {
       const s = dot(sub(o.center, a), dir)
-      return { s1: Math.max(0, s - o.width / 2), s2: Math.min(L, s + o.width / 2), bottom: o.bottom, top: o.top }
+      const cut: Cut = { s1: Math.max(0, s - o.width / 2), s2: Math.min(L, s + o.width / 2), bottom: o.bottom, top: o.top }
+      if (o.recess) Object.assign(cut, { recess: o.recess, side: dot(o.facing!, out) < 0 ? 'inner' : 'outer' })
+      return cut
     })
     .filter((c) => c.s2 - c.s1 > 0.5)
     .sort((p, q) => p.s1 - q.s1)
@@ -99,7 +138,8 @@ export function wallPatches(floor: Floor, top: (room: Room) => number, openings 
       if (L < 1) return
       const dir = normalize(sub(b, a))
       const inward = inwardNormal(a, b, sa)
-      const cuts = cutsFor(openings, a, dir, mul(inward, -1), room.wallThickness, L)
+      // A niche in the neighbor's side of the wall leaves this side whole.
+      const cuts = cutsFor(openings, a, dir, mul(inward, -1), room.wallThickness, L).filter((c) => c.side !== 'outer')
       for (const band of wallBands(s, top(room))) {
         const parts = aroundCuts(cuts, L, band.z0, band.z1)
         if (parts.length) out.push({ room, edge: i, surface: band.surface, a, dir, inward, parts })
