@@ -7,7 +7,7 @@ import { area, bbox, dist, dot, labelPoint, offsetPolygon, pointInPolygon, signe
 import { newSymbol } from '../project'
 import { HOOD_STYLES, tvSize } from '../symbols'
 import type { Floor, PlanSymbol, Point, RoomUse } from '../types'
-import { againstWall, axes, facing, local, toLocal } from './geom'
+import { againstWall, axes, facing, local, overlaps, toLocal } from './geom'
 import type { Box } from './geom'
 import { facePoint } from './layout'
 import type { Analysis, Cand, Layout, Opening, Placed } from './layout'
@@ -66,7 +66,7 @@ function wallCands(
   d: number,
   z0: number,
   z1: number,
-  o: { clear?: number; clearW?: number; reach?: boolean; extra?: Partial<PlanSymbol>; step?: number } = {},
+  o: { clear?: number; clearW?: number; reach?: boolean; extra?: Partial<PlanSymbol>; step?: number; through?: Box[] } = {},
 ): SlotCand[] {
   return L.wallSlots(w, d, z0, z1, o.step ?? 10).map((sl) => ({
     sym: L.sym(type, sl.box, { width: w, depth: d, ...o.extra }),
@@ -76,6 +76,7 @@ function wallCands(
     snug: sl.snug,
     zones: o.clear ? [zone(sl.box, 0, d / 2 + o.clear / 2, o.clearW ?? w, o.clear)] : [],
     reach: o.reach ? [[before(sl.box)]] : [],
+    ...(o.through?.length && { through: o.through }),
   }))
 }
 
@@ -94,7 +95,7 @@ function anchor<C extends Cand>(L: Layout, cands: C[], score: (c: C) => number, 
   const values = new Map<C, number>()
   for (const c of cands) {
     const v = score(c)
-    if (v === -Infinity || !L.fits(c.box, c.zones)) continue
+    if (v === -Infinity || !L.fits(c.box, c.zones, c.through)) continue
     values.set(c, v)
     byFace.set(c.face ?? -1, [...(byFace.get(c.face ?? -1) ?? []), c])
   }
@@ -184,9 +185,13 @@ function desk(ctx: Ctx, w: number, d: number): Placed | null {
 /** A wardrobe of one of these lengths (longest first), with room to open it. */
 function wardrobe(ctx: Ctx, lengths: number[], score: (c: SlotCand) => number, extra: Partial<PlanSymbol> = {}) {
   const { L } = ctx
+  // Columns in the walls shallow enough to build a wardrobe round: a good place for one, as it hides them.
+  const around = L.shallowColumns(45)
+  const hides = (c: SlotCand) => (around.some((col) => overlaps(c.box, col)) ? 6 : 0)
   for (const len of lengths) {
     // Room to stand at it and open it; its ends can meet another wardrobe in a corner.
-    const got = L.tryPlace(wallCands(L, 'wardrobe', len, 60, 0, 225, { clear: 70, clearW: Math.max(40, len - 120), reach: true, extra }), score)
+    const cands = wallCands(L, 'wardrobe', len, 60, 0, 225, { clear: 70, clearW: Math.max(40, len - 120), reach: true, extra, through: around })
+    const got = L.tryPlace(cands, (c) => score(c) + hides(c))
     if (got) return got
   }
   return null
@@ -997,7 +1002,7 @@ function hall(ctx: Ctx) {
   const entry = an.entry && doorPoint(an, an.entry)
   const outer = an.doors.find((o) => !o.to)
   const front = outer ? doorPoint(an, outer) : entry
-  L.tryPlace(wallCands(L, 'wardrobe', 100, 60, 0, 225, { clear: 90, reach: true }), (c) => (front ? -dist(c.box, front) / 20 : 0))
+  L.tryPlace(wallCands(L, 'wardrobe', 100, 60, 0, 225, { clear: 90, reach: true, through: L.shallowColumns(45) }), (c) => (front ? -dist(c.box, front) / 20 : 0))
   L.tryPlace(wallCands(L, 'sideboard', 120, 40, 0, 85, { clear: 90 }), (c) => faceLen(an, c.face!) / 50 - (front ? dist(c.box, front) / 80 : 0))
   plants(ctx, 1)
 }

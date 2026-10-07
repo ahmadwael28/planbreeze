@@ -154,6 +154,8 @@ export interface Cand {
   ghost?: boolean
   /** Already in the room, kept there: a recipe gets it instead of placing a new one of its kind. */
   kept?: boolean
+  /** Columns in the walls it's built round (a wardrobe enclosing one): it may stand over them. */
+  through?: Box[]
 }
 
 /** Kinds of things: kept furniture of a kind stands in for a new one of that kind. */
@@ -267,7 +269,7 @@ export class Layout {
     // The floor blocked by what's placed so far, worked out once for all the candidates.
     let base: Uint8Array | null = null
     for (const { c } of ranked) {
-      if (!this.fits(c.box, c.zones)) continue
+      if (!this.fits(c.box, c.zones, c.through)) continue
       this.add(c)
       // Up on the wall out of the way (a wall cabinet, a hood, a TV), with nothing to reach: no path to check.
       if (c.box.z0 >= 100 && !c.reach?.length) return c
