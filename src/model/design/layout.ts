@@ -148,7 +148,23 @@ export interface Cand {
   s?: number
   /** Only takes up space (another part of something placed, like a corner sofa's chaise): not a symbol of its own. */
   ghost?: boolean
+  /** Already in the room, kept there: a recipe gets it instead of placing a new one of its kind. */
+  kept?: boolean
 }
+
+/** Kinds of things: kept furniture of a kind stands in for a new one of that kind. */
+const KIND: Record<string, string> = {
+  'bed-single': 'bed-double',
+  'sofa-corner': 'sofa',
+  'tv-stand': 'tv-unit',
+  'round-table': 'dining-table',
+  shower: 'bathtub',
+  'shower-quadrant': 'bathtub',
+  washbasin: 'bath-vanity',
+  'wardrobe-corner': 'wardrobe',
+  'display-cabinet': 'sideboard',
+}
+const kindOf = (type: string) => KIND[type] ?? type
 
 export type Placed = Cand
 
@@ -173,11 +189,29 @@ export class Layout {
   readonly rand: () => number
   /** How much chance shakes up the order candidates are tried in (another try at the room is another order). */
   readonly jitter: number
+  /** Furniture the room keeps (it's among the fixed things too): not yet stood in for something placed. */
+  private kept: Placed[]
 
-  constructor(an: Analysis, rand: () => number, jitter = 0.01) {
+  constructor(an: Analysis, rand: () => number, jitter = 0.01, kept: Placed[] = []) {
     this.an = an
     this.rand = rand
     this.jitter = jitter
+    this.kept = [...kept]
+  }
+
+  /** A kept item of the same kind as `type`, used up so it stands in for one thing only. */
+  take(type: string): Placed | null {
+    const i = this.kept.findIndex((k) => kindOf(k.sym.type) === kindOf(type))
+    return i < 0 ? null : this.kept.splice(i, 1)[0]
+  }
+
+  /** A kept item of any of these types (a recipe working round what's there). */
+  keeps(types: string[]): Placed | null {
+    for (const t of types) {
+      const k = this.take(t)
+      if (k) return k
+    }
+    return null
   }
 
   /** A symbol posed like a box (its own size may differ: a toilet's box includes the space beside it). */
@@ -218,6 +252,9 @@ export class Layout {
    * placed. Candidates scored -Infinity are left out.
    */
   tryPlace<C extends Cand>(cands: C[], score: (c: C) => number = () => 0, limit = 40): C | null {
+    // Something of this kind kept in the room stands in for it.
+    const kept = cands.length ? this.take(cands[0].sym.type) : null
+    if (kept) return kept as C
     const ranked = cands
       .map((c) => ({ c, v: score(c) + this.rand() * this.jitter }))
       .filter((x) => x.v > -Infinity)
@@ -227,8 +264,10 @@ export class Layout {
     let base: Uint8Array | null = null
     for (const { c } of ranked) {
       if (!this.fits(c.box, c.zones)) continue
-      base ??= this.blocked(this.placed)
       this.add(c)
+      // Up on the wall out of the way (a wall cabinet, a hood, a TV), with nothing to reach: no path to check.
+      if (c.box.z0 >= 100 && !c.reach?.length) return c
+      base ??= this.blocked(this.placed.filter((p) => p !== c))
       if (this.reachable(this.blocked([c], base))) return c
       this.remove(c)
       if (++tried >= limit) break

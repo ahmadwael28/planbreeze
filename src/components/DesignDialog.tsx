@@ -23,11 +23,22 @@ import { useDesign } from '@/store/design'
 import { currentFloor, draftFloor, useEditor } from '@/store/editor'
 import { PlanLayers } from './PlanLayers'
 
-const INCLUDE: { key: keyof Omit<DesignOptions, 'style'>; label: string; hint: string }[] = [
-  { key: 'furniture', label: 'Furniture', hint: 'Laid out around the doors and windows' },
-  { key: 'finishes', label: 'Floors and walls', hint: 'Flooring, paint, tiles and an accent wall' },
-  { key: 'lighting', label: 'Ceilings and lighting', hint: 'Gypsum ceilings, lights and their switches' },
+type Toggle = 'floors' | 'walls' | 'ceilings' | 'lighting' | 'curtains' | 'ac'
+
+/** What a design may change; switched off, the room's own stays as it is. */
+const INCLUDE: { key: Toggle; label: string; hint: string }[] = [
+  { key: 'floors', label: 'Floors', hint: 'Tiles, planks or carpet for each room' },
+  { key: 'walls', label: 'Walls', hint: 'Paint, tiles, and an accent wall' },
+  { key: 'ceilings', label: 'Gypsum ceilings', hint: 'With hidden LED strips and curtain pockets' },
+  { key: 'lighting', label: 'Lights and switches', hint: 'Spots, pendants, bedside lights, wired up' },
+  { key: 'curtains', label: 'Curtains and blinds', hint: 'Over windows and glass doors' },
   { key: 'ac', label: 'Air conditioning', hint: 'In the living room and bedrooms' },
+]
+
+const FURNITURE: { value: DesignOptions['furniture']; label: string }[] = [
+  { value: 'replace', label: 'Replace mine' },
+  { value: 'add', label: 'Keep mine, add what’s missing' },
+  { value: 'none', label: 'Leave it as it is' },
 ]
 
 export function DesignDialog() {
@@ -147,7 +158,8 @@ function Wizard() {
                       <div className="truncate text-sm font-medium">{r.name}</div>
                       <div className="text-xs text-muted-foreground">
                         {formatArea(area(r.points), units)}
-                        {furnished && c.on && opts.furniture ? ' · its furniture is replaced' : ''}
+                        {furnished && c.on && opts.furniture === 'replace' ? ' · its furniture is replaced' : ''}
+                        {furnished && c.on && opts.furniture === 'add' ? ' · designed round its furniture' : ''}
                       </div>
                     </div>
                     <Select value={c.use} onValueChange={(v) => useDesign.getState().setRoom(r.id, { use: v as RoomUse })}>
@@ -194,7 +206,22 @@ function Wizard() {
             </div>
           </div>
           <div className="space-y-2">
-            <h3 className="text-sm font-medium">Include</h3>
+            <h3 className="text-sm font-medium">What to design</h3>
+            <label className="flex items-center justify-between gap-3">
+              <span className="text-sm">Furniture</span>
+              <Select value={opts.furniture} onValueChange={(v) => useDesign.getState().setOpts({ furniture: v as DesignOptions['furniture'] })}>
+                <SelectTrigger size="sm" className="w-48">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {FURNITURE.map((f) => (
+                    <SelectItem key={f.value} value={f.value}>
+                      {f.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </label>
             {INCLUDE.map((i) => (
               <label key={i.key} className="flex items-center justify-between gap-3">
                 <span>
@@ -204,6 +231,10 @@ function Wizard() {
                 <Switch size="sm" checked={opts[i.key]} onCheckedChange={(v) => useDesign.getState().setOpts({ [i.key]: v })} />
               </label>
             ))}
+            <p className="pt-1 text-xs leading-relaxed text-muted-foreground">
+              Doors and windows are never changed. To keep a particular light, piece of furniture or curtain, select it and turn on{' '}
+              <b className="font-medium text-foreground">Keep when designing</b>.
+            </p>
           </div>
         </section>
       </div>
@@ -211,7 +242,7 @@ function Wizard() {
         <Button variant="ghost" onClick={() => useDesign.getState().close()}>
           Cancel
         </Button>
-        <Button onClick={suggest} disabled={!chosen.length || busy || !(opts.furniture || opts.finishes || opts.lighting)}>
+        <Button onClick={suggest} disabled={!chosen.length || busy || !(opts.furniture !== 'none' || INCLUDE.some((i) => opts[i.key]))}>
           {busy ? <Loader className="size-4" /> : <Sparkles />}
           Suggest a design
         </Button>

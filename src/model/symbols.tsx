@@ -152,6 +152,15 @@ export function islandStools(w: number) {
 /** How far a kitchen island's top overhangs its cabinets on the seating side (cm). */
 export const islandOverhang = (d: number) => Math.min(30, d * 0.3)
 
+/** A 16:9 TV with this screen size (its diagonal, in inches): its width and height in cm, with a slim bezel. */
+export function tvSize(inches: number) {
+  const d = inches * 2.54
+  return { width: Math.round((d * 0.8716 + 2) * 10) / 10, height: Math.round((d * 0.4903 + 2) * 10) / 10 }
+}
+
+/** A TV's screen size in inches, from its width. */
+export const tvInches = (width: number) => Math.round((width - 2) / (2.54 * 0.8716))
+
 /** Towel colors. */
 export const TOWELS: FrameColor[] = [
   { name: 'White', hex: '#f4f2ee' },

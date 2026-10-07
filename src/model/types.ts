@@ -237,6 +237,8 @@ export interface PlanSymbol {
   modules?: TrackModule[]
   /** Dressing tables and kitchen islands: with their stool(s) (unless false). */
   stool?: boolean
+  /** Kept as it is when rooms are designed (see model/design). */
+  keep?: boolean
   /** Kitchen islands: a hob or a sink in the top (a plain worktop if left out). */
   islandTop?: 'hob' | 'sink'
   /** Oven towers: an oven alone or two ovens (an oven and a microwave if left out). */

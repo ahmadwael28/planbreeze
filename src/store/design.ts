@@ -3,19 +3,18 @@
  * and designing a single room straight away from its properties.
  */
 import { create } from 'zustand'
-import { applyDesigns, designRoom, guessUses, isFurnished } from '@/model/design'
+import { applyDesigns, designRoom, guessUses, isFurnished, upgradeOptions } from '@/model/design'
 import type { DesignOptions } from '@/model/design'
 import type { RoomUse } from '@/model/types'
 import { currentFloor, draftFloor, useEditor } from './editor'
 
 const KEY = 'planbreeze.design'
-const DEFAULTS: DesignOptions = { style: 'modern', furniture: true, finishes: true, lighting: true, ac: true }
 
 function saved(): DesignOptions {
   try {
-    return { ...DEFAULTS, ...JSON.parse(localStorage.getItem(KEY) ?? '{}') }
+    return upgradeOptions(JSON.parse(localStorage.getItem(KEY) ?? '{}'))
   } catch {
-    return DEFAULTS
+    return upgradeOptions({})
   }
 }
 

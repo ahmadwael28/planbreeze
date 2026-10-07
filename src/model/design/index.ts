@@ -9,8 +9,8 @@ import { isOutdoor, newSymbol } from '../project'
 import { SYMBOL_MAP } from '../symbols'
 import type { CeilingStyle, Floor, PlanSymbol, Room, RoomUse, WallSurface } from '../types'
 import { facing, local, seeded } from './geom'
-import { analyze, facePoint, Layout } from './layout'
-import type { Analysis } from './layout'
+import { analyze, boxOf, facePoint, Layout } from './layout'
+import type { Analysis, Placed } from './layout'
 import { dressWindows, RECIPES, spread } from './recipes'
 import type { Ctx, Marks } from './recipes'
 import { isWet } from './roles'
@@ -23,14 +23,33 @@ export type { StyleId } from './styles'
 
 export interface DesignOptions {
   style: StyleId
-  /** Lay out furniture (replacing what's there). */
-  furniture: boolean
-  /** Floors and walls. */
-  finishes: boolean
-  /** Gypsum ceiling, lights and their switches (replacing the room's). */
+  /** Furniture: replace what's there, keep it and add what's missing round it, or leave it alone. */
+  furniture: 'replace' | 'add' | 'none'
+  floors: boolean
+  walls: boolean
+  /** Gypsum ceilings and curtain pockets. */
+  ceilings: boolean
+  /** Lights and their switches (the room's own go, unless kept). */
   lighting: boolean
+  /** Curtains and blinds over the windows (the room's own go, unless kept). */
+  curtains: boolean
   /** Air conditioning in living rooms and bedrooms. */
   ac: boolean
+}
+
+/** The options as saved by an older version (furniture on or off, finishes and lighting as one each). */
+export function upgradeOptions(o: Record<string, unknown>): DesignOptions {
+  const on = (v: unknown, fallback: boolean) => (typeof v === 'boolean' ? v : fallback)
+  return {
+    style: (o.style as StyleId) ?? 'modern',
+    furniture: o.furniture === false ? 'none' : o.furniture === 'add' || o.furniture === 'none' ? o.furniture : 'replace',
+    floors: on(o.floors, on(o.finishes, true)),
+    walls: on(o.walls, on(o.finishes, true)),
+    ceilings: on(o.ceilings, on(o.lighting, true)),
+    lighting: on(o.lighting, true),
+    curtains: on(o.curtains, true),
+    ac: on(o.ac, true),
+  }
 }
 
 export interface RoomDesign {
@@ -44,8 +63,8 @@ export interface RoomDesign {
   patch: Partial<Room>
 }
 
-/** How many tries a room gets. */
-const TRIES = 5
+/** How many tries a room gets: more where the order things go in matters (a tight bathroom), fewer where it hardly does. */
+const TRIES: Partial<Record<RoomUse, number>> = { bathroom: 5, ensuite: 5, wc: 4, living: 4, kitchen: 2, balcony: 1, laundry: 2 }
 
 /** What matters most in a room: a design that fits these in beats one that doesn't. */
 const WORTH: Record<string, number> = {
@@ -85,26 +104,54 @@ export function inRoom(s: PlanSymbol, room: Room) {
   return s.room ? s.room === room.id : !s.wall && pointInPolygon(s, room.points)
 }
 
+const isDressing = (s: PlanSymbol) => s.type === 'curtain' || s.type === 'blind'
+/** Furniture: not built in, not a light, not curtains, not a person. */
+const isFurniture = (s: PlanSymbol) => !KEEP.has(s.type) && !isLight(s) && !isDressing(s) && s.type !== 'person'
+
 /** Whether a room has furniture a design would replace. */
 export function isFurnished(floor: Floor, room: Room) {
-  return floor.symbols.some((s) => inRoom(s, room) && !KEEP.has(s.type) && !isLight(s))
+  return floor.symbols.some((s) => inRoom(s, room) && isFurniture(s) && !s.keep)
+}
+
+/** Kept furniture, ready to stand in for what a recipe asks for: its footprint, and the wall its back is to. */
+function keptPiece(s: PlanSymbol, an: Analysis): Placed {
+  const box = boxOf(s, an.floor)
+  const back = local(box, 0, -box.d / 2)
+  const front = { x: -Math.sin((box.rot * Math.PI) / 180), y: Math.cos((box.rot * Math.PI) / 180) }
+  const i = an.faces.findIndex((f) => {
+    const off = dot(sub(back, f.a), f.inward)
+    const at = dot(sub(back, f.a), f.dir)
+    return dot(front, f.inward) > 0.99 && Math.abs(off) < 15 && at >= f.s1 - 1 && at <= f.s2 + 1
+  })
+  return { sym: s, box, kept: true, ...(i >= 0 && { face: i, s: dot(sub(back, an.faces[i].a), an.faces[i].dir) }) }
 }
 
 /** A design for one room. */
 export function designRoom(floor: Floor, room: Room, use: RoomUse, uses: Map<string, RoomUse>, opts: DesignOptions, variant = 0): RoomDesign {
   const style = styleById(opts.style)
-  const remove = floor.symbols.filter((s) => inRoom(s, room) && !KEEP.has(s.type) && (isLight(s) ? opts.lighting : opts.furniture))
-  const gone = new Set(remove.map((s) => s.id))
-  const fixed = floor.symbols.filter((s) => inRoom(s, room) && !gone.has(s.id) && !s.room && !onCeiling(s))
+  // What goes: the room's lights, curtains and furniture, as they're being redone; never doors, windows, what's
+  // built in, or anything marked to keep.
+  const goes = (s: PlanSymbol) => {
+    if (!inRoom(s, room) || KEEP.has(s.type) || s.keep) return false
+    if (isLight(s)) return opts.lighting
+    if (isDressing(s)) return opts.curtains
+    if (s.type === 'person') return opts.furniture === 'replace'
+    return opts.furniture === 'replace'
+  }
+  const gone = new Set(floor.symbols.filter(goes).map((s) => s.id))
+  const stays = floor.symbols.filter((s) => inRoom(s, room) && !gone.has(s.id) && !s.room)
+  const fixed = stays.filter((s) => !onCeiling(s) && !isDressing(s) && s.type !== 'person')
   const an = analyze(room, floor, fixed, uses)
+  const kept = fixed.filter(isFurniture).map((s) => keptPiece(s, an))
+  const furnish = opts.furniture !== 'none'
   // A few tries, each making some choices differently (a bath or a shower, the order things are tried in): the one
   // that gets the most of what matters into the room wins.
   let ctx: Ctx | null = null
   let best = -1
-  for (let attempt = 0; attempt < (opts.furniture ? TRIES : 1); attempt++) {
+  for (let attempt = 0; attempt < (furnish ? (TRIES[use] ?? 3) : 1); attempt++) {
     const marks: Marks = { nightstands: [], uppers: [], extra: [] }
-    const c: Ctx = { L: new Layout(an, seeded(`${room.id}:${variant}:${attempt}`), attempt ? 6 : 0.01), use, style, variant, attempt, ac: opts.ac, marks }
-    if (opts.furniture) RECIPES[use](c)
+    const c: Ctx = { L: new Layout(an, seeded(`${room.id}:${variant}:${attempt}`), attempt ? 6 : 0.01, kept), use, style, variant, attempt, ac: opts.ac, marks }
+    if (furnish) RECIPES[use](c)
     const value = c.L.placed.reduce((sum, p) => sum + (p.ghost ? 0 : (WORTH[p.sym.type] ?? 1)), 0)
     if (value > best) {
       best = value
@@ -112,13 +159,19 @@ export function designRoom(floor: Floor, room: Room, use: RoomUse, uses: Map<str
     }
   }
   const { L, marks } = ctx!
-  if (opts.furniture) dressWindows(ctx!)
-  const add = opts.furniture ? [...L.placed.filter((p) => !p.ghost).map((p) => p.sym), ...marks.extra] : []
-  const patch: Partial<Room> = opts.finishes ? finishes(an, use, style, marks) : {}
-  if (opts.lighting && !isOutdoor(room)) {
-    const lit = lights(an, use, style, marks)
-    add.push(...lit.symbols)
-    Object.assign(patch, lit.patch)
+  // Curtains go up where the windows have none left.
+  if (opts.curtains) dressWindows(ctx!, stays.filter(isDressing))
+  const add = [...(furnish ? L.placed.filter((p) => !p.ghost).map((p) => p.sym) : []), ...marks.extra]
+  const patch: Partial<Room> = {}
+  if (opts.floors || opts.walls) {
+    const f = finishes(an, use, style, marks)
+    if (opts.floors) patch.floor = f.floor
+    if (opts.walls) Object.assign(patch, { walls: f.walls, wallFinishes: f.wallFinishes })
+  }
+  if ((opts.lighting || opts.ceilings) && !isOutdoor(room)) {
+    const lit = lights(an, use, style, marks, opts)
+    if (opts.lighting) add.push(...lit.symbols)
+    if (opts.ceilings) Object.assign(patch, lit.patch)
   }
   return { roomId: room.id, use, variant, remove: [...gone], add, patch }
 }
@@ -181,7 +234,7 @@ function finishes(an: Analysis, use: RoomUse, style: DesignStyle, marks: Marks):
       break
     case 'kitchen':
       patch = { floor: F.kitchen, walls: paint(style.paint.main) }
-      accents.push([ownEdge(an, marks.run?.face), style.splash])
+      for (const face of marks.run?.faces ?? []) accents.push([ownEdge(an, face), style.splash])
       break
     case 'bathroom':
     case 'wc':
@@ -211,18 +264,21 @@ const sym = (type: string, p: { x: number; y: number }, extra: Partial<PlanSymbo
   ...extra,
 })
 
-function lights(an: Analysis, use: RoomUse, style: DesignStyle, marks: Marks): { symbols: PlanSymbol[]; patch: Partial<Room> } {
+function lights(an: Analysis, use: RoomUse, style: DesignStyle, marks: Marks, opts: DesignOptions): { symbols: PlanSymbol[]; patch: Partial<Room> } {
   const room = an.room
   const out: PlanSymbol[] = []
   const wet = isWet(use)
-  const ceiling: CeilingStyle = use === 'living' && an.area >= 12 ? 'cove' : use === 'master' || (use === 'dining' && an.area >= 10) ? 'tray' : 'flat'
-  const patch: Partial<Room> = { ceiling: { style: ceiling, ...CEILING_STYLES[ceiling].defaults }, shadowGaps: undefined, curtainPockets: undefined }
+  // The ceiling suggested, or (if ceilings are left alone) the room's own.
+  const suggested: CeilingStyle = use === 'living' && an.area >= 12 ? 'cove' : use === 'master' || (use === 'dining' && an.area >= 10) ? 'tray' : 'flat'
+  const ceiling: CeilingStyle | undefined = opts.ceilings ? suggested : room.ceiling?.style
+  const patch: Partial<Room> = { ceiling: { style: suggested, ...CEILING_STYLES[suggested].defaults }, shadowGaps: undefined, curtainPockets: undefined }
   // Curtains hide up in pockets in the ceiling, lit in the living room and master bedroom.
-  const pocketWalls =
-    use === 'living' || use === 'master' || use === 'bedroom'
+  const pocketWalls = !opts.ceilings
+    ? (room.curtainPockets ?? [])
+    : use === 'living' || use === 'master' || use === 'bedroom'
       ? [...new Set(an.openings.filter((o) => o.glazed).map((o) => ownEdge(an, o.face)).filter((e): e is number => e !== undefined))]
       : []
-  if (pocketWalls.length) patch.curtainPockets = pocketWalls
+  if (opts.ceilings && pocketWalls.length) patch.curtainPockets = pocketWalls
   const roomLight = (type: string) => {
     const s = sym(type, labelPoint(room.points), { room: room.id })
     out.push(s)
@@ -235,10 +291,10 @@ function lights(an: Analysis, use: RoomUse, style: DesignStyle, marks: Marks): {
   const bedside: PlanSymbol[] = []
   const counter: PlanSymbol[] = [...marks.uppers.map((p) => p.sym), ...(marks.hood ? [marks.hood.sym] : [])]
   const mirror: PlanSymbol[] = marks.vanity ? [marks.vanity.sym] : []
-  if (ceiling !== 'flat') mood.push(roomLight('cove-light'))
+  if (ceiling && ceiling !== 'flat') mood.push(roomLight('cove-light'))
   if (pocketWalls.length && (use === 'living' || use === 'master')) curtains.push(roomLight('pocket-light'))
 
-  const band = CEILING_STYLES[ceiling].defaults.band
+  const band = ceiling ? CEILING_STYLES[ceiling].defaults.band : 0
   const spotted = ['living', 'kitchen', 'dining', 'hall', 'office', 'dressing', 'bathroom', 'ensuite', 'wc', 'laundry'].includes(use)
   if (spotted) {
     const inset = band ? band + 30 : wet ? 40 : 55

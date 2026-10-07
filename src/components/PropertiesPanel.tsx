@@ -27,7 +27,7 @@ import { usePlanTheme } from '@/hooks/use-plan-theme'
 import { cn } from '@/lib/utils'
 import { area, dist, perimeter } from '@/model/geometry'
 import { DEFAULT_RAILING, isOutdoor, OUTDOOR, RAILING_THICKNESS, ROOM_COLORS, roomOuter, setWallLength, symbolPose } from '@/model/project'
-import { CABINETS, curtainLayers, frameOf, givesLight, hasGlass, SKIN_TONES, STYLES, styleOf, SYMBOL_MAP } from '@/model/symbols'
+import { CABINETS, curtainLayers, frameOf, givesLight, hasGlass, SKIN_TONES, STYLES, styleOf, SYMBOL_MAP, tvInches, tvSize } from '@/model/symbols'
 import type { FrameColor } from '@/model/symbols'
 import { formatArea, formatLength } from '@/model/units'
 import { PERSON, PERSON_PRESETS, personLook, personSupport, POSE_NAMES } from '@/model/people'
@@ -126,6 +126,42 @@ function updateRoom(id: string, recipe: (r: Room) => void) {
     const r = draftFloor(d).rooms.find((x) => x.id === id)
     if (r) recipe(r)
   })
+}
+
+const TV_SIZES = [43, 50, 55, 65, 75, 85]
+
+/** A TV's screen size in inches (its diagonal): setting it sets its width and height. */
+function TvSize({ sym }: { sym: PlanSymbol }) {
+  const inches = tvInches(sym.width)
+  const set = (v: number) => {
+    const n = Math.min(110, Math.max(22, Math.round(v)))
+    if (n !== Math.round(v)) toast('TVs here go from 22″ to 110″')
+    updateSymbol(sym.id, (s) => void Object.assign(s, tvSize(n)))
+  }
+  return (
+    <>
+      <Field label="Screen size">{(id) => <NumberInput id={id} value={inches} step={1} suffix="″" onChange={set} />}</Field>
+      <div className="flex flex-wrap gap-1 pl-[112px]">
+        {TV_SIZES.map((n) => (
+          <Button key={n} variant={n === inches ? 'secondary' : 'outline'} size="xs" className="tabular-nums" onClick={() => set(n)}>
+            {n}″
+          </Button>
+        ))}
+      </div>
+    </>
+  )
+}
+
+/** Kept as it is (where it is) when rooms are designed. */
+function KeepSwitch({ checked, onChange }: { checked: boolean; onChange: (on: boolean) => void }) {
+  return (
+    <label className="flex items-center justify-between gap-2 text-sm">
+      <span className="flex items-center gap-1.5">
+        <Lock className="size-3.5 text-muted-foreground" /> Keep when designing
+      </span>
+      <Switch size="sm" checked={checked} onCheckedChange={onChange} />
+    </label>
+  )
 }
 
 /** What a room is for, and a design suggested for it (the next idea each time). */
@@ -739,6 +775,8 @@ function MultiProps({ items }: { items: ItemRef[] }) {
   const depthwise = gaps.front !== undefined && gaps.back !== undefined
   const fmt = (v?: number) => (v === undefined ? '–' : formatLength(v, units))
   const free = arrangeable(floor, items)
+  // Everything selected but doors and windows can be kept as it is when designing.
+  const keepable = items.flatMap((r) => (r.kind === 'symbol' ? floor.symbols.filter((s) => s.id === r.id && !s.wall && !s.room) : []))
   const symbolIds = items.filter((r) => r.kind === 'symbol').map((r) => r.id)
   const lit = floor.symbols.some((s) => symbolIds.includes(s.id) && givesLight(s))
   const columns = floor.symbols.filter((s) => symbolIds.includes(s.id) && s.type === 'column').length
@@ -761,6 +799,21 @@ function MultiProps({ items }: { items: ItemRef[] }) {
           <span className="self-center text-xs text-muted-foreground">or drag the handle above them</span>
         </div>
         {free.length >= 2 && <ArrangeBlock syms={free} />}
+        {keepable.length > 0 && (
+          <KeepSwitch
+            checked={keepable.every((s) => s.keep)}
+            onChange={(on) =>
+              useEditor.getState().commit((d) => {
+                const ids = new Set(keepable.map((s) => s.id))
+                for (const s of draftFloor(d).symbols) {
+                  if (!ids.has(s.id)) continue
+                  if (on) s.keep = true
+                  else delete s.keep
+                }
+              })
+            }
+          />
+        )}
         {(columns > 0 || inWalls > 0) && (
           <div className="flex flex-wrap gap-2">
             {columns > 0 && (
@@ -1038,6 +1091,7 @@ function SymbolProps({ sym, units }: { sym: PlanSymbol; units: Units }) {
             )}
           </Field>
         )}
+        {sym.type === 'tv' && <TvSize sym={sym} />}
         {(
           [
             ['width', isRound(sym.type) ? 'Diameter' : 'Width', true],
@@ -1396,6 +1450,9 @@ function SymbolProps({ sym, units }: { sym: PlanSymbol; units: Units }) {
               { value: 'right', label: 'Right' },
             ]}
           />
+        )}
+        {!sym.wall && !sym.room && sym.type !== 'label' && (
+          <KeepSwitch checked={!!sym.keep} onChange={(on) => updateSymbol(sym.id, (s) => void (on ? (s.keep = true) : delete s.keep))} />
         )}
         {!sym.wall && (
           <Field label="Rotation">
