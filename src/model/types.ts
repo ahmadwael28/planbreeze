@@ -68,9 +68,28 @@ export interface Ceiling {
   bands?: (number | null)[]
 }
 
+/** What a room is for, for designing it (see model/design). */
+export type RoomUse =
+  | 'living'
+  | 'kitchen'
+  | 'dining'
+  | 'master'
+  | 'bedroom'
+  | 'kids'
+  | 'office'
+  | 'bathroom'
+  | 'ensuite'
+  | 'wc'
+  | 'hall'
+  | 'dressing'
+  | 'laundry'
+  | 'balcony'
+
 export interface Room {
   id: string
   name: string
+  /** What it's for (living room, master bedroom…), when set. */
+  use?: RoomUse
   /** Interior outline of the room (straight walls only). */
   points: Point[]
   /** Walls are drawn outside the interior outline. */

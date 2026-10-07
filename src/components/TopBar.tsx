@@ -16,6 +16,7 @@ import {
   Redo2,
   ScanLine,
   Settings2,
+  Sparkles,
   Sun,
   Undo2,
 } from 'lucide-react'
@@ -35,7 +36,8 @@ import {
 import { Separator } from '@/components/ui/separator'
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
-import { currentFloor, useEditor } from '@/store/editor'
+import { openDesign } from '@/store/design'
+import { currentFloor, isViewOnly, useEditor } from '@/store/editor'
 import { useUi } from '@/store/ui'
 import { AccountButton, SaveStatus } from './AccountControls'
 import { ShareControls } from './ShareControls'
@@ -119,6 +121,7 @@ export function TopBar({ onToggleSidebar, sidebarOpen }: Props) {
   const viewMode = useEditor((s) => s.viewMode)
   const setViewMode = useEditor((s) => s.setViewMode)
   const fileRef = useRef<HTMLInputElement>(null)
+  const viewOnly = useEditor((s) => isViewOnly(s.project))
 
   const project = () => useEditor.getState().project
   const floor = () => currentFloor(useEditor.getState())
@@ -170,6 +173,14 @@ export function TopBar({ onToggleSidebar, sidebarOpen }: Props) {
       </div>
 
       <div className="flex shrink-0 items-center">
+        {!viewOnly && (
+          <Tip label="Suggest an interior design">
+            <Button variant="ghost" onClick={openDesign} className="gap-1.5 px-2.5" data-tour="design">
+              <Sparkles className="text-primary" />
+              <span className="max-lg:hidden">Design</span>
+            </Button>
+          </Tip>
+        )}
         <Tip label="Switch units">
           <Button
             variant="ghost"

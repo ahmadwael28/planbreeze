@@ -388,8 +388,6 @@ function example(): Floor {
 
   // Balcony.
   b.item('round-table', 180, -90, { width: 70, depth: 70 })
-  b.item('chair', 130, -90, { rotation: 270 })
-  b.item('chair', 230, -90, { rotation: 90 })
   b.item('plant', 90, -135)
   b.item('ac-outdoor', 440, -26, { rotation: 180 })
 

@@ -4,6 +4,7 @@ import { Loader } from '@/components/ui/loader'
 import { toast } from 'sonner'
 import { Canvas } from '@/components/Canvas'
 import { EmptyState } from '@/components/EmptyState'
+import { DesignDialog } from '@/components/DesignDialog'
 import { FloorBar } from '@/components/FloorBar'
 import { GuidedTour } from '@/components/GuidedTour'
 import { ImportWizard } from '@/components/ImportWizard'
@@ -314,6 +315,7 @@ export default function App() {
       <SignInDialog />
       <ShareDialog />
       <ConflictDialog />
+      <DesignDialog />
       <GuidedTour />
     </div>
   )

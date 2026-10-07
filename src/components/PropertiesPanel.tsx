@@ -8,13 +8,15 @@ import {
   AlignHorizontalSpaceAround,
   AlignVerticalDistributeCenter,
   AlignVerticalSpaceAround,
-  Box, CircleHelp, ClipboardCopy, Columns2, Copy, Sofa, FlipHorizontal2, Group, Ungroup, FlipVertical2, ImageOff, Lightbulb, Link2Off, Lock, Ruler, RotateCw, SplitSquareHorizontal, Trash2, Video } from 'lucide-react'
+  Box, CircleHelp, ClipboardCopy, Sparkles, Columns2, Copy, Sofa, FlipHorizontal2, Group, Ungroup, FlipVertical2, ImageOff, Lightbulb, Link2Off, Lock, Ruler, RotateCw, SplitSquareHorizontal, Trash2, Video } from 'lucide-react'
 import { toast } from 'sonner'
 import { arrange, arrangeable, layoutOf, spacingOf, wouldMove } from '@/model/arrange'
 import type { Unit } from '@/model/arrange'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { startTour } from '@/components/tour'
+import { ROOM_USES } from '@/model/design'
+import { redesignRoom, useDesign } from '@/store/design'
 import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Separator } from '@/components/ui/separator'
@@ -29,7 +31,7 @@ import { CABINETS, curtainLayers, frameOf, givesLight, hasGlass, SKIN_TONES, STY
 import type { FrameColor } from '@/model/symbols'
 import { formatArea, formatLength } from '@/model/units'
 import { PERSON, PERSON_PRESETS, personLook, personSupport, POSE_NAMES } from '@/model/people'
-import type { Dimension, ItemRef, OutdoorKind, PlanSymbol, RailingStyle, Room, SavedView, Units } from '@/model/types'
+import type { Dimension, ItemRef, OutdoorKind, PlanSymbol, RailingStyle, Room, RoomUse, SavedView, Units } from '@/model/types'
 import {
   arrangeSelection,
   autoDimension,
@@ -126,6 +128,35 @@ function updateRoom(id: string, recipe: (r: Room) => void) {
   })
 }
 
+/** What a room is for, and a design suggested for it (the next idea each time). */
+function RoomUseControls({ room }: { room: Room }) {
+  const tried = useDesign((s) => room.id in s.variants)
+  return (
+    <>
+      <Field label="Used as">
+        {(id) => (
+          <Select value={room.use ?? 'none'} onValueChange={(v) => updateRoom(room.id, (r) => void (v === 'none' ? delete r.use : (r.use = v as RoomUse)))}>
+            <SelectTrigger id={id} size="sm" className="w-full">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="none">Not set</SelectItem>
+              {ROOM_USES.filter((u) => u.id !== 'balcony').map((u) => (
+                <SelectItem key={u.id} value={u.id}>
+                  {u.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        )}
+      </Field>
+      <Button variant="outline" size="sm" className="w-full" onClick={() => redesignRoom(room.id)}>
+        <Sparkles className="text-primary" /> {tried ? 'Another idea' : 'Suggest a design'}
+      </Button>
+    </>
+  )
+}
+
 function RoomProps({ room, units }: { room: Room; units: Units }) {
   const theme = usePlanTheme()
   const selection = useEditor((s) => s.selection)
@@ -183,6 +214,7 @@ function RoomProps({ room, units }: { room: Room; units: Units }) {
             { value: 'terrace', label: 'Terrace' },
           ]}
         />
+        {!balcony && <RoomUseControls room={room} />}
         {balcony && (
           <>
             <Field label="Railing">

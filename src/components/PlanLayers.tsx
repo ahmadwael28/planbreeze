@@ -1,4 +1,4 @@
-import { memo } from 'react'
+import { memo, useId } from 'react'
 import {
   add,
   area,
@@ -201,12 +201,14 @@ function CurtainPockets({ room, theme }: { room: Room; theme: PlanTheme }) {
  * width follows the zoom by hand, as Chrome draws non-scaling strokes in patterns far too wide at some zooms.
  */
 function FloorFinish({ room, theme, scale }: { room: Room; theme: PlanTheme; scale: number }) {
+  // Unique on the page: the same room can be drawn twice (the plan, and a preview of it over the plan).
+  const uid = useId().replace(/[^\w-]/g, '')
   const layout = room.floor && surfaceLayout(room.floor, 'floor')
   if (!layout) return null
   const [bw, bh] = layout.block
   const xs = room.points.map((p) => p.x)
   const ys = room.points.map((p) => p.y)
-  const id = `floor-${room.id}`
+  const id = `floor-${uid}`
   return (
     <g pointerEvents="none">
       <defs>

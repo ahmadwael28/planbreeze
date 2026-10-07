@@ -141,6 +141,14 @@ const STEPS: Step[] = [
     body: 'Top view, reset the camera, open all the doors, or go wide with the lens. Walk with WASD or the arrow keys.',
   },
   {
+    target: 'design',
+    side: 'bottom',
+    title: 'Design my home',
+    body: 'Say what each room is for and pick a style: you get furniture laid out around your doors and windows, floors and walls, ceilings, lights and switches. Ask any room for another idea before applying it.',
+    enter: () => view('2d'),
+    optional: true,
+  },
+  {
     target: 'share',
     side: 'bottom',
     title: 'Share',
