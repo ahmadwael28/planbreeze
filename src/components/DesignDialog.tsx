@@ -4,7 +4,8 @@
  * apply it all as one step that can be undone.
  */
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { ArrowLeft, Check, RefreshCw, Sparkles } from 'lucide-react'
+import type { PointerEvent as ReactPointerEvent } from 'react'
+import { ArrowLeft, Check, Eye, Maximize, RefreshCw, Sparkles, ZoomIn, ZoomOut } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
@@ -15,9 +16,10 @@ import { usePlanTheme } from '@/hooks/use-plan-theme'
 import { cn } from '@/lib/utils'
 import { applyDesigns, DESIGN_STYLES, designRoom, isFurnished, ROOM_USES, USE_NAMES } from '@/model/design'
 import type { DesignOptions, RoomDesign } from '@/model/design'
-import { area, bbox } from '@/model/geometry'
+import { area, bbox, pointInPolygon, polygonPath } from '@/model/geometry'
+import type { Point } from '@/model/types'
 import { floorBounds } from '@/model/project'
-import type { RoomUse } from '@/model/types'
+import type { Floor, RoomUse } from '@/model/types'
 import { formatArea } from '@/model/units'
 import { useDesign } from '@/store/design'
 import { currentFloor, draftFloor, useEditor } from '@/store/editor'
@@ -44,9 +46,18 @@ const FURNITURE: { value: DesignOptions['furniture']; label: string }[] = [
 export function DesignDialog() {
   const open = useDesign((s) => s.open)
   const close = useDesign((s) => s.close)
+  // Previewing, it takes up most of the screen: the plan is the point.
+  const previewing = useDesign((s) => !!s.designs)
   return (
     <Dialog open={open} onOpenChange={(o) => !o && close()}>
-      <DialogContent className="flex max-h-[94dvh] flex-col gap-4 overflow-hidden sm:max-w-5xl">{open && <Wizard />}</DialogContent>
+      <DialogContent
+        className={cn(
+          'flex max-h-[94dvh] flex-col gap-4 overflow-hidden',
+          previewing ? 'h-[94dvh] sm:max-w-[min(96vw,1600px)]' : 'sm:max-w-5xl',
+        )}
+      >
+        {open && <Wizard />}
+      </DialogContent>
     </Dialog>
   )
 }
@@ -57,8 +68,11 @@ function Wizard() {
   const rooms = useDesign((s) => s.rooms)
   const opts = useDesign((s) => s.opts)
   const variants = useDesign((s) => s.variants)
-  const [designs, setDesigns] = useState<RoomDesign[] | null>(null)
+  const designs = useDesign((s) => s.designs)
+  const setDesigns = (next: RoomDesign[] | null | ((d: RoomDesign[] | null) => RoomDesign[] | null)) =>
+    useDesign.setState((st) => ({ designs: typeof next === 'function' ? next(st.designs) : next }))
   const [busy, setBusy] = useState(false)
+  const [focus, setFocus] = useState<string | null>(null)
 
   const chosen = floor.rooms.filter((r) => rooms[r.id]?.on)
   const uses = useMemo(() => new Map(Object.entries(rooms).map(([id, c]) => [id, c.use])), [rooms])
@@ -74,6 +88,7 @@ function Wizard() {
     }, 30)
   }
   const another = (id: string) => {
+    setFocus(id)
     const next = { ...variants, [id]: (variants[id] ?? 0) + 1 }
     useDesign.setState({ variants: next })
     setDesigns((list) => list && list.map((d) => (d.roomId === id ? run([id], next)[0] : d)))
@@ -94,16 +109,29 @@ function Wizard() {
           <DialogTitle className="flex items-center gap-2 text-xl">
             <Sparkles className="size-5 text-primary" /> Your design
           </DialogTitle>
-          <DialogDescription>Nothing on your plan has changed yet. Ask any room for another idea, then apply it.</DialogDescription>
+          <DialogDescription>
+            Nothing on your plan has changed yet. Scroll to zoom and drag to look around; pick a room to zoom to it, ask it for
+            another idea, then apply.
+          </DialogDescription>
         </DialogHeader>
-        <div className="grid min-h-0 flex-1 gap-4 md:grid-cols-[1fr_260px]">
-          <Preview designs={designs} />
-          <div className="min-h-0 space-y-1.5 overflow-y-auto pr-1">
+        <div className="grid min-h-0 flex-1 gap-4 max-md:grid-rows-[minmax(300px,1fr)_auto] md:grid-cols-[1fr_280px]">
+          <Preview designs={designs} focus={focus} onFocus={setFocus} />
+          <div className="min-h-0 space-y-1.5 overflow-y-auto pr-1 max-md:max-h-48">
             {designs.map((d) => {
               const room = floor.rooms.find((r) => r.id === d.roomId)!
               const pieces = d.add.filter((s) => !s.room && !['spot', 'switch', 'wall-light', 'curtain', 'blind', 'shower-niche'].includes(s.type)).length
               return (
-                <div key={d.roomId} className="flex items-center justify-between gap-2 rounded-lg border px-3 py-2">
+                <div
+                  key={d.roomId}
+                  role="button"
+                  tabIndex={0}
+                  onClick={() => setFocus(focus === d.roomId ? null : d.roomId)}
+                  onKeyDown={(e) => e.key === 'Enter' && setFocus(focus === d.roomId ? null : d.roomId)}
+                  className={cn(
+                    'flex cursor-pointer items-center justify-between gap-2 rounded-lg border px-3 py-2 transition-colors hover:border-foreground/30',
+                    focus === d.roomId && 'border-primary bg-primary/5 ring-1 ring-primary',
+                  )}
+                >
                   <div className="min-w-0">
                     <div className="truncate text-sm font-medium">{room.name}</div>
                     <div className="text-xs text-muted-foreground">
@@ -111,7 +139,15 @@ function Wizard() {
                       {d.variant ? ` · idea ${d.variant + 1}` : ''}
                     </div>
                   </div>
-                  <Button variant="outline" size="xs" onClick={() => another(d.roomId)} className="shrink-0">
+                  <Button
+                    variant="outline"
+                    size="xs"
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      another(d.roomId)
+                    }}
+                    className="shrink-0"
+                  >
                     <RefreshCw /> Another idea
                   </Button>
                 </div>
@@ -120,7 +156,13 @@ function Wizard() {
           </div>
         </div>
         <DialogFooter className="gap-2 sm:justify-between">
-          <Button variant="ghost" onClick={() => setDesigns(null)}>
+          <Button
+            variant="ghost"
+            onClick={() => {
+              setDesigns(null)
+              setFocus(null)
+            }}
+          >
             <ArrowLeft /> Back
           </Button>
           <Button onClick={apply}>
@@ -251,35 +293,155 @@ function Wizard() {
   )
 }
 
-/** The plan as it would be with the designs applied. */
-function Preview({ designs }: { designs: RoomDesign[] }) {
+/** The middle and scale (px per cm) a plan is shown at. */
+interface View {
+  cx: number
+  cy: number
+  z: number
+}
+
+/** The view that fits these points into a box w × h px, with a margin. */
+function fitView(pts: Point[], w: number, h: number, margin: number): View {
+  const b = bbox(pts)
+  const bw = b.maxX - b.minX + margin * 2
+  const bh = b.maxY - b.minY + margin * 2
+  return { cx: (b.minX + b.maxX) / 2, cy: (b.minY + b.maxY) / 2, z: Math.min(w / bw, h / bh) }
+}
+
+/**
+ * The plan as it would be with the designs applied, as big as there's room for: scroll to zoom (about the pointer),
+ * drag to move, click a room to zoom to it; or see the plan as it is now, to compare.
+ */
+function Preview({ designs, focus, onFocus }: { designs: RoomDesign[]; focus: string | null; onFocus: (id: string | null) => void }) {
   const floor = useEditor((s) => currentFloor(s))
   const units = useEditor((s) => s.project.units)
   const images = useEditor((s) => s.project.images)
   const theme = usePlanTheme()
   const ref = useRef<HTMLDivElement>(null)
-  const [width, setWidth] = useState(600)
-  useEffect(() => {
-    const el = ref.current
-    if (!el) return
-    const ro = new ResizeObserver(() => setWidth(el.clientWidth || 600))
-    ro.observe(el)
-    return () => ro.disconnect()
-  }, [])
+  const [size, setSize] = useState({ w: 800, h: 560 })
+  const [now, setNow] = useState(false)
   const preview = useMemo(() => {
-    const f = structuredClone(floor)
+    const f: Floor = structuredClone(floor)
     applyDesigns(f, designs)
     return f
   }, [floor, designs])
-  const b = bbox(floorBounds(preview))
-  const m = 40
-  const vw = b.maxX - b.minX + m * 2
-  const vh = b.maxY - b.minY + m * 2
+  const all = useMemo(() => floorBounds(preview), [preview])
+  const roomPts = (id: string | null) => preview.rooms.find((r) => r.id === id)?.points
+  const fitted = (id: string | null) => {
+    const pts = roomPts(id)
+    return pts ? fitView(pts, size.w, size.h, 70) : fitView(all, size.w, size.h, 30)
+  }
+  const [view, setView] = useState<View | null>(null)
+  // Following the room picked (in the list, or by clicking it).
+  const [shownFocus, setShownFocus] = useState(focus)
+  if (focus !== shownFocus) {
+    setShownFocus(focus)
+    setView(fitted(focus))
+  }
+  const v = view ?? fitted(focus)
+  const viewRef = useRef(v)
+  viewRef.current = v
+
+  useEffect(() => {
+    const el = ref.current
+    if (!el) return
+    const ro = new ResizeObserver(() => setSize({ w: el.clientWidth || 800, h: el.clientHeight || 560 }))
+    ro.observe(el)
+    // Zoom about the pointer (a wheel listener that can stop the page scrolling).
+    const wheel = (e: WheelEvent) => {
+      e.preventDefault()
+      const r = el.getBoundingClientRect()
+      zoomAt(e.clientX - r.left, e.clientY - r.top, Math.exp(-e.deltaY * 0.0015))
+    }
+    el.addEventListener('wheel', wheel, { passive: false })
+    return () => {
+      ro.disconnect()
+      el.removeEventListener('wheel', wheel)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  const toPlan = (mx: number, my: number, at = viewRef.current): Point => ({ x: at.cx + (mx - size.w / 2) / at.z, y: at.cy + (my - size.h / 2) / at.z })
+  function zoomAt(mx: number, my: number, factor: number) {
+    const at = viewRef.current
+    const el = ref.current
+    const w = el?.clientWidth ?? size.w
+    const h = el?.clientHeight ?? size.h
+    const p = { x: at.cx + (mx - w / 2) / at.z, y: at.cy + (my - h / 2) / at.z }
+    const z = Math.min(8, Math.max(0.05, at.z * factor))
+    setView({ cx: p.x - (mx - w / 2) / z, cy: p.y - (my - h / 2) / z, z })
+  }
+
+  const drag = useRef<{ x: number; y: number; at: View; moved: boolean } | null>(null)
+  const down = (e: ReactPointerEvent) => {
+    ;(e.target as Element).setPointerCapture?.(e.pointerId)
+    drag.current = { x: e.clientX, y: e.clientY, at: viewRef.current, moved: false }
+  }
+  const move = (e: ReactPointerEvent) => {
+    const d = drag.current
+    if (!d) return
+    const dx = e.clientX - d.x
+    const dy = e.clientY - d.y
+    if (!d.moved && Math.hypot(dx, dy) < 4) return
+    d.moved = true
+    setView({ ...d.at, cx: d.at.cx - dx / d.at.z, cy: d.at.cy - dy / d.at.z })
+  }
+  const up = (e: ReactPointerEvent) => {
+    const d = drag.current
+    drag.current = null
+    if (!d || d.moved) return
+    // A click: zoom to the room under it (one that's being designed).
+    const r = ref.current!.getBoundingClientRect()
+    const p = toPlan(e.clientX - r.left, e.clientY - r.top)
+    const room = preview.rooms.find((x) => designs.some((dd) => dd.roomId === x.id) && pointInPolygon(p, x.points))
+    onFocus(room ? room.id : null)
+  }
+
+  const shown = now ? floor : preview
+  const focusPts = roomPts(focus)
+  const vb = `${v.cx - size.w / 2 / v.z} ${v.cy - size.h / 2 / v.z} ${size.w / v.z} ${size.h / v.z}`
   return (
-    <div ref={ref} className="min-h-[260px] overflow-hidden rounded-xl border bg-muted/30">
-      <svg viewBox={`${b.minX - m} ${b.minY - m} ${vw} ${vh}`} className="h-full max-h-[62dvh] w-full" preserveAspectRatio="xMidYMid meet" aria-label="The plan with the design">
-        <PlanLayers floor={preview} units={units} theme={theme} scale={width / vw} showWallLengths={false} showDimensions={false} images={images} />
+    <div ref={ref} className="relative min-h-[300px] touch-none overflow-hidden rounded-xl border bg-muted/30 select-none">
+      <svg
+        viewBox={vb}
+        width={size.w}
+        height={size.h}
+        className={cn('absolute inset-0', drag.current?.moved ? 'cursor-grabbing' : 'cursor-grab')}
+        onPointerDown={down}
+        onPointerMove={move}
+        onPointerUp={up}
+        aria-label={now ? 'The plan as it is now' : 'The plan with the design'}
+      >
+        <PlanLayers floor={shown} units={units} theme={theme} scale={v.z} showWallLengths={false} showDimensions={false} images={images} />
+        {focusPts && <path d={polygonPath(focusPts)} fill="none" stroke="var(--primary)" strokeWidth={3 / v.z} strokeDasharray={`${10 / v.z} ${6 / v.z}`} pointerEvents="none" />}
       </svg>
+      <div className="absolute top-2 left-2 flex items-center gap-1 rounded-lg border bg-background/90 p-1 shadow-sm backdrop-blur">
+        <Button variant={now ? 'ghost' : 'secondary'} size="xs" onClick={() => setNow(false)}>
+          <Sparkles /> Design
+        </Button>
+        <Button variant={now ? 'secondary' : 'ghost'} size="xs" onClick={() => setNow(true)}>
+          <Eye /> Now
+        </Button>
+      </div>
+      <div className="absolute right-2 bottom-2 flex flex-col gap-1 rounded-lg border bg-background/90 p-1 shadow-sm backdrop-blur">
+        <Button variant="ghost" size="icon-sm" onClick={() => zoomAt(size.w / 2, size.h / 2, 1.3)} aria-label="Zoom in">
+          <ZoomIn />
+        </Button>
+        <Button variant="ghost" size="icon-sm" onClick={() => zoomAt(size.w / 2, size.h / 2, 1 / 1.3)} aria-label="Zoom out">
+          <ZoomOut />
+        </Button>
+        <Button
+          variant="ghost"
+          size="icon-sm"
+          onClick={() => {
+            onFocus(null)
+            setView(fitted(null))
+          }}
+          aria-label="Show the whole plan"
+        >
+          <Maximize />
+        </Button>
+      </div>
     </div>
   )
 }

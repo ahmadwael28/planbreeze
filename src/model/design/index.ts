@@ -85,6 +85,7 @@ const WORTH: Record<string, number> = {
   'dining-table': 12,
   'round-table': 10,
   'kitchen-island': 6,
+  'washing-machine': 4,
   desk: 8,
   nightstand: 2,
 }
@@ -150,7 +151,7 @@ export function designRoom(floor: Floor, room: Room, use: RoomUse, uses: Map<str
   let best = -1
   for (let attempt = 0; attempt < (furnish ? (TRIES[use] ?? 3) : 1); attempt++) {
     const marks: Marks = { nightstands: [], uppers: [], extra: [] }
-    const c: Ctx = { L: new Layout(an, seeded(`${room.id}:${variant}:${attempt}`), attempt ? 6 : 0.01, kept), use, style, variant, attempt, ac: opts.ac, marks }
+    const c: Ctx = { L: new Layout(an, seeded(`${room.id}:${variant}:${attempt}`), attempt ? 6 : 0.01, kept), use, uses, style, variant, attempt, ac: opts.ac, marks }
     if (furnish) RECIPES[use](c)
     const value = c.L.placed.reduce((sum, p) => sum + (p.ghost ? 0 : (WORTH[p.sym.type] ?? 1)), 0)
     if (value > best) {

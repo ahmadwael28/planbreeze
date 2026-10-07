@@ -60,6 +60,8 @@ export interface SymbolDef {
   hidden?: boolean
   /** What the `frames` choice is called (Frame, Color…). */
   frameLabel?: string
+  /** Other library categories it's listed in as well (a washing machine: kitchens and bathrooms). */
+  alsoIn?: SymbolCategory[]
   /** Draw the symbol centered at the origin: x ∈ [-w/2, w/2], y ∈ [-d/2, d/2]. */
   render: (w: number, d: number, t: PlanTheme, sym?: PlanSymbol) => ReactNode
 }
@@ -161,6 +163,20 @@ export function tvSize(inches: number) {
 /** A TV's screen size in inches, from its width. */
 export const tvInches = (width: number) => Math.round((width - 2) / (2.54 * 0.8716))
 
+/** Washing machines: front loading, under a worktop, with a dryer stacked on it, or top loading. */
+export const WASHER_STYLES: ItemStyle[] = [
+  { id: 'front', name: 'Front loading', kind: 'Modern', height: 85 },
+  { id: 'built-in', name: 'Under the worktop', kind: 'Modern', height: 90 },
+  { id: 'stacked', name: 'With a dryer on top', kind: 'Modern', height: 170 },
+  { id: 'top', name: 'Top loading', kind: 'Classic', height: 90 },
+]
+
+export const WASHER_FINISHES: FrameColor[] = [
+  { name: 'White', hex: '#f4f4f2' },
+  { name: 'Silver', hex: '#c9ccd0' },
+  { name: 'Black', hex: '#2c2c2e' },
+]
+
 /** Towel colors. */
 export const TOWELS: FrameColor[] = [
   { name: 'White', hex: '#f4f2ee' },
@@ -190,6 +206,7 @@ export const STYLES: Record<string, ItemStyle[]> = {
   'dressing-table': DRESSING_STYLES,
   'bath-vanity': VANITY_STYLES,
   'range-hood': HOOD_STYLES,
+  'washing-machine': WASHER_STYLES,
 }
 
 /** A dressing table's mirror: how wide and high, round or not, and the bottom of it above the table top (cm). */
@@ -1503,6 +1520,33 @@ export const SYMBOLS: SymbolDef[] = [
               [-1, 1],
               [1, 1],
             ].map(([a, b]) => <circle key={`${a}${b}`} cx={a * 14} cy={cz + b * 12} r={7} {...k.line} />)}
+        </>
+      )
+    },
+  },
+  {
+    type: 'washing-machine',
+    name: 'Washing machine',
+    keywords: 'washing machine washer laundry dryer front loader top loader',
+    category: 'Bathroom',
+    alsoIn: ['Kitchen'],
+    width: 60,
+    depth: 60,
+    height: 85,
+    frames: WASHER_FINISHES,
+    frameLabel: 'Finish',
+    render: (w, d, t, sym) => {
+      const k = kit(t)
+      const top = sym && styleOf(sym) === 'top'
+      return (
+        <>
+          {k.box(w, d, 2)}
+          <line x1={-w / 2} y1={d / 2 - 5} x2={w / 2} y2={d / 2 - 5} {...k.thin} />
+          {top ? (
+            <rect x={-w / 2 + 5} y={-d / 2 + 14} width={w - 10} height={d - 24} rx={3} {...k.thin} fill="none" />
+          ) : (
+            <circle cx={0} cy={1} r={Math.min(w, d) * 0.3} {...k.thin} fill="none" />
+          )}
         </>
       )
     },

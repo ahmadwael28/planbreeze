@@ -3,10 +3,10 @@
  * kitchen units, the bath) on the wall that suits it best, or another wall for another idea, then what goes with it,
  * then the rest as long as it fits and leaves the room easy to walk through.
  */
-import { bbox, dist, dot, labelPoint, offsetPolygon, pointInPolygon, signedArea, sub } from '../geometry'
+import { area, bbox, dist, dot, labelPoint, offsetPolygon, pointInPolygon, signedArea, sub } from '../geometry'
 import { newSymbol } from '../project'
 import { HOOD_STYLES, tvSize } from '../symbols'
-import type { PlanSymbol, Point, RoomUse } from '../types'
+import type { Floor, PlanSymbol, Point, RoomUse } from '../types'
 import { againstWall, axes, facing, local, toLocal } from './geom'
 import type { Box } from './geom'
 import { facePoint } from './layout'
@@ -33,6 +33,8 @@ export interface Marks {
 export interface Ctx {
   L: Layout
   use: RoomUse
+  /** What every room on the floor is for (a washing machine goes in the laundry, if there's one). */
+  uses: Map<string, RoomUse>
   style: DesignStyle
   variant: number
   /** Which try at the room this is (each makes some choices differently). */
@@ -513,7 +515,7 @@ interface Chain {
 function chains(L: Layout): Chain[] {
   const an = L.an
   const n = an.faces.length
-  const free = an.faces.map((_, i) => L.freeAlong(i, 60, 0, 90))
+  const free = an.faces.map((_, i) => L.freeAlong(i, 60, 0, 90, L.shallowColumns(40)))
   const out: Chain[] = []
   free.forEach((list, i) =>
     list.forEach(([s1, s2]) => {
@@ -579,13 +581,22 @@ type Spot = Module & { at: number }
  * it'll go; the hob with worktop either side, the sink and hob a comfortable step apart; none of them in a corner or
  * across one; worktop in between. Null if they don't fit; `cost` how far it is from ideal.
  */
-function planChain(legs: Leg[], windows: [number, number, number][], tall: Module[], dw: boolean, sinkW: number): { spots: Spot[]; cost: number } | null {
+function planChain(
+  legs: Leg[],
+  windows: [number, number, number][],
+  worktopOnly: [number, number][],
+  tall: Module[],
+  dw: boolean,
+  sinkW: number,
+  washer: boolean,
+): { spots: Spot[]; cost: number } | null {
   const ends: number[] = []
   let total = 0
   for (const l of legs) ends.push((total += l.len))
   const T = total
   const starts = [0, ...ends.slice(0, -1)]
-  const corners = ends.slice(0, -1).map((e): [number, number] => [e - 60, e])
+  // The corners, and in front of columns: worktop only.
+  const corners = [...ends.slice(0, -1).map((e): [number, number] => [e - 60, e]), ...worktopOnly]
   const overlaps = (a0: number, a1: number, [b0, b1]: [number, number] | [number, number, number]) => a0 < b1 - 0.5 && a1 > b0 + 0.5
   // On one leg, out of the corners (and, for tall units and the hob, out from under the windows).
   const ok = (x0: number, x1: number, underWindow: boolean) =>
@@ -637,13 +648,30 @@ function planChain(legs: Leg[], windows: [number, number, number][], tall: Modul
     cur = Math.max(cur, u.at + u.w)
   }
   if (T > cur + 0.5) gaps.push([cur, T])
+  const pieces: [number, number][] = []
   for (const [g0, g1] of gaps) {
     starts.forEach((s, i) => {
       const a = Math.max(g0, s)
       const b = Math.min(g1, ends[i])
-      if (b - a >= 5) best.spots.push({ ...MOD.counter(Math.round((b - a) * 10) / 10), at: a })
+      if (b - a >= 5) pieces.push([a, b])
     })
   }
+  // A washing machine under the worktop: in the stretch of it farthest from the hob, at whichever end it fits.
+  if (washer) {
+    const hob = pick.xh + 30
+    const spots = pieces
+      .flatMap(([a, b]) => (b - a >= 60 ? [a, b - 60] : []))
+      .filter((x) => ok(x, x + 60, true))
+      .sort((p, q) => Math.abs(q + 30 - hob) - Math.abs(p + 30 - hob))
+    const x = spots[0]
+    if (x !== undefined) {
+      const i = pieces.findIndex(([a, b]) => x >= a - 0.5 && x + 60 <= b + 0.5)
+      const [a, b] = pieces[i]
+      pieces.splice(i, 1, ...([[a, x], [x + 60, b]] as [number, number][]).filter(([p, q]) => q - p >= 5))
+      best.spots.push({ type: 'washing-machine', w: 60, h: 90, d: 60, at: x })
+    }
+  }
+  for (const [a, b] of pieces) best.spots.push({ ...MOD.counter(Math.round((b - a) * 10) / 10), at: a })
   return best
 }
 
@@ -654,6 +682,7 @@ function kitchen(ctx: Ctx) {
     islandOrTable(ctx, null)
     return
   }
+  planning.uses = ctx.uses
   const plans = kitchenPlans(L)
   if (!plans.length) {
     islandOrTable(ctx, null)
@@ -677,6 +706,8 @@ type KitchenPlan = { chain: Chain; spots: Spot[]; level: number; cost: number; w
 
 /** Worked out once per room (every try at it starts from the same empty room). */
 const planned = new WeakMap<Analysis, KitchenPlan[]>()
+/** The floor's room uses, for the plans being worked out. */
+const planning: { uses?: Map<string, RoomUse> } = {}
 
 /** For each way units could run, the fullest set of them that fits. */
 function kitchenPlans(L: Layout): KitchenPlan[] {
@@ -691,6 +722,8 @@ function kitchenPlans(L: Layout): KitchenPlan[] {
     [[], false, 60],
   ] as [Module[], boolean, number][]
   const plans: KitchenPlan[] = []
+  const shallow = L.shallowColumns(40)
+  const washer = !!planning.uses && washerRoom(an.floor, planning.uses) === 'kitchen'
   for (const chain of chains(L)) {
     // The windows along it (the sink goes under one), in the chain's own measure.
     const windows: [number, number, number][] = []
@@ -707,9 +740,24 @@ function kitchenPlans(L: Layout): KitchenPlan[] {
       }
       from += leg.len
     }
+    // Columns along it: worktop runs on in front of them.
+    const worktopOnly: [number, number][] = []
+    let at = 0
+    for (const leg of chain.legs) {
+      for (const c of shallow) {
+        const p = L.along(leg.face, c)
+        if (p.n1 > 2 || p.n2 > 60) continue
+        const a = at + (p.s1 - leg.start) * leg.dir
+        const b = at + (p.s2 - leg.start) * leg.dir
+        const lo = Math.max(at, Math.min(a, b) - 2)
+        const hi = Math.min(at + leg.len, Math.max(a, b) + 2)
+        if (hi > lo) worktopOnly.push([lo, hi])
+      }
+      at += leg.len
+    }
     for (let level = 0; level < sets.length; level++) {
       const [tall, dw, sinkW] = sets[level]
-      const got = planChain(chain.legs, windows, tall, dw, sinkW)
+      const got = planChain(chain.legs, windows, worktopOnly, tall, dw, sinkW, washer)
       if (!got) continue
       plans.push({ chain, ...got, level, windowed: windows.length > 0, total: from })
       break
@@ -735,6 +783,7 @@ function placeKitchen(ctx: Ctx, plan: KitchenPlan) {
     return { leg, s: leg.start + leg.dir * (x - (from - leg.len) + w / 2), local: x - (from - leg.len) }
   }
   const cabinets = style.cabinets
+  const shallow = L.shallowColumns(40)
   const placed: { m: Spot; p: Placed; leg: Leg; from: number }[] = []
   for (const m of [...plan.spots].sort((a, b) => a.at - b.at)) {
     const { leg, s, local: lx } = where(m.at, m.w)
@@ -742,9 +791,11 @@ function placeKitchen(ctx: Ctx, plan: KitchenPlan) {
     const box = againstWall(facePoint(f, s), f.inward, m.w, m.d, 0, m.h)
     const extra: Partial<PlanSymbol> = { width: m.w, depth: m.d }
     if (m.type === 'oven-tower') extra.frame = cabinets
+    if (m.type === 'washing-machine') extra.style = 'built-in'
     const counter = m.type === 'counter'
     const c: Cand = { sym: L.sym(m.type, box, extra), box, reach: counter ? [] : [[before(box, 40)]], zones: counter ? [] : [zone(box, 0, m.d / 2 + 50, m.w, 100)] }
-    if (L.fits(box, c.zones)) placed.push({ m, p: L.add(c), leg, from: lx })
+    // The worktop runs on over a column in the wall (the cabinet under it built round it).
+    if (L.fits(box, c.zones, counter ? shallow : [])) placed.push({ m, p: L.add(c), leg, from: lx })
   }
   const fridgeInRun = placed.some((x) => x.m.type === 'fridge')
   // The hood over the hob; wall cabinets over the rest of each wall (not over windows or the tall units).
@@ -773,6 +824,13 @@ function placeKitchen(ctx: Ctx, plan: KitchenPlan) {
       else spans.push([x.from, x.from + x.m.w])
     }
     if (hood?.leg === leg) spans = cut(spans, hood.range[0], hood.range[1])
+    for (const c of an.columns) {
+      const p = L.along(leg.face, c)
+      if (p.n1 > 2 || p.n2 > 60) continue
+      const a = (p.s1 - leg.start) * leg.dir
+      const b = (p.s2 - leg.start) * leg.dir
+      spans = cut(spans, Math.min(a, b) - 2, Math.max(a, b) + 2)
+    }
     for (const o of an.windows) {
       if (o.face !== leg.face) continue
       const a = (o.s - o.w / 2 - leg.start) * leg.dir
@@ -904,6 +962,7 @@ function bathroom(ctx: Ctx) {
   ]
   for (const step of use === 'wc' ? [toilet, basin] : orders[ctx.attempt % orders.length]) step()
   if (marks.wet) niche(ctx, marks.wet)
+  if (use === 'bathroom' && washerRoom(an.floor, ctx.uses) === 'bathroom') washingMachine(ctx, 'front')
   if (use !== 'wc') {
     const by = marks.wet ?? marks.vanity
     L.tryPlace(wallCands(L, 'towel-radiator', 50, 10, 15, 135, { extra: { elevation: 15 } }), (c) => (by ? -dist(c.box, by.box) / 40 : 0))
@@ -964,8 +1023,23 @@ function office(ctx: Ctx) {
   plants(ctx, 1)
 }
 
+/** Where a floor's washing machine goes: the laundry if there is one, else a family bathroom with room for it, else the kitchen. */
+function washerRoom(floor: Floor, uses: Map<string, RoomUse>): RoomUse {
+  if ([...uses.values()].includes('laundry')) return 'laundry'
+  return floor.rooms.some((r) => uses.get(r.id) === 'bathroom' && area(r.points) >= 5.5e4) ? 'bathroom' : 'kitchen'
+}
+
+/** A washing machine against a wall, by the plumbing if there is any yet, room in front to load it. */
+function washingMachine(ctx: Ctx, style: 'front' | 'stacked'): Placed | null {
+  const { L, marks } = ctx
+  const h = style === 'stacked' ? 170 : 85
+  const by = marks.vanity ?? marks.wet
+  return L.tryPlace(wallCands(L, 'washing-machine', 60, 60, 0, h, { clear: 70, reach: true, extra: { style, height: h } }), (c) => (by ? -dist(c.box, by.box) / 60 : 0))
+}
+
 function laundry(ctx: Ctx) {
   const { L } = ctx
+  if (!washingMachine(ctx, 'stacked')) washingMachine(ctx, 'front')
   for (let i = 0; i < 2; i++) L.tryPlace(wallCands(L, 'bookshelf', 100, 40, 0, 200, { clear: 70 }), () => L.rand())
 }
 

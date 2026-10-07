@@ -1526,6 +1526,60 @@ function dishwasher(k: Kit, sym: PlanSymbol, w: number, d: number, h: number) {
   return g
 }
 
+/**
+ * A washing machine: a round door of smoked glass in a chrome ring, a control strip with the detergent drawer, a
+ * display and a dial; under a worktop, under a dryer, or loaded from the top.
+ */
+function washingMachine(k: Kit, sym: PlanSymbol, w: number, d: number, h: number) {
+  const g = new THREE.Group()
+  const color = frameOf(sym)?.hex ?? '#f4f4f2'
+  const body = k.q(color, color.toLowerCase() === '#c9ccd0' ? 'metal' : 'gloss')
+  const panel = k.q(color.toLowerCase() === '#2c2c2e' ? '#3f3f46' : '#e4e4e1', 'satin')
+  const chrome = k.q(COLORS.chrome, 'chrome')
+  const fz = d / 2 - 2
+  const dial = (x: number, y: number) => {
+    const m = mesh(new THREE.CylinderGeometry(3, 3, 2, 24), chrome)
+    m.rotation.x = Math.PI / 2
+    m.position.set(x, y, fz + 1)
+    g.add(m)
+  }
+  /** One machine from y0, uh tall (a dryer has no detergent drawer). */
+  const unit = (y0: number, uh: number, dryer: boolean) => {
+    g.add(rbox(w, uh - 0.4, d - 2, 1.5, 0, y0, -1, body))
+    g.add(box(w - 3, 11, 0.6, 0, y0 + uh - 12.5, fz + 0.3, panel))
+    if (!dryer) g.add(box(w * 0.3, 6, 0.8, -w * 0.29, y0 + uh - 10, fz + 0.7, k.q('#d4d4d8', 'satin')))
+    g.add(box(10, 3.5, 0.3, w * 0.05, y0 + uh - 8.5, fz + 0.7, k.q(COLORS.screen, 'gloss')))
+    dial(w * 0.3, y0 + uh - 7)
+    const r = Math.min(w, uh - 14) * 0.33
+    const cy = y0 + (uh - 14) / 2 + 1
+    const ring = mesh(new THREE.TorusGeometry(r, 2, 12, 40), chrome)
+    ring.position.set(0, cy, fz + 1.2)
+    g.add(ring)
+    const glass = mesh(new THREE.CircleGeometry(r - 0.5, 40), k.tinted())
+    glass.position.set(0, cy, fz + 0.8)
+    g.add(glass)
+  }
+  switch (styleOf(sym)) {
+    case 'top':
+      g.add(rbox(w, h - 10, d - 2, 1.5, 0, 0, -1, body))
+      g.add(box(w - 6, 1.2, d - 22, 0, h - 10, 4, k.q('#e4e4e1', 'satin'))) // lid
+      g.add(rbox(w, 10, 14, 1, 0, h - 10, -d / 2 + 7, panel)) // controls along the back
+      dial(w * 0.25, h - 5)
+      break
+    case 'stacked':
+      unit(0, Math.min(85, h / 2), false)
+      unit(Math.min(85, h / 2), h - Math.min(85, h / 2), true)
+      break
+    case 'built-in':
+      unit(0, h - 4, false)
+      g.add(rbox(w, 4, d, 0.6, 0, h - 4, 0, k.q(COLORS.stone, 'satin')))
+      break
+    default:
+      unit(0, h, false)
+  }
+  return g
+}
+
 /** A built-in oven's front, h tall from y: black glass with a window, its display and a bar handle. */
 function ovenFront(k: Kit, g: THREE.Group, w: number, y: number, h: number, z: number) {
   g.add(rbox(w, h, 1.8, 0.5, 0, y, z, k.q(COLORS.black, 'gloss')))
@@ -2705,6 +2759,9 @@ export function symbolModel(
       break
     case 'dishwasher':
       g = dishwasher(k, sym, w, d, h)
+      break
+    case 'washing-machine':
+      g = washingMachine(k, sym, w, d, h)
       break
     case 'oven-tower':
       g = ovenTower(k, sym, w, d, h)

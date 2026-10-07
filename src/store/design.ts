@@ -4,7 +4,7 @@
  */
 import { create } from 'zustand'
 import { applyDesigns, designRoom, guessUses, isFurnished, upgradeOptions } from '@/model/design'
-import type { DesignOptions } from '@/model/design'
+import type { DesignOptions, RoomDesign } from '@/model/design'
 import type { RoomUse } from '@/model/types'
 import { currentFloor, draftFloor, useEditor } from './editor'
 
@@ -30,6 +30,8 @@ interface DesignState {
   rooms: Record<string, RoomChoice>
   /** Which idea each room is on (another idea is the next). */
   variants: Record<string, number>
+  /** The designs being previewed, once suggested. */
+  designs: RoomDesign[] | null
   setOpts: (patch: Partial<DesignOptions>) => void
   setRoom: (id: string, patch: Partial<RoomChoice>) => void
   close: () => void
@@ -40,6 +42,7 @@ export const useDesign = create<DesignState>((set, get) => ({
   open: false,
   rooms: {},
   variants: {},
+  designs: null,
   setOpts: (patch) => {
     const opts = { ...get().opts, ...patch }
     try {
@@ -50,7 +53,7 @@ export const useDesign = create<DesignState>((set, get) => ({
     set({ opts })
   },
   setRoom: (id, patch) => set((s) => ({ rooms: { ...s.rooms, [id]: { ...s.rooms[id], ...patch } } })),
-  close: () => set({ open: false }),
+  close: () => set({ open: false, designs: null }),
 }))
 
 /**
@@ -65,6 +68,7 @@ export function openDesign() {
   const pick = empty.length ? new Set(empty.map((r) => r.id)) : new Set(rooms.map((r) => r.id))
   useDesign.setState({
     open: true,
+    designs: null,
     variants: {},
     rooms: Object.fromEntries(rooms.map((r) => [r.id, { on: pick.has(r.id), use: uses.get(r.id)! }])),
   })

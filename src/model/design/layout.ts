@@ -10,7 +10,7 @@ import { SYMBOL_MAP } from '../symbols'
 import type { Floor, PlanSymbol, Point, Room, RoomUse } from '../types'
 import { roomFaces } from '../walls'
 import type { WallFace } from '../walls'
-import { againstWall, distToBox, inside, overlaps } from './geom'
+import { againstWall, corners, distToBox, inside, overlaps } from './geom'
 import type { Box } from './geom'
 
 export interface Opening {
@@ -51,6 +51,8 @@ export interface Analysis {
   glass: Box[]
   /** What stays where it is: columns, stairs, anything not being replaced. */
   fixed: Box[]
+  /** The columns among them (free standing or built into a wall). */
+  columns: Box[]
 }
 
 const HINGED = new Set(['door', 'door-double', 'door-alu', 'door-alu-double'])
@@ -120,6 +122,7 @@ export function analyze(room: Room, floor: Floor, fixed: PlanSymbol[], uses: Map
   function rank(o: Opening) {
     return (o.kind === 'door' ? 2 : 1) + (o.to && publicUse(uses.get(o.to.id)) ? 3 : 0) + (o.to ? 1 : 0) + o.w / 1000
   }
+  const boxes = fixed.map((s) => boxOf(s, floor))
   return {
     room,
     floor,
@@ -132,7 +135,8 @@ export function analyze(room: Room, floor: Floor, fixed: PlanSymbol[], uses: Map
     entry,
     clear,
     glass,
-    fixed: fixed.map((s) => boxOf(s, floor)),
+    fixed: boxes,
+    columns: boxes.filter((_, i) => fixed[i].type === 'column' || fixed[i].type === 'wall-post'),
   }
 }
 
@@ -223,11 +227,11 @@ export class Layout {
     return [...this.an.fixed, ...this.placed.filter((p) => p !== skip).map((p) => p.box)]
   }
 
-  /** Whether a footprint (and the clearances it needs) can go here, given what's placed. */
-  fits(box: Box, zones: Box[] = []): boolean {
+  /** Whether a footprint (and the clearances it needs) can go here, given what's placed (but `ignore`). */
+  fits(box: Box, zones: Box[] = [], ignore: Box[] = []): boolean {
     const { poly } = this.an
     if (!inside(box, poly)) return false
-    const solids = this.solids()
+    const solids = this.solids().filter((b) => !ignore.includes(b))
     if (solids.some((o) => overlaps(box, o))) return false
     if (this.an.clear.some((c) => overlaps(box, c))) return false
     if (this.an.glass.some((g) => overlaps(box, g))) return false
@@ -297,8 +301,32 @@ export class Layout {
     return out
   }
 
-  /** The parts of a face clear of doors (and of anything between `z0` and `z1` within `depth` of it), as [s1, s2]. */
-  freeAlong(face: number, depth: number, z0: number, z1: number): [number, number][] {
+  /**
+   * Columns built into the walls that stand out no more than `depth` from them: units can run on in front of them
+   * (the worktop over them), so they don't break a run.
+   */
+  shallowColumns(depth: number): Box[] {
+    return this.an.columns.filter((c) =>
+      this.an.faces.every((f) => {
+        const n = corners(c).map((q) => dot(sub(q, f.a), f.inward))
+        const s = corners(c).map((q) => dot(sub(q, f.a), f.dir))
+        const touches = Math.min(...n) < 2 && Math.max(...s) > f.s1 && Math.min(...s) < f.s2
+        return !touches || Math.max(...n) <= depth
+      }) && this.an.faces.some((f) => Math.min(...corners(c).map((q) => dot(sub(q, f.a), f.inward))) < 2),
+    )
+  }
+
+  /** Where a box falls along a face: its stretch along it [s1, s2] and how far out from it it reaches [n1, n2]. */
+  along(face: number, b: Box) {
+    const f = this.an.faces[face]
+    const pts = corners(b)
+    const s = pts.map((q) => dot(sub(q, f.a), f.dir))
+    const n = pts.map((q) => dot(sub(q, f.a), f.inward))
+    return { s1: Math.min(...s), s2: Math.max(...s), n1: Math.min(...n), n2: Math.max(...n) }
+  }
+
+  /** The parts of a face clear of doors (and of anything between `z0` and `z1` within `depth` of it, but `ignore`), as [s1, s2]. */
+  freeAlong(face: number, depth: number, z0: number, z1: number, ignore: Box[] = []): [number, number][] {
     const f = this.an.faces[face]
     let free: [number, number][] = [[f.s1, f.s2]]
     const cut = (a: number, b: number) => {
@@ -310,7 +338,7 @@ export class Layout {
         ].filter(([x, y]) => y - x > 0.5) as [number, number][]
       })
     }
-    const boxes = [...this.an.clear, ...this.an.glass, ...this.solids()].filter((b) => Math.min(b.z1, z1) - Math.max(b.z0, z0) > 0)
+    const boxes = [...this.an.clear, ...this.an.glass, ...this.solids()].filter((b) => Math.min(b.z1, z1) - Math.max(b.z0, z0) > 0 && !ignore.includes(b))
     for (const b of boxes) {
       const cs = [
         { x: -b.w / 2, y: -b.d / 2 },
