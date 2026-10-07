@@ -8,12 +8,13 @@ import {
   AlignHorizontalSpaceAround,
   AlignVerticalDistributeCenter,
   AlignVerticalSpaceAround,
-  Box, ClipboardCopy, Columns2, Copy, Sofa, FlipHorizontal2, Group, Ungroup, FlipVertical2, ImageOff, Lightbulb, Link2Off, Lock, Ruler, RotateCw, SplitSquareHorizontal, Trash2, Video } from 'lucide-react'
+  Box, CircleHelp, ClipboardCopy, Columns2, Copy, Sofa, FlipHorizontal2, Group, Ungroup, FlipVertical2, ImageOff, Lightbulb, Link2Off, Lock, Ruler, RotateCw, SplitSquareHorizontal, Trash2, Video } from 'lucide-react'
 import { toast } from 'sonner'
 import { arrange, arrangeable, layoutOf, spacingOf, wouldMove } from '@/model/arrange'
 import type { Unit } from '@/model/arrange'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { startTour } from '@/components/tour'
 import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Separator } from '@/components/ui/separator'
@@ -1097,6 +1098,36 @@ function SymbolProps({ sym, units }: { sym: PlanSymbol; units: Units }) {
             {sym.led && <LightSection sym={sym} units={units} />}
           </div>
         )}
+        {sym.type === 'oven-tower' && (
+          <Choice
+            label="Built in"
+            value={sym.appliances ?? 'micro'}
+            onChange={(v) => updateSymbol(sym.id, (s) => void (v === 'micro' ? delete s.appliances : (s.appliances = v as 'oven' | 'two-ovens')))}
+            options={[
+              { value: 'micro', label: 'Oven + microwave' },
+              { value: 'oven', label: 'Oven' },
+              { value: 'two-ovens', label: 'Two ovens' },
+            ]}
+          />
+        )}
+        {sym.type === 'kitchen-island' && (
+          <div className="space-y-3 rounded-lg bg-muted/60 p-3">
+            <Choice
+              label="In the top"
+              value={sym.islandTop ?? 'none'}
+              onChange={(v) => updateSymbol(sym.id, (s) => void (v === 'none' ? delete s.islandTop : (s.islandTop = v as 'hob' | 'sink')))}
+              options={[
+                { value: 'none', label: 'Nothing' },
+                { value: 'hob', label: 'Hob' },
+                { value: 'sink', label: 'Sink' },
+              ]}
+            />
+            <label className="flex items-center justify-between gap-2 text-sm">
+              <span>Stools</span>
+              <Switch size="sm" checked={sym.stool !== false} onCheckedChange={(on) => updateSymbol(sym.id, (s) => void (on ? delete s.stool : (s.stool = false)))} />
+            </label>
+          </div>
+        )}
         {sym.type === 'wall-cabinet' && (
           <div className="space-y-3 rounded-lg bg-muted/60 p-3">
             <Choice
@@ -1562,6 +1593,9 @@ function FloorAndProjectProps() {
           <li>Add doors, windows and furniture from the Library tab.</li>
           <li>Scroll to zoom, drag empty space to pan, switch to 3D at the top.</li>
         </ul>
+        <Button variant="outline" size="sm" className="mt-3 w-full" onClick={startTour}>
+          <CircleHelp /> Take the tour
+        </Button>
       </Section>
     </>
   )

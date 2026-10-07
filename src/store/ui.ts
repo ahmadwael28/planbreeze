@@ -3,6 +3,8 @@ import { create } from 'zustand'
 /** Where an imported drawing goes: a brand-new project or the floor being edited. */
 export type ImportTarget = 'new' | 'current'
 
+export type SidebarTab = 'properties' | 'library' | 'summary'
+
 interface UiState {
   startOpen: boolean
   projectsOpen: boolean
@@ -13,6 +15,11 @@ interface UiState {
   pendingView: string | null
   /** Library categories the user has folded away (all open by default). */
   libraryCollapsed: string[]
+  /** The side panel: shown or not, and its tab. */
+  sidebarOpen: boolean
+  sidebarTab: SidebarTab
+  /** The guided tour's step, while it's running (see GuidedTour). */
+  tourStep: number | null
   openStart: (open: boolean) => void
   openProjects: (open: boolean) => void
   openPrint: (open: boolean) => void
@@ -20,6 +27,9 @@ interface UiState {
   openImport: (target: ImportTarget | null) => void
   setPendingView: (id: string | null) => void
   setLibraryCollapsed: (cats: string[]) => void
+  setSidebarOpen: (open: boolean) => void
+  setSidebarTab: (tab: SidebarTab) => void
+  setTourStep: (step: number | null) => void
 }
 
 /** Dialog visibility, shared so any part of the UI can open them. */
@@ -31,6 +41,9 @@ export const useUi = create<UiState>((set) => ({
   importTarget: null,
   pendingView: null,
   libraryCollapsed: [],
+  sidebarOpen: typeof window === 'undefined' || window.innerWidth >= 768,
+  sidebarTab: 'properties',
+  tourStep: null,
   openStart: (startOpen) => set({ startOpen }),
   openProjects: (projectsOpen) => set({ projectsOpen }),
   openPrint: (printOpen) => set({ printOpen }),
@@ -38,4 +51,7 @@ export const useUi = create<UiState>((set) => ({
   openImport: (importTarget) => set({ importTarget }),
   setPendingView: (pendingView) => set({ pendingView }),
   setLibraryCollapsed: (libraryCollapsed) => set({ libraryCollapsed }),
+  setSidebarOpen: (sidebarOpen) => set({ sidebarOpen }),
+  setSidebarTab: (sidebarTab) => set({ sidebarTab }),
+  setTourStep: (tourStep) => set({ tourStep }),
 }))

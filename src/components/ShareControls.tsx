@@ -41,6 +41,7 @@ export function ShareControls() {
         size="sm"
         className="shrink-0"
         onClick={() => (user ? useUi.getState().openShare(true) : useCloud.getState().openSignIn(true, 'Sign in to share your plans with other people.'))}
+        data-tour="share"
       >
         <Share2 /> <span className="max-md:hidden">Share</span>
       </Button>

@@ -1,4 +1,4 @@
-import { useMemo } from 'react'
+import { useEffect, useMemo, useRef } from 'react'
 import { ArrowRight, PenLine, ScanLine } from 'lucide-react'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { usePlanTheme } from '@/hooks/use-plan-theme'
@@ -11,6 +11,7 @@ import type { Floor } from '@/model/types'
 import { useEditor } from '@/store/editor'
 import { saveProject } from '@/store/storage'
 import { useUi } from '@/store/ui'
+import { offerTour } from './tour'
 import { PlanLayers } from './PlanLayers'
 
 function Thumbnail({ floor }: { floor: Floor }) {
@@ -39,6 +40,12 @@ export function StartDialog() {
   const openStart = useUi((s) => s.openStart)
   const openImport = useUi((s) => s.openImport)
   const units = useEditor((s) => s.project.units)
+  // Once it's closed on a first visit, the tour is offered.
+  const wasOpen = useRef(isOpen)
+  useEffect(() => {
+    if (wasOpen.current && !isOpen) offerTour()
+    wasOpen.current = isOpen
+  }, [isOpen])
   const previews = useMemo(
     () =>
       TEMPLATES.map((t) => {
@@ -110,7 +117,7 @@ export function StartDialog() {
 
         <div className="space-y-2.5">
           <h3 className="text-sm font-medium">Or begin with a ready-made layout</h3>
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-5">
             {previews.map(({ t, floor, area }) => (
               <button
                 key={t.id}

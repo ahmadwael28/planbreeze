@@ -19,7 +19,7 @@ export function VisibilityMenu() {
   return (
     <Popover>
       <PopoverTrigger asChild>
-        <Button variant="outline" size="sm" className="bg-background/95 shadow-sm backdrop-blur" aria-label="Show or fade categories">
+        <Button variant="outline" size="sm" className="bg-background/95 shadow-sm backdrop-blur" aria-label="Show or fade categories" data-tour="show">
           {faded.length ? <EyeOff /> : <Eye />}
           <span className="max-sm:hidden">{faded.length ? `${faded.length} faded` : 'Show'}</span>
         </Button>

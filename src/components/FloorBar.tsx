@@ -28,7 +28,10 @@ export function FloorBar() {
   )
 
   return (
-    <div className="absolute bottom-3 left-3 flex max-w-[calc(100%-1.5rem)] items-center gap-1 overflow-x-auto rounded-full border bg-background/95 py-1 pr-1.5 pl-3 shadow-md backdrop-blur">
+    <div
+      className="absolute bottom-3 left-3 flex max-w-[calc(100%-1.5rem)] items-center gap-1 overflow-x-auto rounded-full border bg-background/95 py-1 pr-1.5 pl-3 shadow-md backdrop-blur"
+      data-tour="floors"
+    >
       <Layers className="size-4 shrink-0 text-muted-foreground" />
       {[...floors].reverse().map((f) => (
         <Button

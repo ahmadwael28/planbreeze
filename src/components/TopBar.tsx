@@ -3,6 +3,7 @@ import type { ReactNode } from 'react'
 import { useTheme } from '@/components/theme-provider'
 import type { Theme } from '@/components/theme-provider'
 import {
+  CircleHelp,
   Download,
   FileJson,
   FileUp,
@@ -38,6 +39,7 @@ import { currentFloor, useEditor } from '@/store/editor'
 import { useUi } from '@/store/ui'
 import { AccountButton, SaveStatus } from './AccountControls'
 import { ShareControls } from './ShareControls'
+import { startTour } from './tour'
 import { Logo } from './Logo'
 import type { ViewMode } from '@/store/editor'
 
@@ -128,7 +130,7 @@ export function TopBar({ onToggleSidebar, sidebarOpen }: Props) {
         <span className="hidden text-[15px] font-semibold tracking-tight lg:inline">Planbreeze</span>
       </div>
 
-      <Button variant="outline" onClick={() => useUi.getState().openProjects(true)} className="max-w-32 min-w-0 sm:max-w-64">
+      <Button variant="outline" onClick={() => useUi.getState().openProjects(true)} className="max-w-32 min-w-0 sm:max-w-64" data-tour="projects">
         <FolderOpen />
         <span className="truncate">{name}</span>
       </Button>
@@ -156,6 +158,7 @@ export function TopBar({ onToggleSidebar, sidebarOpen }: Props) {
           value={viewMode}
           onValueChange={(v) => v && setViewMode(v as ViewMode)}
           aria-label="View mode"
+          data-tour="view-mode"
         >
           <ToggleGroupItem value="2d" className="px-3 font-semibold data-[state=on]:bg-primary data-[state=on]:text-primary-foreground">
             2D
@@ -221,7 +224,7 @@ export function TopBar({ onToggleSidebar, sidebarOpen }: Props) {
         <DropdownMenu>
           <Tip label="Export / import">
             <DropdownMenuTrigger asChild>
-              <Button variant="ghost" size="icon" aria-label="Export or import">
+              <Button variant="ghost" size="icon" aria-label="Export or import" data-tour="export">
                 <Download />
               </Button>
             </DropdownMenuTrigger>
@@ -271,6 +274,11 @@ export function TopBar({ onToggleSidebar, sidebarOpen }: Props) {
         />
 
         <ThemeMenu />
+        <Tip label="Take the tour">
+          <Button variant="ghost" size="icon" onClick={startTour} aria-label="Take the tour" data-tour="help">
+            <CircleHelp />
+          </Button>
+        </Tip>
         <AccountButton />
 
         <Separator orientation="vertical" className="mx-1 hidden h-5! sm:block" />

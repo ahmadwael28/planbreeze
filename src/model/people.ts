@@ -3,7 +3,7 @@
  * and beds take them at the right height, facing the right way (the plan's sizes are in cm).
  */
 import { itemFrame } from './placement'
-import { frameOf, OUTFITS, SKIN_TONES, SOFA, seatsAlong } from './symbols'
+import { frameOf, islandStools, OUTFITS, SKIN_TONES, SOFA, seatsAlong } from './symbols'
 import type { PlanSymbol, Point } from './types'
 
 export type PersonPose = NonNullable<PlanSymbol['pose']>
@@ -37,6 +37,7 @@ const HOLDS: Record<string, { name: string; sit?: number | 'top'; lie?: number |
   'bed-single': { name: 'bed', sit: 'top', lie: 'top' },
   toilet: { name: 'toilet', sit: 44 },
   'dressing-table': { name: 'dressing table stool', sit: 46 },
+  'kitchen-island': { name: 'island stool', sit: 66 },
 }
 
 /** Where a person settles on something: what it is, how high they are off the floor, and their pose in the plan. */
@@ -72,6 +73,10 @@ function settle(item: PlanSymbol, pose: 'sit' | 'lie', l: Point, face: Point, H:
       // On its stool, facing the mirror, knees under the table.
       if (item.stool === false) return null
       return { at: { x: 0, y: d / 2 + 6 + 14 - D / 2 }, dir: { x: 0, y: -1 } }
+    case 'kitchen-island':
+      // On the nearest stool along its seating side, facing the island.
+      if (item.stool === false) return null
+      return { at: { x: nearest(l.x, islandStools(w)), y: d / 2 + 8 + 14 - D / 2 }, dir: { x: 0, y: -1 } }
     case 'armchair':
     case 'sofa': {
       // As the 3D model has it: its back, back cushions (about 12 cm out from the back) and seat cushions.

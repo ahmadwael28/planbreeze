@@ -136,6 +136,22 @@ export const HOOD_FINISHES: FrameColor[] = [
   { name: 'Cream', hex: '#ece4d4' },
 ]
 
+/** Dishwasher fronts: a panel like the kitchen's doors (built in), or the machine's own steel or black. */
+export const DISHWASHER_FRONTS: FrameColor[] = [
+  { name: 'Built in', hex: '#f4f3ef' },
+  { name: 'Steel', hex: '#c9ccd0' },
+  { name: 'Black', hex: '#2c2c2e' },
+]
+
+/** Where a kitchen island's stools go along its seating side (x, cm from its middle), one per 55 cm or so. */
+export function islandStools(w: number) {
+  const n = Math.max(1, Math.floor((w - 20) / 55))
+  return Array.from({ length: n }, (_, i) => -w / 2 + (w * (i + 0.5)) / n)
+}
+
+/** How far a kitchen island's top overhangs its cabinets on the seating side (cm). */
+export const islandOverhang = (d: number) => Math.min(30, d * 0.3)
+
 /** Towel colors. */
 export const TOWELS: FrameColor[] = [
   { name: 'White', hex: '#f4f2ee' },
@@ -1397,6 +1413,87 @@ export const SYMBOLS: SymbolDef[] = [
             ))}
           {style !== 'built-in' && <rect x={-cw / 2} y={cy - cd / 2} width={cw} height={cd} {...k.s(t.fill2)} />}
           {style === 'built-in' && <line x1={-w / 2 + 4} y1={d / 2 - 6} x2={w / 2 - 4} y2={d / 2 - 6} {...k.thin} />}
+        </>
+      )
+    },
+  },
+  {
+    type: 'dishwasher',
+    name: 'Dishwasher',
+    keywords: 'dishwasher dish washer appliance built-in',
+    category: 'Kitchen',
+    width: 60,
+    depth: 60,
+    height: 90,
+    frames: DISHWASHER_FRONTS,
+    frameLabel: 'Front',
+    render: (w, d, t) => {
+      const k = kit(t)
+      return (
+        <>
+          {k.box(w, d)}
+          <line x1={-w / 2} y1={d / 2 - 4} x2={w / 2} y2={d / 2 - 4} {...k.thin} />
+          <text x={0} y={4} fontSize={Math.min(w, d) / 3.5} textAnchor="middle" fill={t.ink} fontFamily="sans-serif">
+            DW
+          </text>
+        </>
+      )
+    },
+  },
+  {
+    // A tall unit: drawers, an oven at a comfortable height and a microwave or second oven above it, a cupboard on top.
+    type: 'oven-tower',
+    name: 'Oven tower',
+    keywords: 'oven tower tall unit built-in oven microwave column housing',
+    category: 'Kitchen',
+    width: 60,
+    depth: 60,
+    height: 220,
+    frames: VANITY_FINISHES,
+    frameLabel: 'Finish',
+    render: (w, d, t) => {
+      const k = kit(t)
+      return (
+        <>
+          {k.box(w, d)}
+          <line x1={-w / 2} y1={-d / 2} x2={w / 2} y2={d / 2 - 6} {...k.thin} />
+          <line x1={-w / 2} y1={d / 2 - 6} x2={w / 2} y2={-d / 2} {...k.thin} />
+          <line x1={-w / 2} y1={d / 2 - 6} x2={w / 2} y2={d / 2 - 6} {...k.line} />
+        </>
+      )
+    },
+  },
+  {
+    // Cabinets on the cooking side (its back), the top overhanging the other side for stools.
+    type: 'kitchen-island',
+    name: 'Kitchen island',
+    keywords: 'kitchen island breakfast bar counter stools peninsula',
+    category: 'Kitchen',
+    width: 200,
+    depth: 100,
+    height: 90,
+    frames: VANITY_FINISHES,
+    frameLabel: 'Finish',
+    render: (w, d, t, sym) => {
+      const k = kit(t)
+      const over = islandOverhang(d)
+      const work = d - over
+      const cz = -d / 2 + work / 2
+      return (
+        <>
+          {sym?.stool !== false && islandStools(w).map((x) => <circle key={x} cx={x} cy={d / 2 + 8} r={17} {...k.s()} />)}
+          {k.box(w, d, 2)}
+          <line x1={-w / 2} y1={d / 2 - over} x2={w / 2} y2={d / 2 - over} {...k.thin} strokeDasharray="4 3" />
+          {sym?.islandTop === 'sink' && (
+            <rect x={-Math.min(w - 20, 72) / 2} y={cz - Math.min(work - 20, 42) / 2} width={Math.min(w - 20, 72)} height={Math.min(work - 20, 42)} rx={5} {...k.s(t.fill2)} />
+          )}
+          {sym?.islandTop === 'hob' &&
+            [
+              [-1, -1],
+              [1, -1],
+              [-1, 1],
+              [1, 1],
+            ].map(([a, b]) => <circle key={`${a}${b}`} cx={a * 14} cy={cz + b * 12} r={7} {...k.line} />)}
         </>
       )
     },

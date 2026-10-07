@@ -1,9 +1,7 @@
 import { projectFromTemplate, TEMPLATES } from './templates'
 import type { Project } from './types'
 
-/** A small furnished apartment used on first launch so the editor isn't empty. */
+/** The furnished example apartment opened on a first visit, to show what the app can do. */
 export function sampleProject(): Project {
-  const p = projectFromTemplate(TEMPLATES.find((t) => t.id === 'one-bed')!)
-  p.name = 'Sample apartment'
-  return p
+  return projectFromTemplate(TEMPLATES.find((t) => t.id === 'example')!)
 }

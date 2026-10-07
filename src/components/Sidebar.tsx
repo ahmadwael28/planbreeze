@@ -5,11 +5,11 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { makeOwnCopy } from '@/cloud/sync'
 import { cn } from '@/lib/utils'
 import { isViewOnly, useEditor } from '@/store/editor'
+import { useUi } from '@/store/ui'
+import type { SidebarTab } from '@/store/ui'
 import { LibraryPanel } from './LibraryPanel'
 import { PropertiesPanel } from './PropertiesPanel'
 import { SummaryPanel } from './SummaryPanel'
-
-type Tab = 'properties' | 'library' | 'summary'
 
 /** For a plan shared to view: why nothing can be changed, and the way to a copy that can. */
 function ViewOnlyNote() {
@@ -27,7 +27,8 @@ function ViewOnlyNote() {
 }
 
 export function Sidebar({ open }: { open: boolean }) {
-  const [tab, setTab] = useState<Tab>('properties')
+  const tab = useUi((s) => s.sidebarTab)
+  const setTab = useUi((s) => s.setSidebarTab)
   const viewOnly = useEditor((s) => isViewOnly(s.project))
   const selectionKey = useEditor((s) => (s.selection ? (s.selection.kind === 'multi' ? `multi:${s.selection.items.length}` : `${s.selection.kind}:${s.selection.id}`) : ''))
 
@@ -45,8 +46,9 @@ export function Sidebar({ open }: { open: boolean }) {
         'max-md:absolute max-md:inset-y-0 max-md:right-0 max-md:z-20 max-md:w-[min(340px,88vw)] max-md:shadow-xl',
         !open && 'hidden',
       )}
+      data-tour="sidebar"
     >
-      <Tabs value={tab} onValueChange={(v) => setTab(v as Tab)} className="flex min-h-0 flex-1 flex-col gap-0">
+      <Tabs value={tab} onValueChange={(v) => setTab(v as SidebarTab)} className="flex min-h-0 flex-1 flex-col gap-0">
         <div className="border-b p-2">
           <TabsList className="w-full">
             <TabsTrigger value="properties">Properties</TabsTrigger>

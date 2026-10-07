@@ -28,7 +28,7 @@ export function zoomBy(f: number) {
   setView({ zoom, panX: cx - ((cx - view.panX) * zoom) / view.zoom, panY: cy - ((cy - view.panY) * zoom) / view.zoom })
 }
 
-function ToolButton({ label, active, onClick, children }: { label: string; active?: boolean; onClick: () => void; children: ReactNode }) {
+function ToolButton({ label, active, onClick, tour, children }: { label: string; active?: boolean; onClick: () => void; tour?: string; children: ReactNode }) {
   return (
     <Tooltip>
       <TooltipTrigger asChild>
@@ -36,6 +36,7 @@ function ToolButton({ label, active, onClick, children }: { label: string; activ
           variant={active ? 'secondary' : 'ghost'}
           size="icon-lg"
           aria-label={label}
+          data-tour={tour}
           aria-pressed={active}
           onClick={onClick}
           className={cn(active && 'bg-primary/15 text-primary hover:bg-primary/20 dark:bg-primary/25')}
@@ -58,7 +59,7 @@ export function Toolbar() {
   const tools = viewOnly ? TOOLS.filter((t) => t.tool === 'select' || t.tool === 'pan') : TOOLS
 
   return (
-    <nav className="flex w-13 shrink-0 flex-col items-center gap-1 overflow-y-auto border-r bg-background py-2">
+    <nav className="flex w-13 shrink-0 flex-col items-center gap-1 overflow-y-auto border-r bg-background py-2" data-tour="tools">
       {tools.map(({ tool: t, icon: Icon, label, key }) => (
         <ToolButton key={t} label={`${label} (${key})`} active={tool === t} onClick={() => setTool(t)}>
           <Icon />
@@ -78,7 +79,7 @@ export function Toolbar() {
           <ToolButton label="Add L-shaped room" onClick={addLShapeRoomAtCenter}>
             <SquareDashedBottom />
           </ToolButton>
-          <ToolButton label="Import a sketch or photo" onClick={() => useUi.getState().openImport('current')}>
+          <ToolButton label="Import a sketch or photo" onClick={() => useUi.getState().openImport('current')} tour="import">
             <ScanLine />
           </ToolButton>
         </>

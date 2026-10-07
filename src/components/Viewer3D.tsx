@@ -380,14 +380,17 @@ function LightingPanel({ onInside }: { onInside: () => void }) {
 
   if (!open) {
     return (
-      <Button variant="secondary" size="sm" className="absolute top-3 left-3 z-10 shadow-md" onClick={() => setOpen(true)}>
+      <Button variant="secondary" size="sm" className="absolute top-3 left-3 z-10 shadow-md" onClick={() => setOpen(true)} data-tour="lights3d">
         <Lightbulb /> Lights
       </Button>
     )
   }
 
   return (
-    <div className="absolute top-3 left-3 z-10 flex max-h-[calc(100%-6rem)] w-72 max-w-[calc(100%-1.5rem)] flex-col overflow-hidden rounded-xl border bg-background/95 shadow-lg backdrop-blur">
+    <div
+      className="absolute top-3 left-3 z-10 flex max-h-[calc(100%-6rem)] w-72 max-w-[calc(100%-1.5rem)] flex-col overflow-hidden rounded-xl border bg-background/95 shadow-lg backdrop-blur"
+      data-tour="lights3d"
+    >
       <div className="flex items-center justify-between border-b px-3 py-2">
         <span className="flex items-center gap-2 text-sm font-semibold">
           <Lightbulb className="size-4" /> Lighting
@@ -1143,7 +1146,7 @@ export default function Viewer3D() {
           walkInside()
         }}
       />
-      <div className="absolute top-3 right-3 flex items-center gap-1.5 rounded-lg border bg-background/90 p-1 shadow-sm backdrop-blur">
+      <div className="absolute top-3 right-3 flex items-center gap-1.5 rounded-lg border bg-background/90 p-1 shadow-sm backdrop-blur" data-tour="camera3d">
         <Select value={filter} onValueChange={(v) => setSettings({ floors3d: v as FloorFilter })}>
           <SelectTrigger size="sm" className="w-40 border-0 shadow-none max-sm:w-28">
             <SelectValue />
@@ -1309,7 +1312,7 @@ export default function Viewer3D() {
               <TooltipContent>Save this view</TooltipContent>
             </Tooltip>
             {viewpoints.length > 0 && (
-              <Button size="lg" className="rounded-full shadow-lg" onClick={startTour}>
+              <Button size="lg" className="rounded-full shadow-lg" onClick={startTour} data-tour="viewpoints">
                 <Camera /> Viewpoints
               </Button>
             )}

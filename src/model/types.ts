@@ -216,8 +216,12 @@ export interface PlanSymbol {
   frame?: string
   /** Magnetic tracks: the modules clipped into them. */
   modules?: TrackModule[]
-  /** Dressing tables: with their stool (unless false). */
+  /** Dressing tables and kitchen islands: with their stool(s) (unless false). */
   stool?: boolean
+  /** Kitchen islands: a hob or a sink in the top (a plain worktop if left out). */
+  islandTop?: 'hob' | 'sink'
+  /** Oven towers: an oven alone or two ovens (an oven and a microwave if left out). */
+  appliances?: 'oven' | 'two-ovens'
   /** Towel rails: with a towel on them (unless false). */
   towel?: boolean
   /** Shower niches: a glass shelf across the middle. */

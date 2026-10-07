@@ -16,7 +16,23 @@ import { openSides } from '@/model/guides'
 import type { Side } from '@/model/guides'
 import { personLook, restOn } from '@/model/people'
 import { nicheDepth } from '@/model/walls'
-import { chairsAlong, cornerArm, curtainLayers, curtainPanels, frameOf, hasGlass, panelWidth, seatsAlong, SOFA, startsShut, styleOf, vanityMirror, vanitySinks } from '@/model/symbols'
+import {
+  chairsAlong,
+  cornerArm,
+  curtainLayers,
+  curtainPanels,
+  frameOf,
+  hasGlass,
+  islandOverhang,
+  islandStools,
+  panelWidth,
+  seatsAlong,
+  SOFA,
+  startsShut,
+  styleOf,
+  vanityMirror,
+  vanitySinks,
+} from '@/model/symbols'
 import type { PlanSymbol, Point, Room } from '@/model/types'
 
 export const COLORS = {
@@ -1409,13 +1425,15 @@ function desk(k: Kit, w: number, d: number, h: number) {
 interface KitchenOpts {
   sink?: boolean
   stove?: boolean
+  /** The cabinets' color (white if left out). */
+  color?: string
 }
 
 function kitchen(k: Kit, w: number, d: number, h: number, opts: KitchenOpts) {
   const g = new THREE.Group()
   const toe = 10
   const top = 4
-  const white = COLORS.white
+  const white = opts.color ?? COLORS.white
   g.add(box(w - 2, toe, d - 10, 0, 0, -5, k.q(COLORS.dark, 'satin'))) // recessed plinth
   g.add(box(w, h - top - toe, d - 4, 0, toe, -2, k.q(white, 'satin'))) // carcass
   const fz = d / 2 - 3.1
@@ -1483,6 +1501,98 @@ function kitchen(k: Kit, w: number, d: number, h: number, opts: KitchenOpts) {
       g.add(ring)
     }
   }
+  return g
+}
+
+/** A dishwasher under the worktop: a panel like the doors around it (built in), or its own steel or black door. */
+function dishwasher(k: Kit, sym: PlanSymbol, w: number, d: number, h: number) {
+  const g = new THREE.Group()
+  const toe = 10
+  const top = 4
+  const color = frameOf(sym)?.hex ?? '#f4f3ef'
+  g.add(box(w - 2, toe, d - 10, 0, 0, -5, k.q(COLORS.dark, 'satin')))
+  g.add(box(w, h - top - toe, d - 4, 0, toe, -2, k.q(COLORS.white, 'satin')))
+  const fz = d / 2 - 3.1
+  const fh = h - top - toe - 1
+  if (color.toLowerCase() === '#f4f3ef') front(k, g, w - 2, fh, 0, toe + 0.5, fz, color, 'bar')
+  else {
+    const steel = color.toLowerCase() === '#c9ccd0'
+    g.add(rbox(w - 2, fh - 8, 1.8, 0.5, 0, toe + 0.5, fz, k.q(color, steel ? 'metal' : 'gloss')))
+    g.add(rbox(w - 2, 7.5, 1.8, 0.5, 0, toe + fh - 7.5, fz, k.q('#27272a', 'gloss'))) // controls
+    g.add(box(9, 2, 0.3, w / 2 - 12, toe + fh - 4.8, fz + 1.05, k.q('#38bdf8', 'gloss')))
+    g.add(box(w * 0.6, 1.4, 2, 0, toe + fh - 13, fz + 2, k.q(COLORS.chrome, 'chrome')))
+  }
+  g.add(rbox(w, top, d, 0.6, 0, h - top, 0, k.q(COLORS.stone, 'satin')))
+  return g
+}
+
+/** A built-in oven's front, h tall from y: black glass with a window, its display and a bar handle. */
+function ovenFront(k: Kit, g: THREE.Group, w: number, y: number, h: number, z: number) {
+  g.add(rbox(w, h, 1.8, 0.5, 0, y, z, k.q(COLORS.black, 'gloss')))
+  g.add(box(w * 0.74, h * 0.48, 0.3, 0, y + h * 0.12, z + 1.05, k.q(COLORS.screen, 'gloss')))
+  g.add(box(10, 2.2, 0.3, 0, y + h - 5.5, z + 1.05, k.q('#f59e0b', 'gloss')))
+  g.add(box(w - 8, 1.6, 2, 0, y + h - 12, z + 2.2, k.q(COLORS.metal, 'metal')))
+}
+
+/** A built-in microwave's front: black glass, the window to one side, a handle at the other. */
+function microwaveFront(k: Kit, g: THREE.Group, w: number, y: number, h: number, z: number) {
+  g.add(rbox(w, h, 1.8, 0.5, 0, y, z, k.q(COLORS.black, 'gloss')))
+  g.add(box(w * 0.58, h * 0.62, 0.3, -w * 0.1, y + h * 0.19, z + 1.05, k.q(COLORS.screen, 'gloss')))
+  g.add(box(1.6, h * 0.55, 2, w / 2 - 7, y + h * 0.22, z + 2.2, k.q(COLORS.metal, 'metal')))
+}
+
+/** A tall oven housing: two drawers, an oven at eye level, a microwave or second oven above it, a cupboard on top. */
+function ovenTower(k: Kit, sym: PlanSymbol, w: number, d: number, h: number) {
+  const g = new THREE.Group()
+  const color = frameOf(sym)?.hex ?? '#f4f3ef'
+  const wood = ['#c19a6b', '#6e4b33'].includes(color.toLowerCase())
+  const toe = 10
+  g.add(box(w - 2, toe, d - 10, 0, 0, -5, k.q(COLORS.dark, 'satin')))
+  g.add(box(w, h - toe, d - 4, 0, toe, -2, k.q(color, wood ? 'wood' : 'satin')))
+  const fz = d / 2 - 3.1
+  const fw = w - 1
+  const start = 75
+  const dh = (start - toe - 1) / 2
+  for (let j = 0; j < 2; j++) front(k, g, fw, dh - 0.6, 0, toe + 0.5 + j * dh, fz, color, 'bar', 'top')
+  let y = start
+  const units = sym.appliances === 'oven' ? ['oven'] : sym.appliances === 'two-ovens' ? ['oven', 'oven'] : ['oven', 'microwave']
+  for (const u of units) {
+    const uh = u === 'oven' ? 60 : 38
+    if (y + uh > h - 2) break
+    if (u === 'oven') ovenFront(k, g, fw, y, uh - 0.6, fz)
+    else microwaveFront(k, g, fw, y, uh - 0.6, fz)
+    y += uh
+  }
+  if (h - y > 8) front(k, g, fw, h - y - 0.6, 0, y, fz, color, 'bar', 'bottom')
+  return g
+}
+
+/** A bar stool: a round oak seat on a post, a footrest ring, a steel base. */
+function barStool(k: Kit, g: THREE.Group, x: number, z: number, seat = 66) {
+  const metal = k.q('#3f3f46', 'metal')
+  g.add(cylinder(19, 1.5, x, 0, z, metal))
+  g.add(cylinder(2.4, seat - 4, x, 1.5, z, metal))
+  const ring = mesh(new THREE.TorusGeometry(15, 0.9, 8, 28), metal)
+  ring.rotation.x = Math.PI / 2
+  ring.position.set(x, 24, z)
+  g.add(ring)
+  g.add(cylinder(18, 4, x, seat - 4, z, k.q(COLORS.wood, 'wood')))
+}
+
+/**
+ * A kitchen island: base cabinets facing its back (the cooking side), with a hob or a sink if it has one, the
+ * worktop running on over the seating side, stools along it.
+ */
+function kitchenIsland(k: Kit, sym: PlanSymbol, w: number, d: number, h: number) {
+  const g = new THREE.Group()
+  const over = islandOverhang(d)
+  const work = d - over
+  const cabinets = kitchen(k, w, work, h, { sink: sym.islandTop === 'sink', stove: sym.islandTop === 'hob', color: frameOf(sym)?.hex })
+  cabinets.rotation.y = Math.PI
+  cabinets.position.z = -d / 2 + work / 2
+  g.add(cabinets)
+  g.add(rbox(w, 4, over + 0.2, 0.6, 0, h - 4, d / 2 - over / 2, k.q(COLORS.stone, 'satin')))
+  if (sym.stool !== false) for (const x of islandStools(w)) barStool(k, g, x, d / 2 + 8)
   return g
 }
 
@@ -2592,6 +2702,15 @@ export function symbolModel(
       break
     case 'fridge':
       g = fridge(k, w, d, h)
+      break
+    case 'dishwasher':
+      g = dishwasher(k, sym, w, d, h)
+      break
+    case 'oven-tower':
+      g = ovenTower(k, sym, w, d, h)
+      break
+    case 'kitchen-island':
+      g = kitchenIsland(k, sym, w, d, h)
       break
     case 'tv-unit':
       g = tvUnit(k, w, d, h)

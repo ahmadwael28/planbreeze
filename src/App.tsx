@@ -1,10 +1,11 @@
-import { lazy, Suspense, useEffect, useState } from 'react'
+import { lazy, Suspense, useEffect } from 'react'
 import { LayoutGrid, Lightbulb } from 'lucide-react'
 import { Loader } from '@/components/ui/loader'
 import { toast } from 'sonner'
 import { Canvas } from '@/components/Canvas'
 import { EmptyState } from '@/components/EmptyState'
 import { FloorBar } from '@/components/FloorBar'
+import { GuidedTour } from '@/components/GuidedTour'
 import { ImportWizard } from '@/components/ImportWizard'
 import { PrintDialog } from '@/components/PrintDialog'
 import { ProjectsDialog } from '@/components/ProjectsDialog'
@@ -86,6 +87,7 @@ function LayerToggle() {
         value={layer}
         onValueChange={(v) => v && setLayer(v as PlanLayer)}
         className="bg-background/95 shadow-sm backdrop-blur"
+        data-tour="layers"
       >
         <ToggleGroupItem value="plan" className="px-2.5 data-[state=on]:bg-primary data-[state=on]:text-primary-foreground">
           <LayoutGrid /> Plan
@@ -256,7 +258,8 @@ function loadInitialProject() {
 }
 
 export default function App() {
-  const [sidebarOpen, setSidebarOpen] = useState(() => window.innerWidth >= 768)
+  const sidebarOpen = useUi((s) => s.sidebarOpen)
+  const setSidebarOpen = useUi((s) => s.setSidebarOpen)
   const tool = useEditor((s) => s.tool)
   const viewMode = useEditor((s) => s.viewMode)
   const seen3d = useEditor((s) => s.seen3d)
@@ -269,10 +272,10 @@ export default function App() {
 
   return (
     <div className="flex h-dvh flex-col overflow-hidden bg-background text-foreground">
-      <TopBar onToggleSidebar={() => setSidebarOpen((o) => !o)} sidebarOpen={sidebarOpen} />
+      <TopBar onToggleSidebar={() => setSidebarOpen(!sidebarOpen)} sidebarOpen={sidebarOpen} />
       <div className="relative flex min-h-0 flex-1">
         {viewMode === '2d' && <Toolbar />}
-        <main className="relative min-w-0 flex-1">
+        <main className="relative min-w-0 flex-1" data-tour="canvas">
           {viewMode === '2d' && (
             <>
               <Canvas />
@@ -311,6 +314,7 @@ export default function App() {
       <SignInDialog />
       <ShareDialog />
       <ConflictDialog />
+      <GuidedTour />
     </div>
   )
 }
