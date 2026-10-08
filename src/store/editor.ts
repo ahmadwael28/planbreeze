@@ -14,7 +14,8 @@ import { bbox, labelPoint, pointInPolygon } from '@/model/geometry'
 import { allRefs, clipFootprint, copyItems, deleteItems, exists, moveItems, pasteItems, refsOf, rotateItems, selectionOf, setGroup } from '@/model/items'
 import { arrange, arrangeable } from '@/model/arrange'
 import type { Arrangement } from '@/model/arrange'
-import { boxCenterShift } from '@/model/guides'
+import { boxCenterShift, boxGaps } from '@/model/guides'
+import type { Side } from '@/model/guides'
 import { fixSizes } from '@/model/sizes'
 import type { Clip } from '@/model/items'
 import { CEILING_STYLES, mergeRoomLights, OTHER_LIGHTS, pruneControls, remapEdges, remapEdgeValues, ROOM_LIGHTS } from '@/model/lighting'
@@ -385,7 +386,7 @@ export function addSymbol(type: string, at?: Point, rotation = 0, wall?: PlanSym
     if (room) applyCeiling(room.id, def.ceilingStyle)
     return room ?? null
   }
-  const sym = { ...newSymbol(type, Math.round(p.x), Math.round(p.y)), rotation, wall }
+  const sym = { ...newSymbol(type, Math.round(p.x * 10) / 10, Math.round(p.y * 10) / 10), rotation, wall }
   if (def?.wall) sym.depth = st0.project.defaultWallThickness
   if (def?.fixture === 'switch') sym.label = `S${floor0.symbols.filter((s) => s.type === 'switch').length + 1}`
   if (def?.fixture === 'cove') {
@@ -555,6 +556,18 @@ export function centerSelection(axis: 'across' | 'depth' | 'both') {
   if (!box) return
   const s = boxCenterShift(box, rooms, axis)
   if (s.x || s.y) st.commit((d) => moveItems(draftFloor(d), clip, s.x, s.y))
+}
+
+/** Move the selected pieces together right up against the wall on one side of them (left/right, back is up). */
+export function pushSelection(side: Side) {
+  const st = useEditor.getState()
+  const { clip, box, rooms } = selectionBox(currentFloor(st), st.selection)
+  if (!box) return
+  const g = boxGaps(box, rooms)[side]
+  if (g === undefined || Math.abs(g) < 0.05) return
+  const r = Math.round(g * 10) / 10
+  const [dx, dy] = side === 'left' ? [-r, 0] : side === 'right' ? [r, 0] : side === 'back' ? [0, -r] : [0, r]
+  st.commit((d) => moveItems(draftFloor(d), clip, dx, dy))
 }
 
 /** Lay the selected pieces (or groups) out in rows (see model/arrange). False if it can't be done. */

@@ -65,7 +65,7 @@ const STEPS: Step[] = [
     target: 'canvas',
     side: 'over',
     title: 'The plan',
-    body: 'Click a room or an item to select it, drag to move it, drag corners and walls to reshape a room. Scroll to zoom, drag empty space to pan.',
+    body: 'Click a room or an item to select it, drag to move it, drag corners and walls to reshape a room. Furniture dragged up to a wall is pulled flush against it. Scroll to zoom, drag empty space to pan, double-click a room to zoom to it.',
     enter: () => useEditor.getState().select(null),
   },
   {

@@ -8,6 +8,7 @@ import {
   inwardNormal,
   mul,
   normalize,
+  pointInPolygon,
   polygonPath,
   rotate,
   signedArea,
@@ -17,7 +18,9 @@ import {
 } from '@/model/geometry'
 import { toast } from 'sonner'
 import { ceilingLight, ceilingRoom, coveRuns } from '@/model/lighting'
-import { dimensionPoints, findWallSnap, floorBounds, moveWall, roomOuter, symbolPose, wallMountPose } from '@/model/project'
+import { dimensionPoints, findWallSnap, floorBounds, moveWall, newSymbol, roomOuter, symbolPose, wallMountPose } from '@/model/project'
+import { boxMagnet, magnetize } from '@/model/magnet'
+import type { SnapMark } from '@/model/magnet'
 import { SYMBOL_MAP } from '@/model/symbols'
 import { formatLength, gridSpacing, parseLength, snapStep } from '@/model/units'
 import type { Dimension, Floor, PlanSymbol, Point, Pose, Room, SavedView } from '@/model/types'
@@ -74,6 +77,17 @@ type Drag = DragBase &
     | { type: 'marquee'; start: Point; current: Point; additive: boolean }
     | { type: 'view-rotate'; id: string; orig: SavedView }
   )
+
+/** The view that frames these points on screen, `margin` pixels in from the edges (null if there are none). */
+function framing(el: Element, pts: Point[], margin: number) {
+  if (!pts.length) return null
+  const { width: w, height: h } = el.getBoundingClientRect()
+  const b = bbox(pts)
+  const zoom = clampZoom(
+    Math.min((w - margin * 2) / Math.max(b.maxX - b.minX, 1), (h - margin * 2) / Math.max(b.maxY - b.minY, 1)),
+  )
+  return { zoom, panX: w / 2 - ((b.minX + b.maxX) / 2) * zoom, panY: h / 2 - ((b.minY + b.maxY) / 2) * zoom }
+}
 
 /** Vertices (interior + wall outline) of all rooms except `excludeId`, for alignment snapping. */
 function snapTargets(floor: Floor, excludeId?: string): Point[] {
@@ -136,6 +150,9 @@ export function Canvas() {
   const [cursor, setCursor] = useState<Point | null>(null)
   const [typed, setTyped] = useState('')
   const [dimDraft, setDimDraft] = useState<{ a: Point; b?: Point } | null>(null)
+  /** What's lined up with the walls or other pieces while dragging. */
+  const [marks, setMarks] = useState<SnapMark[]>([])
+  const glide = useRef(0)
 
   const floorBelow = (() => {
     const idx = project.floors.findIndex((f) => f.id === floorId)
@@ -155,23 +172,32 @@ export function Canvas() {
 
   const fit = useCallback(() => {
     const st = useEditor.getState()
-    const pts = floorBounds(currentFloor(st))
     const { width: w, height: h } = svgRef.current!.getBoundingClientRect()
-    if (!pts.length) {
-      st.setView({ panX: w / 2 - 200, panY: h / 2 - 150, zoom: 1 })
-      return
-    }
-    const b = bbox(pts)
-    const margin = 60
-    const zoom = clampZoom(
-      Math.min((w - margin * 2) / Math.max(b.maxX - b.minX, 1), (h - margin * 2) / Math.max(b.maxY - b.minY, 1)),
-    )
-    st.setView({
-      zoom,
-      panX: w / 2 - ((b.minX + b.maxX) / 2) * zoom,
-      panY: h / 2 - ((b.minY + b.maxY) / 2) * zoom,
-    })
+    st.setView(framing(svgRef.current!, floorBounds(currentFloor(st)), 60) ?? { panX: w / 2 - 200, panY: h / 2 - 150, zoom: 1 })
   }, [])
+
+  /** Move the view smoothly to frame these points. */
+  const glideTo = (pts: Point[]) => {
+    const to = framing(svgRef.current!, pts, 50)
+    if (!to) return
+    cancelAnimationFrame(glide.current)
+    const from = useEditor.getState().view
+    const t0 = performance.now()
+    // Zooming evenly (in log scale), with the point in the middle of the screen moving straight across.
+    const { width: w, height: h } = svgRef.current!.getBoundingClientRect()
+    const mid = (v: { zoom: number; panX: number; panY: number }) => ({ x: (w / 2 - v.panX) / v.zoom, y: (h / 2 - v.panY) / v.zoom })
+    const [m0, m1] = [mid(from), mid(to)]
+    const frame = (now: number) => {
+      const k = Math.min(1, (now - t0) / 320)
+      const e = 1 - Math.pow(1 - k, 3)
+      const zoom = Math.exp(Math.log(from.zoom) + (Math.log(to.zoom) - Math.log(from.zoom)) * e)
+      const m = { x: m0.x + (m1.x - m0.x) * e, y: m0.y + (m1.y - m0.y) * e }
+      useEditor.getState().setView({ zoom, panX: w / 2 - m.x * zoom, panY: h / 2 - m.y * zoom })
+      if (k < 1) glide.current = requestAnimationFrame(frame)
+    }
+    glide.current = requestAnimationFrame(frame)
+  }
+  useEffect(() => () => cancelAnimationFrame(glide.current), [])
 
   useEffect(() => {
     // wait one frame so the viewport size is known
@@ -184,6 +210,7 @@ export function Canvas() {
     const el = svgRef.current!
     const onWheel = (e: WheelEvent) => {
       e.preventDefault()
+      cancelAnimationFrame(glide.current)
       const r = el.getBoundingClientRect()
       const sx = e.clientX - r.left
       const sy = e.clientY - r.top
@@ -219,6 +246,8 @@ export function Canvas() {
 
   // ---------- snapping ----------
   const snapThr = () => 10 / useEditor.getState().view.zoom
+  /** How close a piece comes to a wall before it's pulled against it: about 14 pixels on screen. */
+  const reachOf = (zoom: number) => Math.min(40, Math.max(6, 14 / zoom))
 
   const snapFree = (p: Point, extraTargets: Point[] = [], excludeRoom?: string): Point => {
     const st = useEditor.getState()
@@ -311,6 +340,7 @@ export function Canvas() {
     const s = screenPos(e)
     pointers.current.set(e.pointerId, s)
     svgRef.current!.setPointerCapture(e.pointerId)
+    cancelAnimationFrame(glide.current)
     const st = useEditor.getState()
 
     if (pointers.current.size === 2) {
@@ -588,13 +618,20 @@ export function Canvas() {
           dx = snapTo(dx, step)
           dy = snapTo(dy, step)
         }
-        // Close to the middle between the walls around them: stick to it, like a single piece.
-        if (d.box) {
+        // Close to a wall: right up against it; close to the middle between the walls around them: stuck there,
+        // like a single piece (hold Ctrl to place them freely).
+        let found: SnapMark[] = []
+        if (d.box && snap && !e.ctrlKey && !e.metaKey) {
+          const m = boxMagnet({ minX: d.box.minX + dx, maxX: d.box.maxX + dx, minY: d.box.minY + dy, maxY: d.box.maxY + dy }, d.rooms, reachOf(st.view.zoom))
+          dx += m.dx
+          dy += m.dy
+          found = m.marks
           const g = boxGaps({ minX: d.box.minX + dx, maxX: d.box.maxX + dx, minY: d.box.minY + dy, maxY: d.box.maxY + dy }, d.rooms)
           const thr = Math.max(4, 10 / st.view.zoom)
-          if (g.left !== undefined && g.right !== undefined && Math.abs(g.right - g.left) / 2 < thr) dx += (g.right - g.left) / 2
-          if (g.front !== undefined && g.back !== undefined && Math.abs(g.front - g.back) / 2 < thr) dy += (g.front - g.back) / 2
+          if (!m.dx && g.left !== undefined && g.right !== undefined && Math.abs(g.right - g.left) / 2 < thr) dx += (g.right - g.left) / 2
+          if (!m.dy && g.front !== undefined && g.back !== undefined && Math.abs(g.front - g.back) / 2 < thr) dy += (g.front - g.back) / 2
         }
+        setMarks(found)
         st.mutate((pd) => moveItems(draftFloor(pd), d.orig, dx, dy))
         break
       }
@@ -641,26 +678,47 @@ export function Canvas() {
         if (d.orig.room) break // cove lights follow their room
         let pos = add(d.pose, sub(w, d.start))
         const symDef = SYMBOL_MAP.get(d.orig.type)
+        const zoom = st.view.zoom
+        // Lined up with the walls and the pieces around it, unless snapping's off or Ctrl is held.
+        const magnet = snap && !e.ctrlKey && !e.metaKey
+        const opts = { reach: reachOf(zoom), middle: Math.max(4, 10 / zoom), align: Math.max(3, 8 / zoom), walls: !symDef?.fixture }
+        const cur = fl.symbols.find((x) => x.id === d.id) ?? d.orig
         if (symDef?.wallMount) {
-          const mount = wallMountPose(pos, fl.rooms, Math.max(30, 25 / st.view.zoom), d.orig.depth)
+          const mount = wallMountPose(pos, fl.rooms, Math.max(30, 25 / zoom), d.orig.depth)
+          const along = mount && magnet ? magnetize(cur, mount, fl, { ...opts, mounted: true }) : null
+          setMarks(along?.marks ?? [])
           st.mutate((pd) => {
             const sym = draftFloor(pd).symbols.find((x) => x.id === d.id)
             if (!sym) return
-            const p = mount ?? (snap ? { x: snapTo(pos.x, step), y: snapTo(pos.y, step), rotation: sym.rotation } : { ...pos, rotation: sym.rotation })
+            const p = along ?? mount ?? (snap ? { x: snapTo(pos.x, step), y: snapTo(pos.y, step), rotation: sym.rotation } : { ...pos, rotation: sym.rotation })
             sym.x = p.x
             sym.y = p.y
             sym.rotation = p.rotation
           })
           break
         }
-        const isWall = !!symDef?.wall
-        const att = isWall ? findWallSnap(pos, fl.rooms, Math.max(30, 25 / st.view.zoom)) : null
+        if (!symDef?.wall) {
+          const p = magnet
+            ? magnetize(cur, { ...pos, rotation: cur.rotation }, fl, { ...opts, turn: true, rotation0: d.pose.rotation, grid: step })
+            : { ...(snap ? { x: snapTo(pos.x, step), y: snapTo(pos.y, step) } : pos), rotation: d.pose.rotation, marks: [] }
+          setMarks(p.marks)
+          st.mutate((pd) => {
+            const sym = draftFloor(pd).symbols.find((x) => x.id === d.id)
+            if (!sym) return
+            sym.wall = undefined
+            sym.x = p.x
+            sym.y = p.y
+            sym.rotation = p.rotation
+          })
+          break
+        }
+        const att = findWallSnap(pos, fl.rooms, Math.max(30, 25 / zoom))
         if (!att && snap) pos = { x: snapTo(pos.x, step), y: snapTo(pos.y, step) }
         if (!att) {
           // Close to the middle between two walls (side to side, or front to back): stick to it.
           const g = wallGaps({ ...d.orig, x: pos.x, y: pos.y, rotation: d.pose.rotation, wall: undefined }, fl.rooms)
           const r = (d.pose.rotation * Math.PI) / 180
-          const thr = Math.max(4, 10 / st.view.zoom)
+          const thr = Math.max(4, 10 / zoom)
           if (g.left !== undefined && g.right !== undefined && Math.abs(g.right - g.left) / 2 < thr) {
             const s = (g.right - g.left) / 2
             pos = { x: pos.x + Math.cos(r) * s, y: pos.y + Math.sin(r) * s }
@@ -677,7 +735,7 @@ export function Canvas() {
             // Close to the middle of the wall: stick to it exactly.
             const room = fl.rooms.find((r) => r.id === att.roomId)
             const L = room ? dist(room.points[att.edge], room.points[(att.edge + 1) % room.points.length]) : 0
-            if (L && Math.abs(att.offset - L / 2) < Math.max(6, 12 / st.view.zoom)) att.offset = L / 2
+            if (L && Math.abs(att.offset - L / 2) < Math.max(6, 12 / zoom)) att.offset = L / 2
             else if (snap) att.offset = snapTo(att.offset, step)
             sym.wall = att
           } else {
@@ -740,6 +798,7 @@ export function Canvas() {
     drag.current = null
     setMovingId(null)
     setMovingMulti(false)
+    setMarks([])
     // A person dropped onto a seat or bed settles onto it.
     if (d?.type === 'symbol' && d.moved && d.orig.type === 'person' && d.orig.pose) updatePerson(d.id, {}, true)
     // A sofa table dropped near a sofa tucks in behind it.
@@ -784,9 +843,19 @@ export function Canvas() {
       return
     }
     const target = (e.target as Element).closest('[data-kind]') as HTMLElement | null
-    if (target?.dataset.kind === 'edge' && st.selection?.kind === 'room') {
-      splitWall(st.selection.id, Number(target.dataset.index))
+    const kind = target?.dataset.kind
+    if (kind === 'edge' && st.selection?.kind === 'room') {
+      splitWall(st.selection.id, Number(target!.dataset.index))
+      return
     }
+    if (kind === 'vertex' || ['dimension', 'rect', 'balcony', 'terrace'].includes(st.tool)) return
+    // Double-click a room (or anything in it) to bring it to the middle of the screen; outside them, the whole floor.
+    const fl = currentFloor(st)
+    const w = toWorld(screenPos(e))
+    const room =
+      (kind === 'room' ? fl.rooms.find((r) => r.id === target!.dataset.id) : undefined) ??
+      [...fl.rooms].reverse().find((r) => r.points.length >= 3 && pointInPolygon(w, r.points))
+    glideTo(room ? roomOuter(room) : floorBounds(fl))
   }
 
   // ---------- drag & drop from library ----------
@@ -805,7 +874,14 @@ export function Canvas() {
     const fl = currentFloor(useEditor.getState())
     const att = def?.wall ? findWallSnap(w, fl.rooms, Math.max(40, 30 / view.zoom)) : null
     const mount = def?.wallMount ? wallMountPose(w, fl.rooms, Math.max(40, 30 / view.zoom), def.depth) : null
-    const added = addSymbol(type, mount ?? w, mount?.rotation ?? 0, att ?? undefined)
+    // Dropped close to a wall: right up against it, turned to face the room if it stands that way.
+    const opts = { reach: reachOf(view.zoom) * 1.5, middle: Math.max(4, 10 / view.zoom), align: Math.max(3, 8 / view.zoom), walls: !def?.fixture }
+    const placed =
+      def && !def.wall && !def.ceilingStyle && settings.snap
+        ? magnetize(newSymbol(type, w.x, w.y), mount ?? { ...w, rotation: 0 }, fl, { ...opts, mounted: !!mount, turn: true, rotation0: 0 })
+        : null
+    const at = placed ?? mount
+    const added = addSymbol(type, at ?? w, at?.rotation ?? 0, att ?? undefined)
     if (!added) toast('Drop it onto a room.')
   }
 
@@ -1125,6 +1201,28 @@ export function Canvas() {
             const { box, rooms } = selectionBox(floor, selection)
             return box ? drawGuides(boxGuides(box, rooms), false) : null
           })()}
+
+        {/* what's lined up: against a wall (solid), or in line with another piece (dashed) */}
+        {marks.length > 0 && (
+          <g pointerEvents="none" stroke="#0ea5e9" strokeLinecap="round">
+            {marks.map((m, i) => {
+              const dir = normalize(sub(m.b, m.a))
+              const ext = m.kind === 'align' ? px(10) : 0
+              return (
+                <line
+                  key={i}
+                  x1={m.a.x - dir.x * ext}
+                  y1={m.a.y - dir.y * ext}
+                  x2={m.b.x + dir.x * ext}
+                  y2={m.b.y + dir.y * ext}
+                  strokeWidth={m.kind === 'wall' ? 4 : 1.3}
+                  strokeDasharray={m.kind === 'align' ? '6 4' : undefined}
+                  vectorEffect="non-scaling-stroke"
+                />
+              )
+            })}
+          </g>
+        )}
 
         {/* several selected: their extent, with a handle to turn them */}
         {selection?.kind === 'multi' &&

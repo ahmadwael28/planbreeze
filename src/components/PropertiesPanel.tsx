@@ -8,6 +8,8 @@ import {
   AlignHorizontalSpaceAround,
   AlignVerticalDistributeCenter,
   AlignVerticalSpaceAround,
+  ArrowRight,
+  ArrowUpToLine,
   Box, CircleHelp, ClipboardCopy, Sparkles, Columns2, Copy, Sofa, FlipHorizontal2, Group, Ungroup, FlipVertical2, ImageOff, Lightbulb, Link2Off, Lock, Ruler, RotateCw, SplitSquareHorizontal, Trash2, Video } from 'lucide-react'
 import { toast } from 'sonner'
 import { arrange, arrangeable, layoutOf, spacingOf, wouldMove } from '@/model/arrange'
@@ -38,6 +40,7 @@ import {
   autoDimension,
   centerSelection,
   convertColumns,
+  pushSelection,
   placeBehindSofa,
   updatePerson,
   copySelection,
@@ -56,6 +59,8 @@ import {
   useSelectedSymbol,
 } from '@/store/editor'
 import { boxGaps, centeredPosition, openSides, wallGaps } from '@/model/guides'
+import type { Side } from '@/model/guides'
+import { BACK_TO_WALL, backToNearestWall, pushedTo, sideGaps } from '@/model/magnet'
 import { isRound, resized, sizeRule } from '@/model/sizes'
 import type { Dim } from '@/model/sizes'
 import { useUi } from '@/store/ui'
@@ -892,7 +897,7 @@ function MultiProps({ items }: { items: ItemRef[] }) {
             )}
           </div>
         )}
-        {(across || depthwise) && (
+        {Object.keys(gaps).length > 0 && (
           <div className="space-y-2 rounded-lg bg-muted/60 p-3">
             <p className="text-sm font-medium">Position in the room</p>
             {(
@@ -921,6 +926,7 @@ function MultiProps({ items }: { items: ItemRef[] }) {
                 <AlignHorizontalJustifyCenter /> Center in the room
               </Button>
             )}
+            <PushRow gaps={gaps} rotation={0} onPush={pushSelection} fmt={fmt} />
           </div>
         )}
         <div className="grid grid-cols-2 gap-2">
@@ -1136,6 +1142,14 @@ function SymbolProps({ sym, units }: { sym: PlanSymbol; units: Units }) {
   const depthwise = gaps.front !== undefined && gaps.back !== undefined
   const centerIn = (axis: 'across' | 'depth' | 'both') =>
     updateSymbol(sym.id, (s) => Object.assign(s, centeredPosition(s, floor.rooms, axis)))
+  // Right up against the wall on one side, or turned round to stand with its back to the nearest one.
+  const sides = free ? sideGaps(sym, floor) : {}
+  const pushTo = (side: Side) => {
+    const p = pushedTo(sym, floor, side)
+    if (p) updateSymbol(sym.id, (s) => Object.assign(s, p))
+  }
+  const backed = free && BACK_TO_WALL.has(sym.type) ? backToNearestWall(sym, floor) : null
+  const isBacked = !!backed && Math.abs(backed.x - sym.x) < 0.5 && Math.abs(backed.y - sym.y) < 0.5 && Math.abs(backed.rotation - sym.rotation) < 0.5
   const fmt = (v?: number) => (v === undefined ? '–' : formatLength(v, units))
   return (
     <>
@@ -1422,7 +1436,7 @@ function SymbolProps({ sym, units }: { sym: PlanSymbol; units: Units }) {
             )}
           </Field>
         )}
-        {free && (across || depthwise) && (
+        {free && (across || depthwise || Object.keys(sides).length > 0) && (
           <div className="space-y-2 rounded-lg bg-muted/60 p-3">
             <p className="text-sm font-medium">Position in the room</p>
             {(
@@ -1451,7 +1465,23 @@ function SymbolProps({ sym, units }: { sym: PlanSymbol; units: Units }) {
                 <AlignHorizontalJustifyCenter /> Center in the room
               </Button>
             )}
-            <p className="text-xs text-muted-foreground">Gaps to the nearest wall on each side. Dragging near the middle snaps to it.</p>
+            <PushRow gaps={sides} rotation={sym.rotation} onPush={pushTo} fmt={fmt} piece />
+            {backed && (
+              <Button
+                variant="outline"
+                size="sm"
+                className="w-full"
+                disabled={isBacked}
+                onClick={() => updateSymbol(sym.id, (s) => void Object.assign(s, { x: backed.x, y: backed.y, rotation: backed.rotation }))}
+              >
+                <ArrowUpToLine /> {isBacked ? 'Against the wall' : 'Back to the nearest wall'}
+              </Button>
+            )}
+            <p className="text-xs text-muted-foreground">
+              Gaps to the nearest wall on each side. Dragged close to a wall it's pulled right up against it
+              {backed ? ', turned to face the room,' : ''} and it lines up with the pieces around it; near the middle it
+              snaps to that. Hold Ctrl to place it freely.
+            </p>
           </div>
         )}
         {DOOR_DEFAULT[sym.type] && (
@@ -1744,14 +1774,71 @@ function FloorAndProjectProps() {
           <li>
             While drawing, type a length (e.g. <Kbd>3.5</Kbd>) and press <Kbd>Enter</Kbd> for exact walls.
           </li>
-          <li>Add doors, windows and furniture from the Library tab.</li>
-          <li>Scroll to zoom, drag empty space to pan, switch to 3D at the top.</li>
+          <li>Add doors, windows and furniture from the Library tab. Dragged up to a wall, they're pulled flush against it.</li>
+          <li>Scroll to zoom, drag empty space to pan, double-click a room to zoom to it. Switch to 3D at the top.</li>
         </ul>
         <Button variant="outline" size="sm" className="mt-3 w-full" onClick={startTour}>
           <CircleHelp /> Take the tour
         </Button>
       </Section>
     </>
+  )
+}
+
+/** Buttons that push a piece (or several) right up against the wall on one side; each arrow points the way it goes. */
+function PushRow({
+  gaps,
+  rotation,
+  onPush,
+  fmt,
+  piece,
+}: {
+  gaps: Partial<Record<Side, number>>
+  rotation: number
+  onPush: (side: Side) => void
+  fmt: (v?: number) => string
+  /** One piece, whose sides are its own (else: up, down, left and right on the plan). */
+  piece?: boolean
+}) {
+  const turn: Record<Side, number> = { right: 0, front: 90, left: 180, back: 270 }
+  const label = (side: Side) =>
+    piece
+      ? `${{ back: 'Its back', front: 'Its front', left: 'This side', right: 'This side' }[side]} up to the wall`
+      : `Move them ${{ back: 'up', front: 'down', left: 'left', right: 'right' }[side]} to the wall`
+  return (
+    <div className="flex items-center justify-between gap-2 text-sm">
+      <span className="text-muted-foreground">Up to the wall</span>
+      <div className="flex gap-1">
+        {(['left', 'back', 'front', 'right'] as const)
+          // In the order they point on screen: left, up, down, right.
+          .map((side) => ({ side, way: Math.round((((rotation + turn[side]) % 360) + 360) % 360 / 90) % 4 }))
+          .sort((a, b) => [2, 3, 1, 0].indexOf(a.way) - [2, 3, 1, 0].indexOf(b.way))
+          .map(({ side }) => {
+            const g = gaps[side]
+            const there = g !== undefined && Math.abs(g) < 0.5
+            return (
+              <Tooltip key={side}>
+                <TooltipTrigger asChild>
+                  <span>
+                    <Button
+                      variant="outline"
+                      size="icon-xs"
+                      disabled={g === undefined || there}
+                      onClick={() => onPush(side)}
+                      aria-label={label(side)}
+                    >
+                      <ArrowRight style={{ transform: `rotate(${rotation + turn[side]}deg)` }} />
+                    </Button>
+                  </span>
+                </TooltipTrigger>
+                <TooltipContent>
+                  {g === undefined ? 'No wall that way' : there ? 'Against the wall' : `${label(side)}, ${fmt(g)} away`}
+                </TooltipContent>
+              </Tooltip>
+            )
+          })}
+      </div>
+    </div>
   )
 }
 
