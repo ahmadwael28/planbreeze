@@ -14,7 +14,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Switch } from '@/components/ui/switch'
 import { usePlanTheme } from '@/hooks/use-plan-theme'
 import { cn } from '@/lib/utils'
-import { applyDesigns, DESIGN_STYLES, designRoom, isFurnished, ROOM_USES, USE_NAMES } from '@/model/design'
+import { applyDesigns, DESIGN_STYLES, designRoom, ideaOf, isFurnished, nextIdea, ROOM_USES, USE_NAMES } from '@/model/design'
 import type { DesignOptions, RoomDesign } from '@/model/design'
 import { area, bbox, pointInPolygon, polygonPath } from '@/model/geometry'
 import type { Point } from '@/model/types'
@@ -89,15 +89,26 @@ function Wizard() {
   }
   const another = (id: string) => {
     setFocus(id)
-    const next = { ...variants, [id]: (variants[id] ?? 0) + 1 }
-    useDesign.setState({ variants: next })
-    setDesigns((list) => list && list.map((d) => (d.roomId === id ? run([id], next)[0] : d)))
+    const current = designs?.find((d) => d.roomId === id)
+    const room = floor.rooms.find((r) => r.id === id)
+    if (!current || !room) return
+    // The next idea that really is different from this one.
+    const next = nextIdea(floor, room, rooms[id].use, uses, opts, current.variant, ideaOf(current))
+    if (!next) {
+      toast('No other layout fits this room', { description: 'Move or remove something to make room for more ideas.' })
+      return
+    }
+    useDesign.setState({ variants: { ...variants, [id]: next.variant } })
+    setDesigns((list) => list && list.map((d) => (d.roomId === id ? next : d)))
   }
   const apply = () => {
     if (!designs) return
     useEditor.getState().commit((d) => applyDesigns(draftFloor(d), designs))
     // A room's "Another idea" (in its properties) carries on from the one applied.
-    useDesign.setState({ variants: Object.fromEntries(designs.map((d) => [d.roomId, d.variant])) })
+    useDesign.setState({
+      variants: Object.fromEntries(designs.map((d) => [d.roomId, d.variant])),
+      shown: Object.fromEntries(designs.map((d) => [d.roomId, ideaOf(d)])),
+    })
     useDesign.getState().close()
     toast.success(`Designed ${designs.length} room${designs.length === 1 ? '' : 's'}`, { description: 'Change anything you like, or undo it with Ctrl+Z.' })
   }

@@ -9,7 +9,8 @@ import { isOutdoor, newSymbol } from '../project'
 import { SYMBOL_MAP } from '../symbols'
 import type { CeilingStyle, Floor, PlanSymbol, Room, RoomUse, WallSurface } from '../types'
 import { facing, local, seeded } from './geom'
-import { analyze, boxOf, facePoint, Layout } from './layout'
+import type { Box } from './geom'
+import { analyze, facePoint, Layout } from './layout'
 import type { Analysis, Placed } from './layout'
 import { dressWindows, RECIPES, spread } from './recipes'
 import type { Ctx, Marks } from './recipes'
@@ -115,8 +116,7 @@ export function isFurnished(floor: Floor, room: Room) {
 }
 
 /** Kept furniture, ready to stand in for what a recipe asks for: its footprint, and the wall its back is to. */
-function keptPiece(s: PlanSymbol, an: Analysis): Placed {
-  const box = boxOf(s, an.floor)
+function keptPiece(s: PlanSymbol, an: Analysis, box: Box): Placed {
   const back = local(box, 0, -box.d / 2)
   const front = { x: -Math.sin((box.rot * Math.PI) / 180), y: Math.cos((box.rot * Math.PI) / 180) }
   const i = an.faces.findIndex((f) => {
@@ -143,7 +143,8 @@ export function designRoom(floor: Floor, room: Room, use: RoomUse, uses: Map<str
   const stays = floor.symbols.filter((s) => inRoom(s, room) && !gone.has(s.id) && !s.room)
   const fixed = stays.filter((s) => !onCeiling(s) && !isDressing(s) && s.type !== 'person')
   const an = analyze(room, floor, fixed, uses)
-  const kept = fixed.filter(isFurniture).map((s) => keptPiece(s, an))
+  // The same footprints as the fixed ones (a run may take them in).
+  const kept = fixed.flatMap((s, i) => (isFurniture(s) ? [keptPiece(s, an, an.fixed[i])] : []))
   const furnish = opts.furniture !== 'none'
   // A few tries, each making some choices differently (a bath or a shower, the order things are tried in): the one
   // that gets the most of what matters into the room wins.
@@ -151,7 +152,9 @@ export function designRoom(floor: Floor, room: Room, use: RoomUse, uses: Map<str
   let best = -1
   for (let attempt = 0; attempt < (furnish ? (TRIES[use] ?? 3) : 1); attempt++) {
     const marks: Marks = { nightstands: [], uppers: [], extra: [] }
-    const c: Ctx = { L: new Layout(an, seeded(`${room.id}:${variant}:${attempt}`), attempt ? 6 : 0.01, kept), use, uses, style, variant, attempt, ac: opts.ac, marks }
+    // Another idea shakes the order things are tried in a little too (the first try at the first idea, hardly at all).
+    const jitter = attempt ? 6 : variant ? 3 : 0.01
+    const c: Ctx = { L: new Layout(an, seeded(`${room.id}:${variant}:${attempt}`), jitter, kept), use, uses, style, variant, attempt, ac: opts.ac, marks }
     if (furnish) RECIPES[use](c)
     const value = c.L.placed.reduce((sum, p) => sum + (p.ghost ? 0 : (WORTH[p.sym.type] ?? 1)), 0)
     if (value > best) {
@@ -175,6 +178,24 @@ export function designRoom(floor: Floor, room: Room, use: RoomUse, uses: Map<str
     if (opts.ceilings) Object.assign(patch, lit.patch)
   }
   return { roomId: room.id, use, variant, remove: [...gone], add, patch }
+}
+
+/** What a design puts in a room, to tell ideas apart: the same furniture in the same places is the same idea. */
+export function ideaOf(d: RoomDesign) {
+  return d.add
+    .filter((s) => !s.room && isFurniture(s))
+    .map((s) => `${s.type}@${Math.round(s.x / 5)},${Math.round(s.y / 5)},${Math.round(s.rotation)}`)
+    .sort()
+    .join('|')
+}
+
+/** The next idea for a room after `from` that's different from `current` (an `ideaOf`), or null if none of the next few is. */
+export function nextIdea(floor: Floor, room: Room, use: RoomUse, uses: Map<string, RoomUse>, opts: DesignOptions, from: number, current: string | null): RoomDesign | null {
+  for (let v = from + 1; v <= from + 8; v++) {
+    const d = designRoom(floor, room, use, uses, opts, v)
+    if (ideaOf(d) !== current) return d
+  }
+  return null
 }
 
 /** Put designs into a (draft) floor: the rooms' uses and finishes, their old things out, the new ones in. */

@@ -8,6 +8,7 @@ import type { PlanTheme } from '@/model/theme'
 import type { Floor, Point, Project, Room, Selection, Surface } from '@/model/types'
 import { startsAtFloor, wallBands, wallSurfaceAt } from '@/model/finishes'
 import { cutsFor, nicheDepth, roomFaces, wallBehind, wallOpenings, wallPatches } from '@/model/walls'
+import { roomUVs } from './worktops'
 import type { Opening } from '@/model/walls'
 import { readyImage } from '@/lib/images'
 import { cabinetLeds, COLORS, Materials, personModel, railingModel, symbolModel } from './furniture'
@@ -404,6 +405,8 @@ export function buildProjectGroup(project: Project, opts: BuildOptions): THREE.G
       obj.position.set(pose.x, floorBase + elevation, pose.y)
       obj.rotation.y = (-pose.rotation * Math.PI) / 180
       obj.scale.set(sym.flipX ? -1 : 1, 1, sym.flipY ? -1 : 1)
+      // Worktops laid by where they are, so units side by side share one slab's veins.
+      roomUVs(obj)
       const pick: PickInfo = { floorId: floor.id, kind: 'symbol', id: sym.id }
       obj.traverse((o) => (o.userData.pick = pick))
       group.add(obj)

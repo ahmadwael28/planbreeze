@@ -3,7 +3,8 @@
  * and designing a single room straight away from its properties.
  */
 import { create } from 'zustand'
-import { applyDesigns, designRoom, guessUses, isFurnished, upgradeOptions } from '@/model/design'
+import { applyDesigns, guessUses, ideaOf, isFurnished, nextIdea, upgradeOptions } from '@/model/design'
+import { toast } from 'sonner'
 import type { DesignOptions, RoomDesign } from '@/model/design'
 import type { RoomUse } from '@/model/types'
 import { currentFloor, draftFloor, useEditor } from './editor'
@@ -28,8 +29,9 @@ interface DesignState {
   opts: DesignOptions
   open: boolean
   rooms: Record<string, RoomChoice>
-  /** Which idea each room is on (another idea is the next). */
+  /** Which idea each room is on (another idea is the next), and what it put in the room. */
   variants: Record<string, number>
+  shown: Record<string, string>
   /** The designs being previewed, once suggested. */
   designs: RoomDesign[] | null
   setOpts: (patch: Partial<DesignOptions>) => void
@@ -42,6 +44,7 @@ export const useDesign = create<DesignState>((set, get) => ({
   open: false,
   rooms: {},
   variants: {},
+  shown: {},
   designs: null,
   setOpts: (patch) => {
     const opts = { ...get().opts, ...patch }
@@ -70,6 +73,7 @@ export function openDesign() {
     open: true,
     designs: null,
     variants: {},
+    shown: {},
     rooms: Object.fromEntries(rooms.map((r) => [r.id, { on: pick.has(r.id), use: uses.get(r.id)! }])),
   })
 }
@@ -83,9 +87,13 @@ export function redesignRoom(roomId: string) {
   const uses = guessUses(floor)
   const use = uses.get(room.id)
   if (!use) return
-  const { opts, variants } = useDesign.getState()
-  const variant = roomId in variants ? variants[roomId] + 1 : 0
-  const design = designRoom(floor, room, use, uses, opts, variant)
+  const { opts, variants, shown } = useDesign.getState()
+  // The next idea that's really different from the one showing.
+  const design = nextIdea(floor, room, use, uses, opts, roomId in variants ? variants[roomId] : -1, shown[roomId] ?? null)
+  if (!design) {
+    toast('No other layout fits this room', { description: 'Move or remove something to make room for more ideas.' })
+    return
+  }
   st.commit((d) => applyDesigns(draftFloor(d), [design]))
-  useDesign.setState({ variants: { ...variants, [roomId]: variant } })
+  useDesign.setState({ variants: { ...variants, [roomId]: design.variant }, shown: { ...shown, [roomId]: ideaOf(design) } })
 }

@@ -207,8 +207,25 @@ export class Layout {
 
   /** A kept item of the same kind as `type`, used up so it stands in for one thing only. */
   take(type: string): Placed | null {
+    // Worktop and wall cabinets come in runs: kept ones are worked round where they are, not counted off.
+    if (type === 'counter' || type === 'wall-cabinet') return null
     const i = this.kept.findIndex((k) => kindOf(k.sym.type) === kindOf(type))
     return i < 0 ? null : this.kept.splice(i, 1)[0]
+  }
+
+  /** Where things stand, to go back to if what's tried next doesn't work out. */
+  snapshot() {
+    return { placed: [...this.placed], kept: [...this.kept] }
+  }
+
+  restore(s: { placed: Placed[]; kept: Placed[] }) {
+    this.placed = [...s.placed]
+    this.kept = [...s.kept]
+  }
+
+  /** The kept items of these types (not used up). */
+  keptOf(types: Set<string>): Placed[] {
+    return this.kept.filter((k) => types.has(k.sym.type))
   }
 
   /** A kept item of any of these types (a recipe working round what's there). */

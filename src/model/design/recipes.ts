@@ -100,10 +100,26 @@ function anchor<C extends Cand>(L: Layout, cands: C[], score: (c: C) => number, 
     byFace.set(c.face ?? -1, [...(byFace.get(c.face ?? -1) ?? []), c])
   }
   const ranked = [...byFace.values()].map((list) => list.sort((a, b) => values.get(b)! - values.get(a)!)).sort((a, b) => values.get(b[0])! - values.get(a[0])!)
-  for (let k = 0; k < ranked.length; k++) {
-    const got = L.tryPlace(ranked[(variant + k) % ranked.length], (c) => values.get(c) ?? -Infinity)
+  // The ideas: the best place on each wall, then the next best a little way along each wall, and so on.
+  const ideas: C[] = []
+  for (let round = 0; round < 3; round++) {
+    for (const list of ranked) {
+      const mine = ideas.filter((c) => c.face === list[0].face)
+      if (mine.length !== round) continue
+      const next = list.find((c) => mine.every((q) => Math.abs((q.s ?? 0) - (c.s ?? 0)) >= 60))
+      if (next) ideas.push(next)
+    }
+  }
+  if (!ideas.length) return null
+  const k = variant % ideas.length
+  const order = [...ideas.slice(k), ...ideas.slice(0, k), ...ranked.flat()]
+  const tried = new Set<C>()
+  for (const c of order) {
+    if (tried.has(c) || tried.size >= 60) continue
+    tried.add(c)
+    const got = L.tryPlace([c], (x) => values.get(x) ?? -Infinity)
     if (!got) continue
-    // What has to go with it (a sofa across from the TV): if that can't be done, the next wall.
+    // What has to go with it (a sofa across from the TV): if that can't be done, the next idea.
     if (!then || then(got)) return got
   }
   return null
@@ -502,6 +518,9 @@ const MOD = {
   counter: (w: number) => ({ type: 'counter', w, h: 90, d: 60 }),
 }
 
+/** Kitchen units a room can keep: a plan is built round them, where they stand. */
+const RUN = new Set(['counter', 'kitchen-sink', 'stove', 'dishwasher', 'fridge', 'oven-tower', 'washing-machine', 'kitchen-corner'])
+
 /** Kitchen units along one wall: `len` cm of it from `start` on face `face`, running `dir` along it. */
 interface Leg {
   face: number
@@ -512,22 +531,25 @@ interface Leg {
 
 /**
  * Units along one wall, or two or three meeting in corners (an L, a U), as legs end to end. Each leg but the last
- * ends in the corner, its last 60 cm the worktop over the corner; the next starts past it.
+ * ends in the corner, where a corner unit goes; the next starts past the corner.
  */
 interface Chain {
   shape: 'I' | 'L' | 'U'
   legs: Leg[]
 }
 
-/** The ways units could run round a room's walls: along any clear stretch, round a corner, round two. */
-function chains(L: Layout): Chain[] {
+/**
+ * The ways units could run round a room's walls: along any clear stretch, round a corner, round two. `through`: what
+ * a run may take in (kept units, shallow columns in the walls).
+ */
+function chains(L: Layout, through: Box[]): Chain[] {
   const an = L.an
   const n = an.faces.length
-  const free = an.faces.map((_, i) => L.freeAlong(i, 60, 0, 90, L.shallowColumns(40)))
+  const free = an.faces.map((_, i) => L.freeAlong(i, 60, 0, 90, through))
   const out: Chain[] = []
   free.forEach((list, i) =>
     list.forEach(([s1, s2]) => {
-      if (s2 - s1 < 180) return
+      if (s2 - s1 < 120) return
       out.push({ shape: 'I', legs: [{ face: i, start: s1, dir: 1, len: s2 - s1 }] })
       out.push({ shape: 'I', legs: [{ face: i, start: s2, dir: -1, len: s2 - s1 }] })
     }),
@@ -581,166 +603,243 @@ function chains(L: Layout): Chain[] {
   return out
 }
 
-/** A unit on a chain: at `at` cm along it, end to end over its legs. */
-type Spot = Module & { at: number }
+/** A unit on a chain, at `at` cm along it (end to end over its legs); `kept`: the room's own, where it stands. */
+type Spot = Module & { at: number; kept?: Placed }
+
+/** Where the kept units stand along a chain (the ones that do). */
+function keptAlong(L: Layout, legs: Leg[], kept: Placed[]): Spot[] {
+  const out: Spot[] = []
+  let from = 0
+  legs.forEach((leg, i) => {
+    for (const p of kept) {
+      if (p.face !== leg.face) continue
+      const q = L.along(leg.face, p.box)
+      if (q.n1 > 3) continue
+      const a = from + (q.s1 - leg.start) * leg.dir
+      const b = from + (q.s2 - leg.start) * leg.dir
+      const lo = Math.min(a, b)
+      let hi = Math.max(a, b)
+      if (lo < from - 3 || hi > from + leg.len + 3) continue
+      // A kept corner unit reaches on round the corner.
+      if (p.sym.type === 'kitchen-corner' && i < legs.length - 1 && Math.abs(hi - (from + leg.len)) < 3) hi = from + leg.len + CORNER - 60
+      out.push({ type: p.sym.type, w: hi - lo, h: p.box.z1 - p.box.z0, d: p.box.d, at: lo, kept: p })
+    }
+    from += leg.len
+  })
+  return out
+}
+
+/** What a plan has to add: tall units, a sink (no width: there's one already), the dishwasher, the hob, a washer. */
+interface Want {
+  tall: Module[]
+  sinkW: number | null
+  dw: boolean
+  hob: boolean
+  washer: boolean
+}
 
 /**
- * The units along a chain: tall ones at its start; the sink (the dishwasher beside it) as near a window's middle as
- * it'll go; the hob with worktop either side, the sink and hob a comfortable step apart; none of them in a corner or
- * across one; worktop in between. Null if they don't fit; `cost` how far it is from ideal.
+ * The units along a chain, round the ones kept there: tall ones at an end; the sink (the dishwasher beside it) as
+ * near a window's middle as it'll go; the hob a comfortable step from the sink with worktop between; none of them in
+ * a corner or across one, nor in front of a column; a corner unit in each corner nothing kept stands in; worktop in
+ * between. A few ways to do it (the tall units at either end, the hob either side of the sink), best first.
  */
-function planChain(
-  legs: Leg[],
-  windows: [number, number, number][],
-  worktopOnly: [number, number][],
-  tall: Module[],
-  dw: boolean,
-  sinkW: number,
-  washer: boolean,
-): { spots: Spot[]; cost: number } | null {
+function planChain(legs: Leg[], windows: [number, number, number][], worktopOnly: [number, number][], fixed: Spot[], want: Want): { spots: Spot[]; cost: number }[] {
   const ends: number[] = []
   let total = 0
   for (const l of legs) ends.push((total += l.len))
   const T = total
   const starts = [0, ...ends.slice(0, -1)]
-  // A corner unit in each corner, 90 cm along both walls (and so 30 cm of worktop between it and an appliance on
-  // either side); in front of columns, worktop only.
-  const cornerUnits = ends.slice(0, -1).map((e): [number, number] => [e - CORNER, e + CORNER - 60])
-  const corners = [...cornerUnits, ...worktopOnly]
-  const overlaps = (a0: number, a1: number, [b0, b1]: [number, number] | [number, number, number]) => a0 < b1 - 0.5 && a1 > b0 + 0.5
-  // On one leg, out of the corners (and, for tall units and the hob, out from under the windows).
-  const ok = (x0: number, x1: number, underWindow: boolean) =>
-    starts.some((s, i) => x0 >= s - 0.5 && x1 <= ends[i] + 0.5) && !corners.some((c) => overlaps(x0, x1, c)) && (underWindow || !windows.some((w) => overlaps(x0, x1, w)))
-  const tallW = tall.reduce((s, m) => s + m.w, 0)
-  let at = 0
-  for (const m of tall) {
-    if (!ok(at, at + m.w, false)) return null
-    at += m.w
-  }
-  const block = sinkW + (dw ? 60 : 0)
-  // Worktop beside tall units to put things down; at an open end of the run, a little.
-  const first = tallW ? tallW + 40 : 30
-  // Where the sink (with its dishwasher) and the hob can each go, worked out once.
-  const sinkSpots: number[] = []
-  for (let x = first; x + block <= T + 0.5; x += 10) if (ok(x, x + block, true)) sinkSpots.push(x)
-  const hobSpots: number[] = []
-  for (let x = first; x + 60 <= T - 30 + 0.5; x += 10) if (ok(x, x + 60, false)) hobSpots.push(x)
-  let pick: { xs: number; dwFirst: boolean; xh: number; cost: number } | null = null
-  for (const xs of sinkSpots) {
-    for (const dwFirst of dw ? [false, true] : [false]) {
-      const sinkMid = (dwFirst ? xs + 60 : xs) + sinkW / 2
-      const toWindow = windows.length ? Math.min(...windows.map(([, , c]) => Math.abs(c - sinkMid))) : Math.abs(sinkMid - (tallW + T) / 2) / 20
-      if (pick && toWindow >= pick.cost) continue
-      for (const xh of hobSpots) {
-        if (!(xh + 60 + 60 <= xs || xh >= xs + block + 60)) continue
-        const cost = toWindow + Math.abs(Math.abs(xh + 30 - sinkMid) - 130) / 4
-        if (!pick || cost < pick.cost) pick = { xs, dwFirst, xh, cost }
+  const over = (a0: number, a1: number, b: [number, number] | [number, number, number]) => a0 < b[1] - 0.5 && a1 > b[0] + 0.5
+  const onLeg = (x0: number, x1: number) => starts.some((s, i) => x0 >= s - 0.5 && x1 <= ends[i] + 0.5)
+  const kept: [number, number][] = fixed.map((f) => [f.at, f.at + f.w])
+  const corners = ends.slice(0, -1).map((e): [number, number] => [e - CORNER, e + CORNER - 60])
+  // A corner unit in each corner nothing kept stands in (otherwise worktop round what's there).
+  const cornerUnits = corners.filter((c) => !kept.some((k) => over(k[0], k[1], c)))
+  const taken: [number, number][] = [...corners, ...worktopOnly, ...kept]
+  const ok = (x0: number, x1: number, underWindow: boolean, more: [number, number][] = []) =>
+    x0 >= -0.5 && x1 <= T + 0.5 && onLeg(x0, x1) && ![...taken, ...more].some((t) => over(x0, x1, t)) && (underWindow || !windows.some((w) => over(x0, x1, w)))
+  const keptSink = fixed.find((f) => f.type === 'kitchen-sink')
+  const keptHob = fixed.find((f) => f.type === 'stove')
+  const keptDw = fixed.find((f) => f.type === 'dishwasher')
+  const tallW = want.tall.reduce((s, m) => s + m.w, 0)
+  type Pick = { tallAt: number | null; sink: number | null; sinkW: number; dw: number | null; hob: number | null; cost: number }
+  // The best way for each kind of layout: which end the tall units are at, which side of the sink the hob is.
+  const best = new Map<string, Pick>()
+  // Tall units at an end of the run, or beside a tall one kept (an oven tower by the fridge).
+  const tallSpots = new Set<number>([0, T - tallW])
+  for (const f of fixed) if (f.type === 'fridge' || f.type === 'oven-tower') [f.at - tallW, f.at + f.w].forEach((x) => tallSpots.add(Math.round(x * 10) / 10))
+  for (const tallAt of tallW ? [...tallSpots] : [null]) {
+    if (tallAt !== null && !ok(tallAt, tallAt + tallW, false)) continue
+    // Worktop beside tall units to put things down.
+    const landing: [number, number][] = tallAt === null ? [] : [[tallAt - 40, tallAt + tallW + 40]]
+    const sinks: { sink: number | null; sinkW: number; dw: number | null }[] = []
+    if (keptSink) {
+      const beside = want.dw ? [keptSink.at - 60, keptSink.at + keptSink.w].filter((x) => ok(x, x + 60, true, landing)) : []
+      if (beside.length) for (const x of beside) sinks.push({ sink: keptSink.at, sinkW: keptSink.w, dw: x })
+      else sinks.push({ sink: keptSink.at, sinkW: keptSink.w, dw: keptDw?.at ?? null })
+    } else if (want.sinkW) {
+      const sw = want.sinkW
+      for (let x = 0; x + sw <= T + 0.5; x += 10) {
+        if (!ok(x, x + sw, true, landing)) continue
+        if (!want.dw) sinks.push({ sink: x, sinkW: sw, dw: keptDw?.at ?? null })
+        else for (const d of [x - 60, x + sw]) if (ok(d, d + 60, true, landing) && !over(d, d + 60, [x, x + sw])) sinks.push({ sink: x, sinkW: sw, dw: d })
+      }
+      if (!sinks.length) continue
+    } else sinks.push({ sink: null, sinkW: 0, dw: keptDw?.at ?? null })
+    const hobs: (number | null)[] = keptHob ? [keptHob.at] : []
+    if (!keptHob && want.hob) for (let x = 30; x + 60 <= T - 30 + 0.5; x += 10) if (ok(x, x + 60, false, landing)) hobs.push(x)
+    if (!hobs.length) {
+      if (want.hob) continue
+      hobs.push(null)
+    }
+    for (const s of sinks) {
+      const lo = Math.min(s.sink ?? Infinity, s.dw ?? Infinity)
+      const hi = Math.max(s.sink !== null ? s.sink + s.sinkW : -Infinity, s.dw !== null ? s.dw + 60 : -Infinity)
+      const mid = s.sink !== null ? s.sink + s.sinkW / 2 : null
+      const toWindow = mid === null || keptSink ? 0 : windows.length ? Math.min(...windows.map(([, , c]) => Math.abs(c - mid))) : Math.abs(mid - T / 2) / 20
+      for (const h of hobs) {
+        // Worktop between the hob and the sink (and its dishwasher).
+        if (h !== null && !keptHob && lo !== Infinity && !(h + 60 + 60 <= lo || h >= hi + 60)) continue
+        if (h !== null && s.dw !== null && over(h, h + 60, [s.dw, s.dw + 60])) continue
+        const apart = h === null || mid === null ? 130 : Math.abs(h + 30 - mid)
+        const cost = toWindow + Math.abs(apart - 130) / 4
+        const key = `${tallAt}|${h === null || mid === null ? '-' : h < mid ? 'l' : 'r'}`
+        if (!best.has(key) || cost < best.get(key)!.cost) best.set(key, { tallAt, sink: s.sink, sinkW: s.sinkW, dw: s.dw, hob: h, cost })
       }
     }
   }
-  if (!pick) return null
-  const spots: Spot[] = []
-  let p = 0
-  for (const m of tall) {
-    spots.push({ ...m, at: p })
-    p += m.w
-  }
-  spots.push({ ...MOD.sink(sinkW), at: pick.dwFirst ? pick.xs + 60 : pick.xs })
-  if (dw) spots.push({ ...MOD.dw, at: pick.dwFirst ? pick.xs : pick.xs + sinkW })
-  spots.push({ ...MOD.hob, at: pick.xh })
-  const best = { spots, cost: pick.cost }
-  // Worktop in the gaps, a piece per leg.
-  const units = [...best.spots].sort((a, b) => a.at - b.at)
-  const gaps: [number, number][] = []
-  let cur = 0
-  for (const u of units) {
-    if (u.at > cur + 0.5) gaps.push([cur, u.at])
-    cur = Math.max(cur, u.at + u.w)
-  }
-  if (T > cur + 0.5) gaps.push([cur, T])
-  let pieces: [number, number][] = []
-  for (const [g0, g1] of gaps) {
-    starts.forEach((s, i) => {
-      const a = Math.max(g0, s)
-      const b = Math.min(g1, ends[i])
-      if (b - a >= 5) pieces.push([a, b])
+  return [...best.values()]
+    .sort((a, b) => a.cost - b.cost)
+    .map((p) => {
+      const spots: Spot[] = [...fixed]
+      if (p.tallAt !== null) {
+        let x = p.tallAt
+        for (const m of want.tall) {
+          spots.push({ ...m, at: x })
+          x += m.w
+        }
+      }
+      if (!keptSink && p.sink !== null) spots.push({ ...MOD.sink(p.sinkW), at: p.sink })
+      if (!keptDw && p.dw !== null) spots.push({ ...MOD.dw, at: p.dw })
+      if (!keptHob && p.hob !== null) spots.push({ ...MOD.hob, at: p.hob })
+      for (const [c0, c1] of cornerUnits) spots.push({ type: 'kitchen-corner', w: c1 - c0, h: 90, d: 60, at: c0 })
+      // Worktop in the gaps, a piece per leg.
+      const filled = spots.map((s): [number, number] => [s.at, s.at + s.w]).sort((a, b) => a[0] - b[0])
+      const gaps: [number, number][] = []
+      let cur = 0
+      for (const [a, b] of filled) {
+        if (a > cur + 0.5) gaps.push([cur, a])
+        cur = Math.max(cur, b)
+      }
+      if (T > cur + 0.5) gaps.push([cur, T])
+      const pieces: [number, number][] = []
+      for (const [g0, g1] of gaps) {
+        starts.forEach((s, i) => {
+          const a = Math.max(g0, s)
+          const b = Math.min(g1, ends[i])
+          if (b - a >= 5) pieces.push([a, b])
+        })
+      }
+      // A washing machine under the worktop: in the stretch of it farthest from the hob, at whichever end it fits.
+      if (want.washer) {
+        const hob = p.hob !== null ? p.hob + 30 : T / 2
+        const at = pieces
+          .flatMap(([a, b]) => (b - a >= 60 ? [a, b - 60] : []))
+          .filter((x) => ok(x, x + 60, true))
+          .sort((u, v) => Math.abs(v + 30 - hob) - Math.abs(u + 30 - hob))[0]
+        if (at !== undefined) {
+          const i = pieces.findIndex(([a, b]) => at >= a - 0.5 && at + 60 <= b + 0.5)
+          const [a, b] = pieces[i]
+          pieces.splice(i, 1, ...([[a, at], [at + 60, b]] as [number, number][]).filter(([u, v]) => v - u >= 5))
+          spots.push({ type: 'washing-machine', w: 60, h: 90, d: 60, at })
+        }
+      }
+      for (const [a, b] of pieces) spots.push({ ...MOD.counter(Math.round((b - a) * 10) / 10), at: a })
+      return { spots, cost: p.cost }
     })
-  }
-  // The corner units take their stretches.
-  for (const [c0, c1] of cornerUnits) {
-    pieces = pieces.flatMap(([a, b]): [number, number][] =>
-      b <= c0 || a >= c1 ? [[a, b]] : ([[a, Math.max(a, c0)], [Math.min(b, c1), b]] as [number, number][]).filter(([p, q]) => q - p >= 5),
-    )
-  }
-  // A washing machine under the worktop: in the stretch of it farthest from the hob, at whichever end it fits.
-  if (washer) {
-    const hob = pick.xh + 30
-    const spots = pieces
-      .flatMap(([a, b]) => (b - a >= 60 ? [a, b - 60] : []))
-      .filter((x) => ok(x, x + 60, true))
-      .sort((p, q) => Math.abs(q + 30 - hob) - Math.abs(p + 30 - hob))
-    const x = spots[0]
-    if (x !== undefined) {
-      const i = pieces.findIndex(([a, b]) => x >= a - 0.5 && x + 60 <= b + 0.5)
-      const [a, b] = pieces[i]
-      pieces.splice(i, 1, ...([[a, x], [x + 60, b]] as [number, number][]).filter(([p, q]) => q - p >= 5))
-      best.spots.push({ type: 'washing-machine', w: 60, h: 90, d: 60, at: x })
-    }
-  }
-  for (const [a, b] of pieces) best.spots.push({ ...MOD.counter(Math.round((b - a) * 10) / 10), at: a })
-  return best
 }
 
 function kitchen(ctx: Ctx) {
   const { L } = ctx
-  // Units the room has kept: built around, not added to.
-  if (L.keeps(['counter', 'kitchen-sink', 'stove', 'fridge', 'oven-tower', 'dishwasher'])) {
-    islandOrTable(ctx, null)
-    return
-  }
   planning.uses = ctx.uses
   const plans = kitchenPlans(L)
   if (!plans.length) {
     islandOrTable(ctx, null)
     return
   }
-  // The fullest kitchen, the sink under a window, the most worktop; another idea is the next shape or wall.
+  // Round the units kept: only the ways that take in as many of them as any does; then the fullest kitchen, the sink
+  // under a window, the most worktop. Another idea is the next of them.
+  const most = Math.max(...plans.map((p) => p.kept))
   const value = (p: KitchenPlan) => -p.level * 100 + (p.windowed ? 60 : 0) - p.cost / 3 + Math.min(p.total, 700) / 10
-  plans.sort((a, b) => value(b) - value(a))
+  // The same units in the same places is the same idea, whichever end the run was measured from.
   const seen = new Set<string>()
-  const ideas = plans.filter((p) => {
-    const key = `${p.chain.shape}:${p.chain.legs.map((l) => l.face).sort().join(',')}`
-    if (seen.has(key)) return false
-    seen.add(key)
-    return true
-  })
-  const plan = ideas[ctx.variant % ideas.length]
-  placeKitchen(ctx, plan)
+  const ideas = plans
+    .filter((p) => p.kept === most)
+    .sort((a, b) => value(b) - value(a))
+    .filter((p) => {
+      const sig = p.spots
+        .filter((s) => !s.kept && s.type !== 'counter')
+        .map((s) => {
+          const { leg, s: at } = onChain(p.chain.legs, s.at, s.w)
+          return `${s.type}@${leg.face}:${Math.round(at / 10)}`
+        })
+        .sort()
+        .join(',')
+      if (seen.has(sig)) return false
+      seen.add(sig)
+      return true
+    })
+  // This idea, or the next if its sink or hob can't go in after all (something in the way of standing at it).
+  const before = L.snapshot()
+  for (let k = 0; k < ideas.length; k++) {
+    if (placeKitchen(ctx, ideas[(ctx.variant + k) % ideas.length])) return
+    L.restore(before)
+    ctx.marks.uppers = []
+    ctx.marks.hood = ctx.marks.island = ctx.marks.table = undefined
+  }
+  islandOrTable(ctx, null)
 }
 
-type KitchenPlan = { chain: Chain; spots: Spot[]; level: number; cost: number; windowed: boolean; total: number }
+/** Where a stretch of a chain is: its leg, the middle of it along that leg's wall, and how far into the leg it starts. */
+function onChain(legs: Leg[], x: number, w: number) {
+  let from = 0
+  for (const leg of legs) {
+    if (x < from + leg.len - 0.5) return { leg, s: leg.start + leg.dir * (x - from + w / 2), local: x - from }
+    from += leg.len
+  }
+  const leg = legs[legs.length - 1]
+  return { leg, s: leg.start + leg.dir * (x - (from - leg.len) + w / 2), local: x - (from - leg.len) }
+}
 
-/** Worked out once per room (every try at it starts from the same empty room). */
+type KitchenPlan = { chain: Chain; spots: Spot[]; level: number; cost: number; windowed: boolean; total: number; kept: number }
+
+/** Worked out once per room (every try at it starts from the same room). */
 const planned = new WeakMap<Analysis, KitchenPlan[]>()
 /** The floor's room uses, for the plans being worked out. */
 const planning: { uses?: Map<string, RoomUse> } = {}
 
-/** For each way units could run, the fullest set of them that fits. */
+/** For each way units could run, the fullest kitchen that fits along it, round the units kept. */
 function kitchenPlans(L: Layout): KitchenPlan[] {
   const an = L.an
   const cached = planned.get(an)
   if (cached) return [...cached]
-  const sets = [
-    [[MOD.fridge, MOD.tower], true, 80],
-    [[MOD.fridge], true, 80],
-    [[MOD.fridge], false, 80],
-    [[], true, 80],
-    [[], false, 60],
-  ] as [Module[], boolean, number][]
-  const plans: KitchenPlan[] = []
   const shallow = L.shallowColumns(40)
-  const washer = !!planning.uses && washerRoom(an.floor, planning.uses) === 'kitchen'
-  for (const chain of chains(L)) {
+  const kept = L.keptOf(RUN)
+  const has = (t: string) => kept.some((k) => k.sym.type === t)
+  const washer = !has('washing-machine') && !!planning.uses && washerRoom(an.floor, planning.uses) === 'kitchen'
+  // What to add, fullest first: a fridge and an oven tower (unless there are), the dishwasher, a full-size sink.
+  const fridge = has('fridge') ? [] : [MOD.fridge]
+  const tower = has('oven-tower') ? [] : [MOD.tower]
+  const talls = [[...fridge, ...tower], fridge, []].filter((t, i, all) => all.findIndex((u) => u.length === t.length) === i)
+  const wants: Want[] = []
+  for (const tall of talls) {
+    for (const dw of has('dishwasher') ? [false] : [true, false]) {
+      for (const sinkW of has('kitchen-sink') ? [null] : [80, 60]) wants.push({ tall, dw, sinkW, hob: !has('stove'), washer })
+    }
+  }
+  const plans: KitchenPlan[] = []
+  for (const chain of chains(L, [...shallow, ...kept.map((k) => k.box)])) {
     // The windows along it (the sink goes under one), in the chain's own measure.
     const windows: [number, number, number][] = []
     let from = 0
@@ -771,38 +870,47 @@ function kitchenPlans(L: Layout): KitchenPlan[] {
       }
       at += leg.len
     }
-    for (let level = 0; level < sets.length; level++) {
-      const [tall, dw, sinkW] = sets[level]
-      const got = planChain(chain.legs, windows, worktopOnly, tall, dw, sinkW, washer)
-      if (!got) continue
-      plans.push({ chain, ...got, level, windowed: windows.length > 0, total: from })
-      break
+    const fixed = keptAlong(L, chain.legs, kept)
+    // The fullest set that fits, and a couple of plainer ones (more ideas: a hob where a tower would have gone).
+    let found = 0
+    for (let level = 0; level < wants.length && found < 3; level++) {
+      const ways = planChain(chain.legs, windows, worktopOnly, fixed, wants[level])
+      if (!ways.length) continue
+      found++
+      for (const w of ways) plans.push({ chain, ...w, level, windowed: windows.length > 0 && !has('kitchen-sink'), total: from, kept: fixed.length })
     }
   }
   planned.set(an, plans)
   return [...plans]
 }
 
-/** The units of a plan along their walls, the hood over the hob, wall cabinets, then an island or a table. */
-function placeKitchen(ctx: Ctx, plan: KitchenPlan) {
+/**
+ * The units of a plan along their walls (the kept ones where they are), the hood, wall cabinets, then an island or a
+ * table. False if its sink or hob couldn't go in.
+ */
+function placeKitchen(ctx: Ctx, plan: KitchenPlan): boolean {
   const { L, marks, style } = ctx
   const an = L.an
   const { legs } = plan.chain
   marks.run = { faces: legs.map((l) => l.face) }
-  const where = (x: number, w: number) => {
-    let from = 0
-    for (const leg of legs) {
-      if (x < from + leg.len - 0.5) return { leg, s: leg.start + leg.dir * (x - from + w / 2), local: x - from }
-      from += leg.len
-    }
-    const leg = legs[legs.length - 1]
-    return { leg, s: leg.start + leg.dir * (x - (from - leg.len) + w / 2), local: x - (from - leg.len) }
-  }
+  const ends: number[] = []
+  let total = 0
+  for (const l of legs) ends.push((total += l.len))
+  const where = (x: number, w: number) => onChain(legs, x, w)
   const cabinets = style.cabinets
   const shallow = L.shallowColumns(40)
-  const placed: { m: Spot; p: Placed; leg: Leg; from: number }[] = []
+  // The units along each leg (kept ones too), for the wall cabinets over them and the hood over the hob.
+  const along: { m: Spot; leg: Leg; from: number }[] = []
   for (const m of [...plan.spots].sort((a, b) => a.at - b.at)) {
+    if (m.type === 'kitchen-corner') {
+      if (!m.kept) placeCorner(ctx, legs, ends.findIndex((e) => Math.abs(e - CORNER - m.at) < 1), shallow)
+      continue
+    }
     const { leg, s, local: lx } = where(m.at, m.w)
+    if (m.kept) {
+      along.push({ m, leg, from: lx })
+      continue
+    }
     const f = an.faces[leg.face]
     const box = againstWall(facePoint(f, s), f.inward, m.w, m.d, 0, m.h)
     const extra: Partial<PlanSymbol> = { width: m.w, depth: m.d }
@@ -812,29 +920,19 @@ function placeKitchen(ctx: Ctx, plan: KitchenPlan) {
     const counter = m.type === 'counter'
     const c: Cand = { sym: L.sym(m.type, box, extra), box, reach: counter ? [] : [[before(box, 40)]], zones: counter ? [] : [zone(box, 0, m.d / 2 + 50, m.w, 100)] }
     // The worktop runs on over a column in the wall (the cabinet under it built round it).
-    if (L.fits(box, c.zones, counter ? shallow : [])) placed.push({ m, p: L.add(c), leg, from: lx })
+    if (L.fits(box, c.zones, counter ? shallow : [])) {
+      L.add(c)
+      along.push({ m, leg, from: lx })
+    } else if (m.type === 'kitchen-sink' || m.type === 'stove') return false
   }
-  // A corner unit in each corner the units turn: an L round it, its back to the first wall.
-  for (let i = 0; i + 1 < legs.length; i++) {
-    const A = legs[i]
-    const fA = an.faces[A.face]
-    const corner = facePoint(fA, A.start + A.dir * A.len)
-    const toward = mul(fA.dir, A.dir)
-    const mid = add(add(corner, mul(toward, -CORNER / 2)), mul(fA.inward, CORNER / 2))
-    const rot = facing(fA.inward)
-    const box: Box = { x: mid.x, y: mid.y, w: CORNER, d: CORNER, rot, z0: 0, z1: 90 }
-    // Its corner is at its back left: flipped when the corner is to its right.
-    const flipX = dot(axes(rot).u, toward) > 0
-    if (L.fits(box, [], shallow)) L.add({ sym: L.sym('kitchen-corner', box, { width: CORNER, depth: CORNER, flipX, top: style.worktop }), box })
-  }
-  const fridgeInRun = placed.some((x) => x.m.type === 'fridge')
-  // The hood over the hob; wall cabinets over the rest of each wall (not over windows or the tall units).
-  const hob = placed.find((x) => x.m.type === 'stove')
+  const fridgeInRun = plan.spots.some((x) => x.type === 'fridge') || L.keptOf(new Set(['fridge'])).length > 0
+  // The hood over the hob (the kept one, if it's that); wall cabinets over the rest of each wall.
+  const hob = along.find((x) => x.m.type === 'stove')
   let hood: { leg: Leg; range: [number, number] } | null = null
   if (hob) {
     const hoodStyle = HOOD_STYLES.find((h) => h.id === style.hood) ?? HOOD_STYLES[0]
     const w = 90
-    const mid = hob.from + 30
+    const mid = hob.from + hob.m.w / 2
     const f = an.faces[hob.leg.face]
     const box = againstWall(facePoint(f, hob.leg.start + hob.leg.dir * mid), f.inward, w, 50, 155, 155 + (hoodStyle.height ?? 45))
     const got = L.tryPlace([{ sym: L.sym('range-hood', box, { width: w, depth: 50, elevation: 155, height: hoodStyle.height, style: hoodStyle.id, led: true, light: LIT }), box }])
@@ -845,18 +943,13 @@ function placeKitchen(ctx: Ctx, plan: KitchenPlan) {
   }
   const cut = (list: [number, number][], a: number, b: number) =>
     list.flatMap(([s1, s2]): [number, number][] => (b <= s1 || a >= s2 ? [[s1, s2]] : ([[s1, Math.max(s1, a)], [Math.min(s2, b), s2]] as [number, number][]).filter(([p, q]) => q - p > 0.5)))
-  for (const leg of legs) {
+  const hasCorner = (i: number) => plan.spots.some((s) => s.type === 'kitchen-corner' && Math.abs(s.at - (ends[i] - CORNER)) < 1)
+  legs.forEach((leg, k) => {
     const f = an.faces[leg.face]
-    let spans: [number, number][] = []
-    for (const x of placed.filter((y) => y.leg === leg && y.m.h <= 100).sort((p, q) => p.from - q.from)) {
-      const last = spans[spans.length - 1]
-      if (last && Math.abs(last[1] - x.from) < 0.5) last[1] = x.from + x.m.w
-      else spans.push([x.from, x.from + x.m.w])
-    }
+    let spans: [number, number][] = along.filter((y) => y.leg === leg && y.m.h <= 100).map((y): [number, number] => [y.from, y.from + y.m.w])
     // Over the corner units too: on into the corner along the first wall, from where it ends along the next.
-    const k = legs.indexOf(leg)
-    if (k > 0) spans.unshift([35 - 60, CORNER - 60])
-    if (k < legs.length - 1) spans.push([leg.len - CORNER, leg.len])
+    if (k > 0 && hasCorner(k - 1)) spans.push([35 - 60, CORNER - 60])
+    if (k < legs.length - 1 && hasCorner(k)) spans.push([leg.len - CORNER, leg.len])
     spans.sort((p, q) => p[0] - q[0])
     spans = spans.reduce((out: [number, number][], [a, b]) => {
       const last = out[out.length - 1]
@@ -880,21 +973,39 @@ function placeKitchen(ctx: Ctx, plan: KitchenPlan) {
     }
     for (const [a, b] of spans) {
       if (b - a < 30) continue
-      const k = Math.ceil((b - a) / 100)
-      const w = (b - a) / k
-      for (let i = 0; i < k; i++) {
+      const n = Math.ceil((b - a) / 100)
+      const w = (b - a) / n
+      for (let i = 0; i < n; i++) {
         const box = againstWall(facePoint(f, leg.start + leg.dir * (a + w * (i + 0.5))), f.inward, w, 35, 145, 215)
+        // Wall cabinets kept up there already are left be (these only go where there's room).
         const got = L.tryPlace([{ sym: L.sym('wall-cabinet', box, { width: Math.round(w * 10) / 10, depth: 35, elevation: 145, frame: cabinets, led: true, light: LIT }), box }])
         if (got) marks.uppers.push(got)
       }
     }
-  }
+  })
   const main = legs.reduce((a, b) => (b.len > a.len ? b : a))
   if (!fridgeInRun) {
     const mid = facePoint(an.faces[main.face], main.start + (main.dir * main.len) / 2)
     L.tryPlace(wallCands(L, 'fridge', 70, 65, 0, 180, { clear: 90, reach: true }), (c) => -dist(c.box, mid) / 50)
   }
   islandOrTable(ctx, plan.chain.shape === 'U' ? null : main)
+  return true
+}
+
+/** A corner unit in the corner at the end of leg `i`: an L round it, its back to that leg's wall. */
+function placeCorner(ctx: Ctx, legs: Leg[], i: number, shallow: Box[]) {
+  const { L, style } = ctx
+  if (i < 0 || i + 1 >= legs.length) return
+  const A = legs[i]
+  const fA = L.an.faces[A.face]
+  const corner = facePoint(fA, A.start + A.dir * A.len)
+  const toward = mul(fA.dir, A.dir)
+  const mid = add(add(corner, mul(toward, -CORNER / 2)), mul(fA.inward, CORNER / 2))
+  const rot = facing(fA.inward)
+  const box: Box = { x: mid.x, y: mid.y, w: CORNER, d: CORNER, rot, z0: 0, z1: 90 }
+  // Its corner is at its back left: flipped when the corner is to its right.
+  const flipX = dot(axes(rot).u, toward) > 0
+  if (L.fits(box, [], shallow)) L.add({ sym: L.sym('kitchen-corner', box, { width: CORNER, depth: CORNER, flipX, top: style.worktop }), box })
 }
 
 /** An island along the main run where there's room for it and both aisles; a table as well (or instead) if there's room. */

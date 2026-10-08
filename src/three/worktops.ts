@@ -1,7 +1,7 @@
 /**
  * Worktops in 3D: a slab's look drawn on a canvas (the veins of marble, the flecks of quartz and granite, the staves
- * and grain of a wooden block, the cloud of concrete), seamless so it tiles, at its real size so veins don't stretch
- * along a long counter.
+ * and grain of a wooden block, the cloud of concrete), seamless so it tiles, laid by where it is in the room: the
+ * worktops of units side by side read as one slab, veins running on from one to the next.
  */
 import * as THREE from 'three'
 import type { Worktop } from '@/model/symbols'
@@ -142,15 +142,19 @@ const ROUGH: Record<Worktop['kind'], number> = { marble: 0.18, quartz: 0.3, gran
 
 const materials = new Map<string, THREE.MeshStandardMaterial>()
 
-/** A worktop's material for a slab w × d (cm): its texture repeating at its real size. Tinted when selected. */
-export function worktopMaterial(top: Worktop, w: number, d: number, highlight: boolean): THREE.MeshStandardMaterial {
-  const key = `${top.id}|${Math.round(w)}|${Math.round(d)}|${highlight}`
+/**
+ * A worktop's material. Its texture coordinates are set by where the slab is in the room (see `roomUVs`), in cm, so
+ * it's the same material for every slab of that worktop. Tinted when selected.
+ */
+export function worktopMaterial(top: Worktop, highlight: boolean): THREE.MeshStandardMaterial {
+  const key = `${top.id}|${highlight}`
   let m = materials.get(key)
   if (!m) {
     const map = slabTexture(top).clone()
-    map.repeat.set(w / SIZE, d / SIZE)
+    map.repeat.set(1 / SIZE, 1 / SIZE)
     map.needsUpdate = true
     m = new THREE.MeshStandardMaterial({ map, roughness: ROUGH[top.kind], metalness: 0 })
+    m.userData.roomUV = true
     if (highlight) {
       m.emissive = new THREE.Color('#2563eb')
       m.emissiveIntensity = 0.45
@@ -158,4 +162,32 @@ export function worktopMaterial(top: Worktop, w: number, d: number, highlight: b
     materials.set(key, m)
   }
   return m
+}
+
+const p = new THREE.Vector3()
+const n = new THREE.Vector3()
+const normalMatrix = new THREE.Matrix3()
+
+/**
+ * Lay the worktops of a placed item by where they are in the room: texture coordinates from the plan position (cm)
+ * on top, from along and up on the edges. Call once it's posed.
+ */
+export function roomUVs(obj: THREE.Object3D) {
+  obj.updateMatrixWorld(true)
+  obj.traverse((o) => {
+    if (!(o instanceof THREE.Mesh) || !(o.material as THREE.Material).userData?.roomUV) return
+    const geo = o.geometry as THREE.BufferGeometry
+    const pos = geo.getAttribute('position')
+    const nor = geo.getAttribute('normal')
+    normalMatrix.getNormalMatrix(o.matrixWorld)
+    const uv = new Float32Array(pos.count * 2)
+    for (let i = 0; i < pos.count; i++) {
+      p.fromBufferAttribute(pos, i).applyMatrix4(o.matrixWorld)
+      n.fromBufferAttribute(nor, i).applyMatrix3(normalMatrix).normalize()
+      const flat = Math.abs(n.y) > 0.5
+      uv[i * 2] = flat ? p.x : Math.abs(n.x) > Math.abs(n.z) ? p.z : p.x
+      uv[i * 2 + 1] = flat ? p.z : p.y
+    }
+    geo.setAttribute('uv', new THREE.BufferAttribute(uv, 2))
+  })
 }

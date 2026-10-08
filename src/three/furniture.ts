@@ -504,8 +504,8 @@ interface Kit {
   glass: () => Mat
   tinted: () => Mat
   sheer: (color: string, opacity: number) => Mat
-  /** A worktop slab w × d of the item's worktop (or `id`'s). */
-  top: (w: number, d: number, id?: string) => Mat
+  /** The item's worktop (or `id`'s), laid by where it is in the room. */
+  top: (id?: string) => Mat
 }
 
 function chair(k: Kit, x: number, z: number, rotDeg: number, w = 44, d = 46) {
@@ -1461,16 +1461,16 @@ function kitchen(k: Kit, w: number, d: number, h: number, opts: KitchenOpts) {
     for (let i = 0; i < n; i++) front(k, g, fw - 0.6, fh, -w / 2 + fw * (i + 0.5), toe + 0.5, fz, white, 'bar')
   }
 
-  const slab = (sw: number, sd: number) => k.top(sw, sd, opts.top)
+  const slab = () => k.top(opts.top)
   if (opts.sink) {
     // Worktop around an undermounted steel sink.
     const bw = Math.min(w - 20, 72)
     const bd = Math.min(d - 20, 42)
     const bz = 2
     const side = (w - bw) / 2
-    for (const s of [-1, 1]) g.add(box(side, top, d, s * (w / 2 - side / 2), h - top, 0, slab(side, d)))
-    g.add(box(bw, top, d / 2 - bz - bd / 2, 0, h - top, bz + bd / 2 + (d / 2 - bz - bd / 2) / 2, slab(bw, d / 2 - bz - bd / 2)))
-    g.add(box(bw, top, d / 2 + bz - bd / 2, 0, h - top, -d / 2 + (d / 2 + bz - bd / 2) / 2, slab(bw, d / 2 + bz - bd / 2)))
+    for (const s of [-1, 1]) g.add(box(side, top, d, s * (w / 2 - side / 2), h - top, 0, slab()))
+    g.add(box(bw, top, d / 2 - bz - bd / 2, 0, h - top, bz + bd / 2 + (d / 2 - bz - bd / 2) / 2, slab()))
+    g.add(box(bw, top, d / 2 + bz - bd / 2, 0, h - top, -d / 2 + (d / 2 + bz - bd / 2) / 2, slab()))
     const steel = k.q(COLORS.metal, 'metal')
     const depth = 20
     g.add(box(bw, 1, bd, 0, h - depth, bz, steel))
@@ -1491,7 +1491,7 @@ function kitchen(k: Kit, w: number, d: number, h: number, opts: KitchenOpts) {
     g.add(cylinder(1.5, 4, 0, h + 23, tz + 18, chrome, 1, 1.5, 16))
     g.add(box(1.2, 1.2, 8, 3.5, h + 10, tz + 2, chrome)) // lever
   } else {
-    g.add(rbox(w, top, d, 0.6, 0, h - top, 0, slab(w, d)))
+    g.add(box(w, top, d, 0, h - top, 0, slab()))
   }
   if (opts.stove) {
     g.add(rbox(w - 6, 0.8, d - 10, 0.3, 0, h, 0, k.q(COLORS.black, 'gloss'))) // glass cooktop
@@ -1537,8 +1537,8 @@ function kitchenCorner(k: Kit, w: number, d: number, h: number) {
   front(k, side, d - a - 0.6, fh, 0, toe + 0.5, 0, COLORS.white, 'none')
   g.add(side)
   // The worktop, in an L.
-  g.add(rbox(w, top, a, 0.6, 0, h - top, B + a / 2, k.top(w, a)))
-  g.add(rbox(a, top, d - a, 0.6, L + a / 2, h - top, B + a + (d - a) / 2, k.top(a, d - a)))
+  g.add(box(w, top, a, 0, h - top, B + a / 2, k.top()))
+  g.add(box(a, top, d - a, L + a / 2, h - top, B + a + (d - a) / 2, k.top()))
   return g
 }
 
@@ -1560,7 +1560,7 @@ function dishwasher(k: Kit, sym: PlanSymbol, w: number, d: number, h: number) {
     g.add(box(9, 2, 0.3, w / 2 - 12, toe + fh - 4.8, fz + 1.05, k.q('#38bdf8', 'gloss')))
     g.add(box(w * 0.6, 1.4, 2, 0, toe + fh - 13, fz + 2, k.q(COLORS.chrome, 'chrome')))
   }
-  g.add(rbox(w, top, d, 0.6, 0, h - top, 0, k.top(w, d)))
+  g.add(box(w, top, d, 0, h - top, 0, k.top()))
   return g
 }
 
@@ -1610,7 +1610,7 @@ function washingMachine(k: Kit, sym: PlanSymbol, w: number, d: number, h: number
       break
     case 'built-in':
       unit(0, h - 4, false)
-      g.add(rbox(w, 4, d, 0.6, 0, h - 4, 0, k.top(w, d)))
+      g.add(box(w, 4, d, 0, h - 4, 0, k.top()))
       break
     default:
       unit(0, h, false)
@@ -1683,7 +1683,7 @@ function kitchenIsland(k: Kit, sym: PlanSymbol, w: number, d: number, h: number)
   cabinets.rotation.y = Math.PI
   cabinets.position.z = -d / 2 + work / 2
   g.add(cabinets)
-  g.add(rbox(w, 4, over + 0.2, 0.6, 0, h - 4, d / 2 - over / 2, k.top(w, over)))
+  g.add(box(w, 4, over + 0.2, 0, h - 4, d / 2 - over / 2, k.top()))
   if (sym.stool !== false) for (const x of islandStools(w)) barStool(k, g, x, d / 2 + 8)
   return g
 }
@@ -1800,7 +1800,7 @@ function bathVanity(k: Kit, sym: PlanSymbol, w: number, d: number, h: number) {
   }
   // The top, and the basins in or on it.
   if (vessel) {
-    g.add(rbox(w, top, d, 0.6, 0, h - top, 0, k.top(w, d)))
+    g.add(rbox(w, top, d, 0.6, 0, h - top, 0, k.top()))
     for (const x of s.xs) {
       const r = Math.min(s.rx, s.rz) * 1.15
       g.add(lathe([[0.1, 0.5], [r * 0.45, 0], [r * 0.9, 5], [r, 12], [r - 1.2, 12], [r * 0.82, 6], [r * 0.38, 1.6], [0.1, 1.6]], x, h, s.z, ceramic))
@@ -2619,7 +2619,7 @@ export function symbolModel(
     glass: () => mats.glass(),
     tinted: () => mats.tinted(),
     sheer: (color, opacity) => mats.sheer(color, opacity),
-    top: (tw, td, id) => worktopMaterial(worktopOf({ top: id ?? sym.top }), tw, td, hl),
+    top: (id) => worktopMaterial(worktopOf({ top: id ?? sym.top }), hl),
   }
   const w = sym.width
   const d = sym.depth
