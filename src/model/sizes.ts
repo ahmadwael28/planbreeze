@@ -70,6 +70,7 @@ const RULES: Record<string, Rules> = {
   'towel-radiator': { width: [35, 80], depth: [6, 15], height: [50, 180] },
   'wall-cabinet': { width: [30, 150], depth: [25, 45], height: [30, 110] },
   dishwasher: { width: [45, 60], depth: [55, 65], height: [80, 95] },
+  'kitchen-corner': { width: [80, 130], depth: [80, 130], height: [85, 95] },
   'washing-machine': { width: [55, 70], depth: [45, 70], height: [80, 200] },
   'oven-tower': { width: [60, 90], depth: [55, 65], height: [180, 260] },
   'kitchen-island': { width: [100, 360], depth: [70, 140], height: [85, 110] },

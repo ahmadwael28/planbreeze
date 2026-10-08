@@ -239,6 +239,8 @@ export interface PlanSymbol {
   stool?: boolean
   /** Kept as it is when rooms are designed (see model/design). */
   keep?: boolean
+  /** Kitchen units, islands, a vanity's stone top: the worktop (one of WORKTOPS). */
+  top?: string
   /** Kitchen islands: a hob or a sink in the top (a plain worktop if left out). */
   islandTop?: 'hob' | 'sink'
   /** Oven towers: an oven alone or two ovens (an oven and a microwave if left out). */

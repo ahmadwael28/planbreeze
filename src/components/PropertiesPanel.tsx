@@ -25,9 +25,10 @@ import { Switch } from '@/components/ui/switch'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { usePlanTheme } from '@/hooks/use-plan-theme'
 import { cn } from '@/lib/utils'
-import { area, dist, perimeter } from '@/model/geometry'
+import { area, dist, perimeter, pointInPolygon } from '@/model/geometry'
 import { DEFAULT_RAILING, isOutdoor, OUTDOOR, RAILING_THICKNESS, ROOM_COLORS, roomOuter, setWallLength, symbolPose } from '@/model/project'
-import { CABINETS, curtainLayers, frameOf, givesLight, hasGlass, SKIN_TONES, STYLES, styleOf, SYMBOL_MAP, tvInches, tvSize } from '@/model/symbols'
+import { CABINETS, curtainLayers, frameOf, givesLight, hasGlass, SKIN_TONES, STYLES, styleOf, SYMBOL_MAP, tvInches, tvSize, WORKTOPS, worktopOf, hasWorktop } from '@/model/symbols'
+import type { Worktop } from '@/model/symbols'
 import type { FrameColor } from '@/model/symbols'
 import { formatArea, formatLength } from '@/model/units'
 import { PERSON, PERSON_PRESETS, personLook, personSupport, POSE_NAMES } from '@/model/people'
@@ -126,6 +127,69 @@ function updateRoom(id: string, recipe: (r: Room) => void) {
     const r = draftFloor(d).rooms.find((x) => x.id === id)
     if (r) recipe(r)
   })
+}
+
+/** A swatch suggesting a worktop: marble's veins, the flecks of quartz and granite, a wooden block's staves. */
+function worktopSwatch(w: Worktop) {
+  switch (w.kind) {
+    case 'marble':
+      return `linear-gradient(125deg, ${w.color} 30%, ${w.vein} 36%, ${w.color} 41%, ${w.color} 62%, ${w.vein} 66%, ${w.color} 70%)`
+    case 'wood':
+      return `repeating-linear-gradient(90deg, ${w.color} 0 5px, color-mix(in srgb, ${w.color} 80%, black) 5px 6px)`
+    case 'concrete':
+      return `radial-gradient(circle at 30% 35%, color-mix(in srgb, ${w.color} 80%, white), ${w.color} 70%)`
+    default:
+      return `radial-gradient(circle, color-mix(in srgb, ${w.color} 40%, white) 1px, transparent 1.4px) 0 0 / 5px 5px, radial-gradient(circle, color-mix(in srgb, ${w.color} 60%, black) 1px, transparent 1.4px) 2px 3px / 6px 6px, ${w.color}`
+  }
+}
+
+/** The worktop of a kitchen unit (or island, or a vanity's stone top), and putting the same on every one in its room. */
+function WorktopPicker({ sym }: { sym: PlanSymbol }) {
+  const floor = useFloor()
+  const current = worktopOf(sym)
+  const room = floor.rooms.find((r) => pointInPolygon(sym, r.points))
+  const others = room ? floor.symbols.filter((s) => s.id !== sym.id && hasWorktop(s) && pointInPolygon(s, room.points) && worktopOf(s).id !== current.id) : []
+  const ring = 'ring-2 ring-primary ring-offset-2 ring-offset-background'
+  return (
+    <>
+      <Field label="Worktop">
+        {(id) => (
+          <div id={id} className="flex flex-wrap items-center gap-1.5 py-1">
+            {WORKTOPS.map((w) => (
+              <button
+                key={w.id}
+                type="button"
+                title={w.name}
+                aria-label={w.name}
+                aria-pressed={w.id === current.id}
+                onClick={() => updateSymbol(sym.id, (s) => void (s.top = w.id))}
+                className={cn('size-6 rounded-md border shadow-sm outline-none focus-visible:ring-2 focus-visible:ring-ring', w.id === current.id && ring)}
+                style={{ background: worktopSwatch(w) }}
+              />
+            ))}
+          </div>
+        )}
+      </Field>
+      <div className="flex flex-wrap items-center gap-x-2 pl-[112px] text-xs text-muted-foreground">
+        {current.name}
+        {room && others.length > 0 && (
+          <Button
+            variant="link"
+            size="sm"
+            className="h-auto px-0 text-xs"
+            onClick={() =>
+              useEditor.getState().commit((d) => {
+                const ids = new Set(others.map((s) => s.id))
+                for (const s of draftFloor(d).symbols) if (ids.has(s.id)) s.top = current.id
+              })
+            }
+          >
+            Use it for every worktop in {room.name}
+          </Button>
+        )}
+      </div>
+    </>
+  )
 }
 
 const TV_SIZES = [43, 50, 55, 65, 75, 85]
@@ -1331,6 +1395,7 @@ function SymbolProps({ sym, units }: { sym: PlanSymbol; units: Units }) {
           </div>
         )}
         {def?.frames && <FramePicker sym={sym} frames={def.frames} label={def.frameLabel} />}
+        {hasWorktop(sym) && <WorktopPicker sym={sym} />}
         {def?.sill !== undefined && (
           <Field label="Sill height">
             {(id) => (

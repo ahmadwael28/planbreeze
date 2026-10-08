@@ -16,6 +16,7 @@ import { openSides } from '@/model/guides'
 import type { Side } from '@/model/guides'
 import { personLook, restOn } from '@/model/people'
 import { nicheDepth } from '@/model/walls'
+import { worktopMaterial } from './worktops'
 import {
   chairsAlong,
   cornerArm,
@@ -32,6 +33,7 @@ import {
   styleOf,
   vanityMirror,
   vanitySinks,
+  worktopOf,
 } from '@/model/symbols'
 import type { PlanSymbol, Point, Room } from '@/model/types'
 
@@ -502,6 +504,8 @@ interface Kit {
   glass: () => Mat
   tinted: () => Mat
   sheer: (color: string, opacity: number) => Mat
+  /** A worktop slab w × d of the item's worktop (or `id`'s). */
+  top: (w: number, d: number, id?: string) => Mat
 }
 
 function chair(k: Kit, x: number, z: number, rotDeg: number, w = 44, d = 46) {
@@ -1425,6 +1429,8 @@ function desk(k: Kit, w: number, d: number, h: number) {
 interface KitchenOpts {
   sink?: boolean
   stove?: boolean
+  /** The worktop (one of WORKTOPS). */
+  top?: string
   /** The cabinets' color (white if left out). */
   color?: string
 }
@@ -1455,16 +1461,16 @@ function kitchen(k: Kit, w: number, d: number, h: number, opts: KitchenOpts) {
     for (let i = 0; i < n; i++) front(k, g, fw - 0.6, fh, -w / 2 + fw * (i + 0.5), toe + 0.5, fz, white, 'bar')
   }
 
-  const stone = k.q(COLORS.stone, 'satin')
+  const slab = (sw: number, sd: number) => k.top(sw, sd, opts.top)
   if (opts.sink) {
     // Worktop around an undermounted steel sink.
     const bw = Math.min(w - 20, 72)
     const bd = Math.min(d - 20, 42)
     const bz = 2
     const side = (w - bw) / 2
-    for (const s of [-1, 1]) g.add(box(side, top, d, s * (w / 2 - side / 2), h - top, 0, stone))
-    g.add(box(bw, top, d / 2 - bz - bd / 2, 0, h - top, bz + bd / 2 + (d / 2 - bz - bd / 2) / 2, stone))
-    g.add(box(bw, top, d / 2 + bz - bd / 2, 0, h - top, -d / 2 + (d / 2 + bz - bd / 2) / 2, stone))
+    for (const s of [-1, 1]) g.add(box(side, top, d, s * (w / 2 - side / 2), h - top, 0, slab(side, d)))
+    g.add(box(bw, top, d / 2 - bz - bd / 2, 0, h - top, bz + bd / 2 + (d / 2 - bz - bd / 2) / 2, slab(bw, d / 2 - bz - bd / 2)))
+    g.add(box(bw, top, d / 2 + bz - bd / 2, 0, h - top, -d / 2 + (d / 2 + bz - bd / 2) / 2, slab(bw, d / 2 + bz - bd / 2)))
     const steel = k.q(COLORS.metal, 'metal')
     const depth = 20
     g.add(box(bw, 1, bd, 0, h - depth, bz, steel))
@@ -1485,7 +1491,7 @@ function kitchen(k: Kit, w: number, d: number, h: number, opts: KitchenOpts) {
     g.add(cylinder(1.5, 4, 0, h + 23, tz + 18, chrome, 1, 1.5, 16))
     g.add(box(1.2, 1.2, 8, 3.5, h + 10, tz + 2, chrome)) // lever
   } else {
-    g.add(rbox(w, top, d, 0.6, 0, h - top, 0, stone))
+    g.add(rbox(w, top, d, 0.6, 0, h - top, 0, slab(w, d)))
   }
   if (opts.stove) {
     g.add(rbox(w - 6, 0.8, d - 10, 0.3, 0, h, 0, k.q(COLORS.black, 'gloss'))) // glass cooktop
@@ -1501,6 +1507,38 @@ function kitchen(k: Kit, w: number, d: number, h: number, opts: KitchenOpts) {
       g.add(ring)
     }
   }
+  return g
+}
+
+/**
+ * A corner unit: base cabinets in an L round an inside corner (the corner at the back left), two doors meeting at
+ * its inside corner opening onto a carousel, an L of worktop over it.
+ */
+function kitchenCorner(k: Kit, w: number, d: number, h: number) {
+  const g = new THREE.Group()
+  const toe = 10
+  const top = 4
+  const a = Math.min(60, w - 10, d - 10)
+  const L = -w / 2
+  const B = -d / 2
+  const white = k.q(COLORS.white, 'satin')
+  const plinth = k.q(COLORS.dark, 'satin')
+  // Along the back, and down the left side.
+  g.add(box(w - 2, toe, a - 10, 0, 0, B + (a - 10) / 2, plinth))
+  g.add(box(a - 10, toe, d - a, L + (a - 10) / 2, 0, B + a + (d - a) / 2 - 1, plinth))
+  g.add(box(w, h - top - toe, a - 4, 0, toe, B + (a - 4) / 2, white))
+  g.add(box(a - 4, h - top - toe, d - a, L + (a - 4) / 2, toe, B + a + (d - a) / 2, white))
+  const fh = h - top - toe - 1
+  // A door on each face of the inside corner, hinged together (a bi-fold onto the carousel).
+  front(k, g, w - a - 0.6, fh, (L + a + w / 2) / 2, toe + 0.5, B + a - 2.1, COLORS.white, 'bar')
+  const side = new THREE.Group()
+  side.rotation.y = Math.PI / 2
+  side.position.set(L + a - 2.1, 0, B + a + (d - a) / 2)
+  front(k, side, d - a - 0.6, fh, 0, toe + 0.5, 0, COLORS.white, 'none')
+  g.add(side)
+  // The worktop, in an L.
+  g.add(rbox(w, top, a, 0.6, 0, h - top, B + a / 2, k.top(w, a)))
+  g.add(rbox(a, top, d - a, 0.6, L + a / 2, h - top, B + a + (d - a) / 2, k.top(a, d - a)))
   return g
 }
 
@@ -1522,7 +1560,7 @@ function dishwasher(k: Kit, sym: PlanSymbol, w: number, d: number, h: number) {
     g.add(box(9, 2, 0.3, w / 2 - 12, toe + fh - 4.8, fz + 1.05, k.q('#38bdf8', 'gloss')))
     g.add(box(w * 0.6, 1.4, 2, 0, toe + fh - 13, fz + 2, k.q(COLORS.chrome, 'chrome')))
   }
-  g.add(rbox(w, top, d, 0.6, 0, h - top, 0, k.q(COLORS.stone, 'satin')))
+  g.add(rbox(w, top, d, 0.6, 0, h - top, 0, k.top(w, d)))
   return g
 }
 
@@ -1572,7 +1610,7 @@ function washingMachine(k: Kit, sym: PlanSymbol, w: number, d: number, h: number
       break
     case 'built-in':
       unit(0, h - 4, false)
-      g.add(rbox(w, 4, d, 0.6, 0, h - 4, 0, k.q(COLORS.stone, 'satin')))
+      g.add(rbox(w, 4, d, 0.6, 0, h - 4, 0, k.top(w, d)))
       break
     default:
       unit(0, h, false)
@@ -1641,11 +1679,11 @@ function kitchenIsland(k: Kit, sym: PlanSymbol, w: number, d: number, h: number)
   const g = new THREE.Group()
   const over = islandOverhang(d)
   const work = d - over
-  const cabinets = kitchen(k, w, work, h, { sink: sym.islandTop === 'sink', stove: sym.islandTop === 'hob', color: frameOf(sym)?.hex })
+  const cabinets = kitchen(k, w, work, h, { sink: sym.islandTop === 'sink', stove: sym.islandTop === 'hob', color: frameOf(sym)?.hex, top: sym.top })
   cabinets.rotation.y = Math.PI
   cabinets.position.z = -d / 2 + work / 2
   g.add(cabinets)
-  g.add(rbox(w, 4, over + 0.2, 0.6, 0, h - 4, d / 2 - over / 2, k.q(COLORS.stone, 'satin')))
+  g.add(rbox(w, 4, over + 0.2, 0.6, 0, h - 4, d / 2 - over / 2, k.top(w, over)))
   if (sym.stool !== false) for (const x of islandStools(w)) barStool(k, g, x, d / 2 + 8)
   return g
 }
@@ -1762,7 +1800,7 @@ function bathVanity(k: Kit, sym: PlanSymbol, w: number, d: number, h: number) {
   }
   // The top, and the basins in or on it.
   if (vessel) {
-    g.add(rbox(w, top, d, 0.6, 0, h - top, 0, k.q(COLORS.stone, 'satin')))
+    g.add(rbox(w, top, d, 0.6, 0, h - top, 0, k.top(w, d)))
     for (const x of s.xs) {
       const r = Math.min(s.rx, s.rz) * 1.15
       g.add(lathe([[0.1, 0.5], [r * 0.45, 0], [r * 0.9, 5], [r, 12], [r - 1.2, 12], [r * 0.82, 6], [r * 0.38, 1.6], [0.1, 1.6]], x, h, s.z, ceramic))
@@ -2581,6 +2619,7 @@ export function symbolModel(
     glass: () => mats.glass(),
     tinted: () => mats.tinted(),
     sheer: (color, opacity) => mats.sheer(color, opacity),
+    top: (tw, td, id) => worktopMaterial(worktopOf({ top: id ?? sym.top }), tw, td, hl),
   }
   const w = sym.width
   const d = sym.depth
@@ -2746,13 +2785,16 @@ export function symbolModel(
       g = rangeHood(k, sym, w, d, h, ceilingH - (sym.elevation ?? 155) - h)
       break
     case 'counter':
-      g = kitchen(k, w, d, h, {})
+      g = kitchen(k, w, d, h, { top: sym.top })
+      break
+    case 'kitchen-corner':
+      g = kitchenCorner(k, w, d, h)
       break
     case 'kitchen-sink':
-      g = kitchen(k, w, d, h, { sink: true })
+      g = kitchen(k, w, d, h, { sink: true, top: sym.top })
       break
     case 'stove':
-      g = kitchen(k, w, d, h, { stove: true })
+      g = kitchen(k, w, d, h, { stove: true, top: sym.top })
       break
     case 'fridge':
       g = fridge(k, w, d, h)

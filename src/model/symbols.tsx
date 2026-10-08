@@ -177,6 +177,52 @@ export const WASHER_FINISHES: FrameColor[] = [
   { name: 'Black', hex: '#2c2c2e' },
 ]
 
+/** A worktop: polished marble, engineered quartz, granite, a wooden block or concrete, in a color. */
+export interface Worktop {
+  id: string
+  name: string
+  kind: 'marble' | 'quartz' | 'granite' | 'wood' | 'concrete'
+  color: string
+  /** Marble's veins. */
+  vein?: string
+}
+
+export const WORKTOPS: Worktop[] = [
+  { id: 'carrara', name: 'Carrara marble', kind: 'marble', color: '#eeede9', vein: '#8f8d88' },
+  { id: 'calacatta', name: 'Calacatta marble', kind: 'marble', color: '#f5f1e9', vein: '#a9864c' },
+  { id: 'galala', name: 'Galala marble', kind: 'marble', color: '#e9dcc2', vein: '#b49a74' },
+  { id: 'nero', name: 'Nero Marquina', kind: 'marble', color: '#202023', vein: '#e6e6e6' },
+  { id: 'emperador', name: 'Emperador', kind: 'marble', color: '#6b4a35', vein: '#dcc6a6' },
+  { id: 'quartz-white', name: 'White quartz', kind: 'quartz', color: '#f1f0ec' },
+  { id: 'quartz-grey', name: 'Grey quartz', kind: 'quartz', color: '#a09f9b' },
+  { id: 'quartz-black', name: 'Black quartz', kind: 'quartz', color: '#2b2b2d' },
+  { id: 'granite-black', name: 'Black granite', kind: 'granite', color: '#2a2a2c' },
+  { id: 'granite-grey', name: 'Grey granite', kind: 'granite', color: '#9a958e' },
+  { id: 'oak', name: 'Oak block', kind: 'wood', color: '#c39b6c' },
+  { id: 'walnut', name: 'Walnut block', kind: 'wood', color: '#6e4b33' },
+  { id: 'concrete', name: 'Concrete', kind: 'concrete', color: '#b9b3a8' },
+]
+
+export const worktopOf = (sym: Pick<PlanSymbol, 'top'>) => WORKTOPS.find((w) => w.id === sym.top) ?? WORKTOPS[0]
+
+/** Items with a worktop to choose: kitchen units, islands, a washing machine under the worktop, a vanity's stone top. */
+export function hasWorktop(sym: PlanSymbol) {
+  switch (sym.type) {
+    case 'counter':
+    case 'kitchen-sink':
+    case 'stove':
+    case 'dishwasher':
+    case 'kitchen-island':
+    case 'kitchen-corner':
+      return true
+    case 'washing-machine':
+      return styleOf(sym) === 'built-in'
+    case 'bath-vanity':
+      return styleOf(sym) === 'vessel'
+  }
+  return false
+}
+
 /** Towel colors. */
 export const TOWELS: FrameColor[] = [
   { name: 'White', hex: '#f4f2ee' },
@@ -1439,6 +1485,29 @@ export const SYMBOLS: SymbolDef[] = [
             ))}
           {style !== 'built-in' && <rect x={-cw / 2} y={cy - cd / 2} width={cw} height={cd} {...k.s(t.fill2)} />}
           {style === 'built-in' && <line x1={-w / 2 + 4} y1={d / 2 - 6} x2={w / 2 - 4} y2={d / 2 - 6} {...k.thin} />}
+        </>
+      )
+    },
+  },
+  {
+    // An L of base units round an inside corner (a carousel inside), its corner at the back left (flipped: right).
+    type: 'kitchen-corner',
+    name: 'Corner unit',
+    keywords: 'corner cabinet kitchen carousel blind corner L unit counter',
+    category: 'Kitchen',
+    width: 90,
+    depth: 90,
+    height: 90,
+    render: (w, d, t) => {
+      const k = kit(t)
+      const a = Math.min(60, w - 10, d - 10)
+      const l = -w / 2
+      const b = -d / 2
+      return (
+        <>
+          <path d={`M${l},${b} H${w / 2} V${b + a} H${l + a} V${d / 2} H${l} Z`} {...k.s()} />
+          <path d={`M${w / 2},${b + a - 4} H${l + a - 4} V${d / 2}`} {...k.thin} fill="none" />
+          <line x1={l + a} y1={b + a} x2={l + a + 14} y2={b + a + 14} {...k.thin} strokeDasharray="3 2" />
         </>
       )
     },

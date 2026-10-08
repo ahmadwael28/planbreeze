@@ -3,7 +3,7 @@
  * kitchen units, the bath) on the wall that suits it best, or another wall for another idea, then what goes with it,
  * then the rest as long as it fits and leaves the room easy to walk through.
  */
-import { area, bbox, dist, dot, labelPoint, offsetPolygon, pointInPolygon, signedArea, sub } from '../geometry'
+import { add, area, bbox, dist, dot, labelPoint, mul, offsetPolygon, pointInPolygon, signedArea, sub } from '../geometry'
 import { newSymbol } from '../project'
 import { HOOD_STYLES, tvSize } from '../symbols'
 import type { Floor, PlanSymbol, Point, RoomUse } from '../types'
@@ -490,6 +490,9 @@ function dining(ctx: Ctx) {
 
 type Module = { type: string; w: number; h: number; d: number }
 
+/** How far a corner unit reaches along each wall from the corner (cm). */
+const CORNER = 90
+
 const MOD = {
   fridge: { type: 'fridge', w: 70, h: 180, d: 65 },
   tower: { type: 'oven-tower', w: 60, h: 220, d: 60 },
@@ -600,8 +603,10 @@ function planChain(
   for (const l of legs) ends.push((total += l.len))
   const T = total
   const starts = [0, ...ends.slice(0, -1)]
-  // The corners, and in front of columns: worktop only.
-  const corners = [...ends.slice(0, -1).map((e): [number, number] => [e - 60, e]), ...worktopOnly]
+  // A corner unit in each corner, 90 cm along both walls (and so 30 cm of worktop between it and an appliance on
+  // either side); in front of columns, worktop only.
+  const cornerUnits = ends.slice(0, -1).map((e): [number, number] => [e - CORNER, e + CORNER - 60])
+  const corners = [...cornerUnits, ...worktopOnly]
   const overlaps = (a0: number, a1: number, [b0, b1]: [number, number] | [number, number, number]) => a0 < b1 - 0.5 && a1 > b0 + 0.5
   // On one leg, out of the corners (and, for tall units and the hob, out from under the windows).
   const ok = (x0: number, x1: number, underWindow: boolean) =>
@@ -653,13 +658,19 @@ function planChain(
     cur = Math.max(cur, u.at + u.w)
   }
   if (T > cur + 0.5) gaps.push([cur, T])
-  const pieces: [number, number][] = []
+  let pieces: [number, number][] = []
   for (const [g0, g1] of gaps) {
     starts.forEach((s, i) => {
       const a = Math.max(g0, s)
       const b = Math.min(g1, ends[i])
       if (b - a >= 5) pieces.push([a, b])
     })
+  }
+  // The corner units take their stretches.
+  for (const [c0, c1] of cornerUnits) {
+    pieces = pieces.flatMap(([a, b]): [number, number][] =>
+      b <= c0 || a >= c1 ? [[a, b]] : ([[a, Math.max(a, c0)], [Math.min(b, c1), b]] as [number, number][]).filter(([p, q]) => q - p >= 5),
+    )
   }
   // A washing machine under the worktop: in the stretch of it farthest from the hob, at whichever end it fits.
   if (washer) {
@@ -797,10 +808,24 @@ function placeKitchen(ctx: Ctx, plan: KitchenPlan) {
     const extra: Partial<PlanSymbol> = { width: m.w, depth: m.d }
     if (m.type === 'oven-tower') extra.frame = cabinets
     if (m.type === 'washing-machine') extra.style = 'built-in'
+    if (m.type !== 'fridge' && m.type !== 'oven-tower') extra.top = style.worktop
     const counter = m.type === 'counter'
     const c: Cand = { sym: L.sym(m.type, box, extra), box, reach: counter ? [] : [[before(box, 40)]], zones: counter ? [] : [zone(box, 0, m.d / 2 + 50, m.w, 100)] }
     // The worktop runs on over a column in the wall (the cabinet under it built round it).
     if (L.fits(box, c.zones, counter ? shallow : [])) placed.push({ m, p: L.add(c), leg, from: lx })
+  }
+  // A corner unit in each corner the units turn: an L round it, its back to the first wall.
+  for (let i = 0; i + 1 < legs.length; i++) {
+    const A = legs[i]
+    const fA = an.faces[A.face]
+    const corner = facePoint(fA, A.start + A.dir * A.len)
+    const toward = mul(fA.dir, A.dir)
+    const mid = add(add(corner, mul(toward, -CORNER / 2)), mul(fA.inward, CORNER / 2))
+    const rot = facing(fA.inward)
+    const box: Box = { x: mid.x, y: mid.y, w: CORNER, d: CORNER, rot, z0: 0, z1: 90 }
+    // Its corner is at its back left: flipped when the corner is to its right.
+    const flipX = dot(axes(rot).u, toward) > 0
+    if (L.fits(box, [], shallow)) L.add({ sym: L.sym('kitchen-corner', box, { width: CORNER, depth: CORNER, flipX, top: style.worktop }), box })
   }
   const fridgeInRun = placed.some((x) => x.m.type === 'fridge')
   // The hood over the hob; wall cabinets over the rest of each wall (not over windows or the tall units).
@@ -828,6 +853,17 @@ function placeKitchen(ctx: Ctx, plan: KitchenPlan) {
       if (last && Math.abs(last[1] - x.from) < 0.5) last[1] = x.from + x.m.w
       else spans.push([x.from, x.from + x.m.w])
     }
+    // Over the corner units too: on into the corner along the first wall, from where it ends along the next.
+    const k = legs.indexOf(leg)
+    if (k > 0) spans.unshift([35 - 60, CORNER - 60])
+    if (k < legs.length - 1) spans.push([leg.len - CORNER, leg.len])
+    spans.sort((p, q) => p[0] - q[0])
+    spans = spans.reduce((out: [number, number][], [a, b]) => {
+      const last = out[out.length - 1]
+      if (last && a <= last[1] + 0.5) last[1] = Math.max(last[1], b)
+      else out.push([a, b])
+      return out
+    }, [])
     if (hood?.leg === leg) spans = cut(spans, hood.range[0], hood.range[1])
     for (const c of an.columns) {
       const p = L.along(leg.face, c)
@@ -881,7 +917,7 @@ function islandOrTable(ctx: Ctx, main: Leg | null) {
           const bc = local(frame, 0, 13.5)
           const box: Box = { x: bc.x, y: bc.y, w, d: d + 27, rot: frame.rot, z0: 0, z1: 95 }
           cands.push({
-            sym: L.sym('kitchen-island', frame, { width: w, depth: d, frame: style.cabinets }),
+            sym: L.sym('kitchen-island', frame, { width: w, depth: d, frame: style.cabinets, top: style.worktop }),
             box,
             zones: [zone(box, 0, (d + 27) / 2 + 35, w, 70)],
             reach: [[local(frame, 0, -d / 2 - 35)], [local(frame, 0, d / 2 + 70)]],
@@ -935,7 +971,7 @@ function bathroom(ctx: Ctx) {
         return
       }
       const v = L.tryPlace(
-        wallCands(L, 'bath-vanity', w, 48, 0, 190, { clear: 60, reach: true, extra: { sinks: w >= 120 ? 2 : undefined, style: style.vanity, frame: style.cabinets, led: true, light: LIT } }),
+        wallCands(L, 'bath-vanity', w, 48, 0, 190, { clear: 60, reach: true, extra: { sinks: w >= 120 ? 2 : undefined, style: style.vanity, frame: style.cabinets, top: style.worktop, led: true, light: LIT } }),
         (c) => (entry ? -dist(c.box, entry) / 40 : 0) + (marks.wet && c.face === marks.wet.face ? 4 : 0),
       )
       if (v) {

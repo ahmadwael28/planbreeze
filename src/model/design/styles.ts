@@ -29,6 +29,8 @@ export interface DesignStyle {
   splash: WallSurface
   /** Kitchen and vanity cabinets (one of the vanity finishes). */
   cabinets: string
+  /** Kitchen worktops and stone vanity tops (one of WORKTOPS). */
+  worktop: string
   curtain: string
   hood: string
   pendant: string
@@ -61,6 +63,7 @@ export const DESIGN_STYLES: DesignStyle[] = [
     ensuiteWalls: { finish: 'porcelain', color: '#9c958d', size: [60, 120] },
     splash: { finish: 'porcelain', color: '#ebe9e5', size: [7.5, 30], height: 150, above: '#f3f1ec' },
     cabinets: '#f4f3ef',
+    worktop: 'carrara',
     curtain: '#d9cfbf',
     hood: 'pyramid',
     pendant: 'dome',
@@ -89,6 +92,7 @@ export const DESIGN_STYLES: DesignStyle[] = [
     ensuiteWalls: { finish: 'ceramic', color: '#9fae98', size: [10, 30], height: 120, above: '#f3f1ec' },
     splash: { finish: 'ceramic', color: '#efece6', size: [7.5, 15], height: 150, above: '#f3f1ec' },
     cabinets: '#c19a6b',
+    worktop: 'quartz-white',
     curtain: '#efe9df',
     hood: 'box',
     pendant: 'globe',
@@ -117,6 +121,7 @@ export const DESIGN_STYLES: DesignStyle[] = [
     ensuiteWalls: { finish: 'concrete', color: '#b8aa98' },
     splash: { finish: 'porcelain', color: '#e5dbca', size: [7.5, 30], height: 150, above: '#ebe4d6' },
     cabinets: '#6e4b33',
+    worktop: 'concrete',
     curtain: '#d9cfbf',
     hood: 'box',
     pendant: 'drum',
@@ -145,6 +150,7 @@ export const DESIGN_STYLES: DesignStyle[] = [
     ensuiteWalls: { finish: 'marble', color: '#e8dbc1', size: [60, 120] },
     splash: { finish: 'marble', color: '#f1f0ed', size: [30, 60], height: 150, above: '#ebe4d6' },
     cabinets: '#93a28a',
+    worktop: 'calacatta',
     curtain: '#c9b79c',
     hood: 'mantel',
     pendant: 'bell',
@@ -173,6 +179,7 @@ export const DESIGN_STYLES: DesignStyle[] = [
     ensuiteWalls: { finish: 'porcelain', color: '#4a4c4f', size: [60, 120] },
     splash: { finish: 'ceramic', color: '#a9a8a3', size: [7.5, 15], height: 150, above: '#c8cacb' },
     cabinets: '#2c2c2e',
+    worktop: 'granite-black',
     curtain: '#4b5563',
     hood: 'box',
     pendant: 'cone',
