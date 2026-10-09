@@ -91,6 +91,7 @@ function wallsOf(room: Room): Wall[] {
   const sa = signedArea(pts)
   const out: Wall[] = []
   for (let i = 0; i < pts.length; i++) {
+    if (room.openEdges?.includes(i)) continue // no wall there
     const a = pts[i]
     const b = pts[(i + 1) % pts.length]
     const len = Math.hypot(b.x - a.x, b.y - a.y)

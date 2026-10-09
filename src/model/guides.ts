@@ -4,7 +4,7 @@
  */
 import { dist, inwardNormal, normalize, signedArea, sub } from './geometry'
 import type { BBox } from './geometry'
-import { symbolPose } from './project'
+import { isOpen, symbolPose } from './project'
 import type { PlanSymbol, Point, Room } from './types'
 
 export interface Guide {
@@ -27,6 +27,7 @@ export function castToWall(o: Point, d: Point, rooms: Room[], max = 3000): numbe
   for (const room of rooms) {
     const pts = room.points
     for (let i = 0; i < pts.length; i++) {
+      if (isOpen(room, i)) continue // on into the room next door
       const a = pts[i]
       const e = sub(pts[(i + 1) % pts.length], a)
       const den = cross(d, e)

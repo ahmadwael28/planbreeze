@@ -108,6 +108,19 @@ export function buildCeilings(floor: Floor, base: number): THREE.Object3D[] {
       const j = (i + 1) % room.points.length
       geos.push(band([cut[i], cut[j]], H - c!.drop, H - 0.2, 'in'))
     }
+    // Open to the next room: where its ceiling is lower there, a gypsum face closes the step up to the other's.
+    const edgeHeight = (r: Room) => (r.ceiling && r.ceiling.style !== 'floating' ? H - r.ceiling.drop : H - 0.2)
+    for (const i of room.openEdges ?? []) {
+      const a = room.points[i]
+      const b = room.points[(i + 1) % room.points.length]
+      if (!a || !b) continue
+      const n = inwardNormal(a, b, signedArea(room.points))
+      const beyond = { x: (a.x + b.x) / 2 - n.x, y: (a.y + b.y) / 2 - n.y }
+      const other = floor.rooms.find((r) => r.id !== plain.id && !r.kind && r.points.length >= 3 && pointInPolygon(beyond, r.points))
+      const mine = edgeHeight(room)
+      const theirs = other ? edgeHeight(ceilingRoom(other, floor)) : H
+      if (theirs > mine + 0.5) geos.push(band([a, b], mine, theirs, 'in'))
+    }
     if (!c) continue
     ceilingZones(room).forEach((z) => geos.push(ceilingPlane(z.outer, z.inner, H - z.drop)))
     switch (c.style) {

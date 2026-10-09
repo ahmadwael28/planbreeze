@@ -118,6 +118,12 @@ export interface Room {
    */
   hiddenGaps?: number[]
   hiddenGapWidth?: number
+  /**
+   * Walls (edge indices) that aren't there: along them the room is open to the room next door, one space divided by
+   * an invisible line into rooms with their own floors, ceilings and lights. Always matched by an open wall of the
+   * room across (see healOpenings).
+   */
+  openEdges?: number[]
   /** An outdoor space: a railing (or nothing) instead of walls, none where it meets the building, and no ceiling. */
   kind?: OutdoorKind
   railing?: Railing
@@ -344,7 +350,7 @@ export interface ItemRef {
   id: string
 }
 
-export type Tool = 'select' | 'area' | 'room' | 'rect' | 'balcony' | 'terrace' | 'pan' | 'dimension' | 'wire'
+export type Tool = 'select' | 'area' | 'room' | 'rect' | 'balcony' | 'terrace' | 'pan' | 'dimension' | 'wire' | 'divide'
 
 /** What the 2D plan emphasizes: furniture layout, or the ceiling & lighting plan. */
 export type PlanLayer = 'plan' | 'lighting'

@@ -141,9 +141,14 @@ const ceilingRooms = new WeakMap<Room, { symbols: PlanSymbol[]; room: Room }>()
  * of the outline takes its wall's, and a column's sides take those of the wall it stands on (shadow gaps not if they
  * stop at columns; pockets never).
  */
-export function ceilingRoom(room: Room, floor: Floor): Room {
-  const hit = ceilingRooms.get(room)
+export function ceilingRoom(plain: Room, floor: Floor): Room {
+  const hit = ceilingRooms.get(plain)
   if (hit && hit.symbols === floor.symbols) return hit.room
+  // Along an open wall there's no wall for a shadow gap or curtain pocket.
+  const open = new Set(plain.openEdges ?? [])
+  const room = open.size
+    ? { ...plain, shadowGaps: plain.shadowGaps?.filter((i) => !open.has(i)), curtainPockets: plain.curtainPockets?.filter((i) => !open.has(i)) }
+    : plain
   let out = room
   const cols = roomColumns(room, floor)
   if (cols.length && room.points.length >= 3) {
@@ -188,6 +193,7 @@ export function ceilingRoom(room: Room, floor: Floor): Room {
         points: pts,
         shadowGaps: map(room.shadowGaps, room.gapsAtColumns !== 'stop'),
         curtainPockets: map(room.curtainPockets, room.pocketsAtColumns === 'wrap'),
+        openEdges: map(room.openEdges, false),
         ceiling: room.ceiling && { ...room.ceiling, bands: room.ceiling.bands && pts.map((_, i) => room.ceiling!.bands![parent[i]] ?? null) },
       }
       shapes.set(out, { parent, face, room, columns: cols })
@@ -200,14 +206,14 @@ export function ceilingRoom(room: Room, floor: Floor): Room {
     const light = ceilingLight(hidden, out)
     const off = new Set(light.cove?.off ?? [])
     const pocket = onPocketWall(out)
-    const lit = out.points.map((_, i) => i).filter((i) => !off.has(i) && !pocket(i))
+    const lit = out.points.map((_, i) => i).filter((i) => !off.has(i) && !pocket(i) && !out.openEdges?.includes(i))
     if (lit.length) {
       const info = shapes.get(out)
       out = { ...out, hiddenGaps: lit, hiddenGapWidth: hidden.cove?.gap ?? HIDDEN_GAP }
       if (info) shapes.set(out, info)
     }
   }
-  ceilingRooms.set(room, { symbols: floor.symbols, room: out })
+  ceilingRooms.set(plain, { symbols: floor.symbols, room: out })
   return out
 }
 
@@ -300,8 +306,8 @@ export function ceilingOutline(room: Room): Point[] {
  * After a room's outline changed, carry per-wall values over (like `remapEdges`): a new wall takes the value of the
  * old wall it lies along.
  */
-export function remapEdgeValues<T>(oldPts: Point[], newPts: Point[], values: (T | null)[] | undefined): (T | null)[] | undefined {
-  if (!values?.length || oldPts.length === newPts.length) return values
+export function remapEdgeValues<T>(oldPts: Point[], newPts: Point[], values: (T | null)[] | undefined, force = false): (T | null)[] | undefined {
+  if (!values?.length || (!force && oldPts.length === newPts.length)) return values
   return newPts.map((a, i) => {
     const b = newPts[(i + 1) % newPts.length]
     const m = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 }
@@ -399,6 +405,8 @@ export function coveRuns(room: Room, sym?: PlanSymbol): { runs: { a: Point; b: P
   // A hidden light in a gap runs where its gap is (see ceilingRoom).
   else if (sym && hiddenLightInGap(room, sym)) only = (e) => hidden.has(e)
   const off = new Set(sym?.cove?.off ?? [])
+  // Along the walls: none where there's no wall (the band's inner edge runs all round, though).
+  if (!sym || !followsBand(room, sym)) for (const i of room.openEdges ?? []) off.add(i)
   const runs = path
     .map((a, i) => ({ a, b: path[(i + 1) % path.length], edge: i }))
     .filter((r) => (!only || only(r.edge)) && !off.has(r.edge))
@@ -459,8 +467,8 @@ export function mergeRoomLights(floor: Floor): boolean {
  * After a room's outline changed (a wall split or a corner removed), carry per-wall settings over:
  * a new wall keeps a setting when it lies along a wall that had it.
  */
-export function remapEdges(oldPts: Point[], newPts: Point[], edges: number[] | undefined): number[] | undefined {
-  if (!edges?.length || oldPts.length === newPts.length) return edges
+export function remapEdges(oldPts: Point[], newPts: Point[], edges: number[] | undefined, force = false): number[] | undefined {
+  if (!edges?.length || (!force && oldPts.length === newPts.length)) return edges
   const out: number[] = []
   newPts.forEach((a, i) => {
     const b = newPts[(i + 1) % newPts.length]

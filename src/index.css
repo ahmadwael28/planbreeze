@@ -164,7 +164,9 @@
   cursor: grab;
 }
 .plan-canvas.tool-dimension,
-.plan-canvas.tool-dimension [data-kind] {
+.plan-canvas.tool-dimension [data-kind],
+.plan-canvas.tool-divide,
+.plan-canvas.tool-divide [data-kind] {
   cursor: crosshair;
 }
 .plan-canvas.tool-wire [data-kind='symbol'] {

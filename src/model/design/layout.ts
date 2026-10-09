@@ -4,7 +4,7 @@
  * the room, clear of what's there, of the floor doors need and (if tall) of windows, its own clearances free, and
  * with a way left to walk to every door and to everything that needs reaching.
  */
-import { add, area, bbox, dot, mul, pointInPolygon, sub } from '../geometry'
+import { add, area, bbox, dist, dot, inwardNormal, mul, pointInPolygon, signedArea, sub } from '../geometry'
 import { newSymbol, symbolPose } from '../project'
 import { SYMBOL_MAP } from '../symbols'
 import type { Floor, PlanSymbol, Point, Room, RoomUse } from '../types'
@@ -42,6 +42,8 @@ export interface Analysis {
   openings: Opening[]
   /** Doors and openings: the ways in. */
   doors: Opening[]
+  /** Where it's open to the next room (no wall): ways in too, with the middle kept clear. */
+  passages: { at: Point; inward: Point; w: number }[]
   windows: Opening[]
   /** The way in that matters most (from the hallway or living room, a door over an opening). */
   entry?: Opening
@@ -116,6 +118,13 @@ export function analyze(room: Room, floor: Floor, fixed: PlanSymbol[], uses: Map
     const width = o.swingIn ? o.w + 10 : Math.min(o.w + 10, 100)
     return againstWall(facePoint(faces[o.face], o.s), faces[o.face].inward, width, depth, 0, 210)
   })
+  const passages = (room.openEdges ?? []).flatMap((i) => {
+    const a = room.points[i]
+    const b = room.points[(i + 1) % room.points.length]
+    if (!a || !b || dist(a, b) < 50) return []
+    return [{ at: mul(add(a, b), 0.5), inward: inwardNormal(a, b, signedArea(room.points)), w: Math.min(dist(a, b) - 10, 100) }]
+  })
+  for (const p of passages) clear.push(againstWall(p.at, p.inward, p.w, 60, 0, 210))
   const glass = windows.map((o) => againstWall(facePoint(faces[o.face], o.s), faces[o.face].inward, o.w, 25, o.sill, o.top))
   const publicUse = (u?: RoomUse) => u === 'hall' || u === 'living' || u === 'dining' || u === 'kitchen'
   const entry = [...doors].sort((a, b) => rank(b) - rank(a))[0]
@@ -131,6 +140,7 @@ export function analyze(room: Room, floor: Floor, fixed: PlanSymbol[], uses: Map
     faces,
     openings,
     doors,
+    passages,
     windows,
     entry,
     clear,
@@ -440,7 +450,10 @@ export class Layout {
       }
       return false
     }
-    const starts = this.an.doors.map((o) => facePoint(this.an.faces[o.face], o.s, 40))
+    const starts = [
+      ...this.an.doors.map((o) => facePoint(this.an.faces[o.face], o.s, 40)),
+      ...this.an.passages.map((p) => add(p.at, mul(p.inward, 40))),
+    ]
     if (!starts.length) return true
     const seen = new Uint8Array(nx * ny)
     const queue: number[] = []

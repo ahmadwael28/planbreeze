@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react'
 import type { LucideIcon } from 'lucide-react'
-import { Cable, Fence, Hand, SquareDashedMousePointer, Trees, Maximize, MousePointer2, Pentagon, Plus, RectangleHorizontal, Ruler, ScanLine, SquareDashedBottom, ZoomIn, ZoomOut } from 'lucide-react'
+import { Cable, Fence, Hand, Scissors, SquareDashedMousePointer, Trees, Maximize, MousePointer2, Pentagon, Plus, RectangleHorizontal, Ruler, ScanLine, SquareDashedBottom, ZoomIn, ZoomOut } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Separator } from '@/components/ui/separator'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
@@ -16,6 +16,7 @@ const TOOLS: { tool: Tool; icon: LucideIcon; label: string; key: string }[] = [
   { tool: 'rect', icon: RectangleHorizontal, label: 'Draw rectangular room (drag)', key: 'R' },
   { tool: 'balcony', icon: Fence, label: 'Draw balcony (drag)', key: 'B' },
   { tool: 'terrace', icon: Trees, label: 'Draw terrace (drag)', key: 'T' },
+  { tool: 'divide', icon: Scissors, label: 'Divide a room in two, with no wall between', key: 'S' },
   { tool: 'dimension', icon: Ruler, label: 'Dimension line', key: 'D' },
   { tool: 'pan', icon: Hand, label: 'Pan', key: 'H' },
 ]

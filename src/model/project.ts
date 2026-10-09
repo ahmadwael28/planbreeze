@@ -220,6 +220,7 @@ export function findWallSnap(p: Point, rooms: Room[], maxDist: number): WallAtta
     const pts = room.points
     const sa = signedArea(pts)
     for (let i = 0; i < pts.length; i++) {
+      if (isOpen(room, i)) continue // no wall to go in
       const a = pts[i]
       const b = pts[(i + 1) % pts.length]
       // Shift the edge to the wall center line.
@@ -262,7 +263,7 @@ export function columnIntoWall(sym: PlanSymbol, rooms: Room[], reach = 150): Pic
     const sa = signedArea(pts)
     pts.forEach((a, i) => {
       const b = pts[(i + 1) % pts.length]
-      if (dist(a, b) < 1) return
+      if (dist(a, b) < 1 || isOpen(room, i)) return
       const d = projectOnSegment(c, a, b).dist
       if (d < bestD) {
         bestD = d
@@ -295,6 +296,7 @@ export function wallMountPose(p: Point, rooms: Room[], maxDist: number, depth: n
     const pts = room.points
     const sa = signedArea(pts)
     for (let i = 0; i < pts.length; i++) {
+      if (isOpen(room, i)) continue
       const a = pts[i]
       const b = pts[(i + 1) % pts.length]
       const pr = projectOnSegment(p, a, b)
@@ -348,8 +350,56 @@ export function moveWall(points: Point[], edge: number, amount: number): Point[]
   return points.map((p, i) => (i === edge || i === (edge + 1) % n ? add(p, nrm) : p))
 }
 
+/** Whether a room's wall `i` isn't there: the room is open to the next one along it (see Room.openEdges). */
+export const isOpen = (room: Room, i: number) => !!room.openEdges?.includes(i)
+
+/**
+ * Where each of a room's walls ends on the outside: the outer face's corners at the start and end of edge i. An open
+ * edge has no wall (its "outer face" is the edge itself), and a wall meeting one ends square on its line.
+ */
+export function wallEnds(room: Room): [Point, Point][] {
+  const pts = room.points
+  const n = pts.length
+  const t = room.wallThickness
+  if (!room.openEdges?.length) {
+    const outer = offsetPolygon(pts, t)
+    return pts.map((_, i) => [outer[i], outer[(i + 1) % n]])
+  }
+  const sa = signedArea(pts)
+  const d = pts.map((_, i) => (isOpen(room, i) ? 0 : t))
+  const lines = pts.map((a, i) => {
+    const out = mul(inwardNormal(a, pts[(i + 1) % n], sa), -1)
+    return { p: add(a, mul(out, d[i])), dir: sub(pts[(i + 1) % n], a), out }
+  })
+  // The corner `c` between edge i and the next one, j, on the outside of edge `own`'s wall.
+  const corner = (i: number, j: number, c: Point, own: number): Point => {
+    const L1 = lines[i]
+    const L2 = lines[j]
+    const den = L1.dir.x * L2.dir.y - L1.dir.y * L2.dir.x
+    const len = Math.hypot(L1.dir.x, L1.dir.y) * Math.hypot(L2.dir.x, L2.dir.y)
+    // In line: the wall ends square.
+    if (Math.abs(den) < 1e-6 * len) return add(c, mul(lines[own].out, d[own]))
+    if (d[i] === d[j]) return add(c, mul(add(L1.out, L2.out), d[i] / Math.max(1 + dot(L1.out, L2.out), 0.15)))
+    const s = ((L2.p.x - L1.p.x) * L2.dir.y - (L2.p.y - L1.p.y) * L2.dir.x) / den
+    return add(L1.p, mul(L1.dir, s))
+  }
+  return pts.map((a, i) => {
+    const next = (i + 1) % n
+    return [corner((i - 1 + n) % n, i, a, i), corner(i, next, pts[next], i)]
+  })
+}
+
+/** The outline of a room's walls on the outside (along an open edge: the edge itself). */
 export function roomOuter(room: Room) {
-  return offsetPolygon(room.points, room.wallThickness)
+  if (!room.openEdges?.length) return offsetPolygon(room.points, room.wallThickness)
+  const ends = wallEnds(room)
+  const out: Point[] = []
+  ends.forEach(([start], i) => {
+    const before = ends[(i - 1 + ends.length) % ends.length][1]
+    out.push(before)
+    if (dist(before, start) > 0.01) out.push(start)
+  })
+  return out
 }
 
 type Ring = [number, number][]

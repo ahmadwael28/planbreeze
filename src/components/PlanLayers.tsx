@@ -13,7 +13,8 @@ import {
 } from '@/model/geometry'
 import { finishOf, surfaceLayout, wallSurfaceAt } from '@/model/finishes'
 import { ceilingLight, ceilingRoom, ceilingZones, coveRuns, nearestOnStrip, pocketWidth, SHADOW_GAP, WIRE_COLORS } from '@/model/lighting'
-import { dimensionPoints, isOutdoor, railingRuns, roomOuter, symbolPose } from '@/model/project'
+import { dimensionPoints, isOpen, isOutdoor, railingRuns, roomOuter, symbolPose } from '@/model/project'
+import { floorOrigin } from '@/model/divide'
 import { bottomUp } from '@/model/stacking'
 import { SYMBOL_MAP } from '@/model/symbols'
 import type { PlanTheme } from '@/model/theme'
@@ -197,17 +198,16 @@ function CurtainPockets({ room, theme }: { room: Room; theme: PlanTheme }) {
 }
 
 /**
- * A room's floor finish on the plan: its tiles' or planks' joints as faint lines, laid from the room's corner. Their
- * width follows the zoom by hand, as Chrome draws non-scaling strokes in patterns far too wide at some zooms.
+ * A room's floor finish on the plan: its tiles' or planks' joints as faint lines, laid from `origin` (the room's corner,
+ * or the corner of the whole space it's open to, so they run on across). Their width follows the zoom by hand, as
+ * Chrome draws non-scaling strokes in patterns far too wide at some zooms.
  */
-function FloorFinish({ room, theme, scale }: { room: Room; theme: PlanTheme; scale: number }) {
+function FloorFinish({ room, origin, theme, scale }: { room: Room; origin: Point; theme: PlanTheme; scale: number }) {
   // Unique on the page: the same room can be drawn twice (the plan, and a preview of it over the plan).
   const uid = useId().replace(/[^\w-]/g, '')
   const layout = room.floor && surfaceLayout(room.floor, 'floor')
   if (!layout) return null
   const [bw, bh] = layout.block
-  const xs = room.points.map((p) => p.x)
-  const ys = room.points.map((p) => p.y)
   const id = `floor-${uid}`
   return (
     <g pointerEvents="none">
@@ -217,7 +217,7 @@ function FloorFinish({ room, theme, scale }: { room: Room; theme: PlanTheme; sca
           width={bw}
           height={bh}
           patternUnits="userSpaceOnUse"
-          patternTransform={`translate(${Math.min(...xs)} ${Math.min(...ys)}) rotate(${layout.angle})`}
+          patternTransform={`translate(${origin.x} ${origin.y}) rotate(${layout.angle})`}
         >
           {layout.pieces.flatMap((p) =>
             [-bw, 0, bw].flatMap((dx) =>
@@ -324,7 +324,7 @@ function RoomLabels({
         pts.map((a, i) => {
           const b = pts[(i + 1) % pts.length]
           const L = dist(a, b)
-          if (L * scale < 40) return null
+          if (L * scale < 40 || isOpen(room, i)) return null
           const mid = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 }
           const pos = add(mid, mul(inwardNormal(a, b, sa), fs * 1.1))
           const ang = uprightAngle((Math.atan2(b.y - a.y, b.x - a.x) * 180) / Math.PI)
@@ -568,7 +568,7 @@ export function PlanLayers({
             fillOpacity={lighting ? 0.55 : 1}
           />
         ))}
-        {!lighting && !forPrint && floor.rooms.map((r) => <FloorFinish key={r.id} room={r} theme={theme} scale={scale} />)}
+        {!lighting && !forPrint && floor.rooms.map((r) => <FloorFinish key={r.id} room={r} origin={floorOrigin(r, floor.rooms)} theme={theme} scale={scale} />)}
         {!lighting && floor.rooms.map((r) => <WallFinishes key={r.id} room={r} theme={theme} images={images} />)}
       </g>
       {lighting && (
@@ -593,6 +593,19 @@ export function PlanLayers({
           .map((r) => (
             <path key={r.id} data-kind="room" data-id={r.id} d={wallPath(r)} fill={theme.wall} fillRule="evenodd" />
           ))}
+        {/* No wall between rooms open to each other: a dashed line where one ends and the other starts. */}
+        <g pointerEvents="none" stroke={theme.ink} strokeOpacity={0.45} strokeWidth={1.2} strokeDasharray="7 5">
+          {floor.rooms.flatMap((r) =>
+            (r.openEdges ?? []).map((i) => {
+              const a = r.points[i]
+              const b = r.points[(i + 1) % r.points.length]
+              if (!a || !b) return null
+              // Drawn the same way round from either room, so the dashes fall in the same places.
+              const [p, q] = a.x < b.x - 0.01 || (Math.abs(a.x - b.x) <= 0.01 && a.y < b.y) ? [a, b] : [b, a]
+              return <line key={`${r.id}-${i}`} x1={p.x} y1={p.y} x2={q.x} y2={q.y} vectorEffect="non-scaling-stroke" />
+            }),
+          )}
+        </g>
       </g>
       <g opacity={lighting ? 0.22 : 1} pointerEvents={lighting ? 'none' : undefined}>
         {furniture.map((s) => (

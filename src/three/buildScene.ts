@@ -1,8 +1,9 @@
 import * as THREE from 'three'
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js'
-import { add, bbox, dist, inwardNormal, labelPoint, mul, normalize, offsetPolygon, pointInPolygon, projectOnSegment, signedArea, sub } from '@/model/geometry'
+import { add, bbox, dist, inwardNormal, labelPoint, mul, normalize, pointInPolygon, projectOnSegment, signedArea, sub } from '@/model/geometry'
 import { isSelected } from '@/model/items'
-import { isOutdoor, railingRuns, roomOuter, symbolPose } from '@/model/project'
+import { isOpen, isOutdoor, railingRuns, roomOuter, symbolPose, wallEnds } from '@/model/project'
+import { floorOrigin } from '@/model/divide'
 import { SYMBOL_MAP } from '@/model/symbols'
 import type { PlanTheme } from '@/model/theme'
 import type { Floor, Point, Project, Room, Selection, Surface } from '@/model/types'
@@ -60,11 +61,12 @@ function roomWalls(room: Room, openings: Opening[], height: number, base: number
   const pts = room.points
   const n = pts.length
   const t = room.wallThickness
-  const outer = offsetPolygon(pts, t)
+  const ends = wallEnds(room)
   const sa = signedArea(pts)
   const geos: THREE.BufferGeometry[] = []
 
   for (let i = 0; i < n; i++) {
+    if (isOpen(room, i)) continue // open to the next room
     const a = pts[i]
     const b = pts[(i + 1) % n]
     const L = dist(a, b)
@@ -74,7 +76,7 @@ function roomWalls(room: Room, openings: Opening[], height: number, base: number
     const cuts = cutsFor(openings, a, dir, out, t, L)
 
     const inner = (s: number) => add(a, mul(dir, s))
-    const outerAt = (s: number) => (s <= 0 ? outer[i] : s >= L ? outer[(i + 1) % n] : add(inner(s), mul(out, t)))
+    const outerAt = (s: number) => (s <= 0 ? ends[i][0] : s >= L ? ends[i][1] : add(inner(s), mul(out, t)))
     const piece = (s1: number, s2: number, z0: number, z1: number) => {
       if (s2 - s1 < 0.5 || z1 - z0 < 0.5) return
       geos.push(prism([inner(s1), inner(s2), outerAt(s2), outerAt(s1)], z0, z1, base))
@@ -245,7 +247,7 @@ export function buildProjectGroup(project: Project, opts: BuildOptions): THREE.G
       geo.translate(0, floorBase + 0.3, 0)
       const hl = isSelected(sel, 'room', room.id)
       // Its finish (tiles, planks…), or plain in the room's color.
-      const mat = room.floor ? floorMaterial(room, photoOf(room.floor)) : mats.get(room.color, hl, 'satin').clone()
+      const mat = room.floor ? floorMaterial(room, photoOf(room.floor), floorOrigin(room, floor.rooms)) : mats.get(room.color, hl, 'satin').clone()
       group.add(mesh(geo, mat, { floorId: floor.id, kind: 'room', id: room.id }))
     }
 

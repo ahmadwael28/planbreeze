@@ -8,7 +8,7 @@ import * as THREE from 'three'
 import { bbox } from '@/model/geometry'
 import { finishOf, surfaceLayout } from '@/model/finishes'
 import type { FloorPiece, Place } from '@/model/finishes'
-import type { Room, Surface } from '@/model/types'
+import type { Point, Room, Surface } from '@/model/types'
 
 /** A photo to lay instead of a color (decoded; see lib/images). */
 export type Photo = HTMLImageElement | undefined
@@ -368,10 +368,11 @@ function laidTexture(s: Surface, place: Place, photo: Photo, u0: number, v0: num
  * A room's floor material: its finish's texture laid from the room's corner (texture coordinates are the plan's x and
  * -y, in cm).
  */
-export function floorMaterial(room: Room, photo?: Photo): THREE.MeshStandardMaterial {
+export function floorMaterial(room: Room, photo?: Photo, origin?: Point): THREE.MeshStandardMaterial {
   const floor = room.floor!
-  const b = bbox(room.points)
-  const map = laidTexture(floor, 'floor', photo, b.minX, -b.minY)
+  // Laid from the room's corner (or the corner of the whole space it's open to, so it runs on across).
+  const o = origin ?? (({ minX, minY }) => ({ x: minX, y: minY }))(bbox(room.points))
+  const map = laidTexture(floor, 'floor', photo, o.x, -o.y)
   const f = finishOf(floor, 'floor')
   return new THREE.MeshStandardMaterial({ map, color: map ? '#ffffff' : f.color, roughness: f.def.roughness, metalness: 0 })
 }

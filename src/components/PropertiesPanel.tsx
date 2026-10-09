@@ -10,7 +10,7 @@ import {
   AlignVerticalSpaceAround,
   ArrowRight,
   ArrowUpToLine,
-  Box, CircleHelp, ClipboardCopy, Sparkles, Columns2, Copy, Sofa, FlipHorizontal2, Group, Ungroup, FlipVertical2, ImageOff, Lightbulb, Link2Off, Lock, Ruler, RotateCw, SplitSquareHorizontal, Trash2, Video } from 'lucide-react'
+  Box, BrickWall, CircleHelp, DoorOpen, Merge, Scissors, ClipboardCopy, Sparkles, Columns2, Copy, Sofa, FlipHorizontal2, Group, Ungroup, FlipVertical2, ImageOff, Lightbulb, Link2Off, Lock, Ruler, RotateCw, SplitSquareHorizontal, Trash2, Video } from 'lucide-react'
 import { toast } from 'sonner'
 import { arrange, arrangeable, layoutOf, spacingOf, wouldMove } from '@/model/arrange'
 import type { Unit } from '@/model/arrange'
@@ -28,7 +28,8 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import { usePlanTheme } from '@/hooks/use-plan-theme'
 import { cn } from '@/lib/utils'
 import { area, dist, perimeter, pointInPolygon } from '@/model/geometry'
-import { DEFAULT_RAILING, isOutdoor, OUTDOOR, RAILING_THICKNESS, ROOM_COLORS, roomOuter, setWallLength, symbolPose } from '@/model/project'
+import { DEFAULT_RAILING, isOpen, isOutdoor, OUTDOOR, RAILING_THICKNESS, ROOM_COLORS, roomOuter, setWallLength, symbolPose } from '@/model/project'
+import { wallAcross } from '@/model/divide'
 import { CABINETS, curtainLayers, frameOf, givesLight, hasGlass, SKIN_TONES, STYLES, styleOf, SYMBOL_MAP, tvInches, tvSize, WORKTOPS, worktopOf, hasWorktop } from '@/model/symbols'
 import type { Worktop } from '@/model/symbols'
 import type { FrameColor } from '@/model/symbols'
@@ -39,8 +40,12 @@ import {
   arrangeSelection,
   autoDimension,
   centerSelection,
+  closeWall,
   convertColumns,
+  joinRooms,
+  openWall,
   pushSelection,
+  roomsAcross,
   placeBehindSofa,
   updatePerson,
   copySelection,
@@ -262,7 +267,48 @@ function RoomUseControls({ room }: { room: Room }) {
   )
 }
 
+/** Dividing a room in two with no wall between the parts (one space, two rooms), or joining such rooms back into one. */
+function OpenSpaceControls({ room }: { room: Room }) {
+  const floor = useFloor()
+  const across = roomsAcross(room, floor.rooms)
+  const names = across.map((r) => r.name).join(' and ')
+  return (
+    <div className="space-y-2">
+      {across.length > 0 && (
+        <p className="text-xs leading-relaxed text-muted-foreground">
+          Open to {names}, with no wall between: one space, but each has its own floor, ceiling and lights.
+        </p>
+      )}
+      {across.map((r) => (
+        <Button
+          key={r.id}
+          variant="outline"
+          size="sm"
+          className="w-full"
+          onClick={() => {
+            if (!joinRooms(room.id, r.id)) toast("These two can't be joined into one room", { description: 'They need to make one piece together.' })
+          }}
+        >
+          <Merge /> Join with {r.name}
+        </Button>
+      ))}
+      <Button
+        variant="outline"
+        size="sm"
+        className="w-full"
+        onClick={() => {
+          useEditor.getState().setTool('divide')
+          toast('Click a wall where the line between the two rooms starts', { description: 'Then across the room, where it ends.' })
+        }}
+      >
+        <Scissors /> Divide into two rooms
+      </Button>
+    </div>
+  )
+}
+
 function RoomProps({ room, units }: { room: Room; units: Units }) {
+  const floor = useFloor()
   const theme = usePlanTheme()
   const selection = useEditor((s) => s.selection)
   const vertex = selection?.kind === 'room' ? selection.vertex : undefined
@@ -281,6 +327,7 @@ function RoomProps({ room, units }: { room: Room; units: Units }) {
         // Open to the sky: no gypsum ceiling or ceiling lights.
         r.ceiling = undefined
         r.shadowGaps = undefined
+        r.openEdges = undefined
         f.symbols = f.symbols.filter((s) => s.room !== r.id)
       } else {
         r.kind = undefined
@@ -320,6 +367,7 @@ function RoomProps({ room, units }: { room: Room; units: Units }) {
           ]}
         />
         {!balcony && <RoomUseControls room={room} />}
+        {!balcony && <OpenSpaceControls room={room} />}
         {balcony && (
           <>
             <Field label="Railing">
@@ -424,6 +472,9 @@ function RoomProps({ room, units }: { room: Room; units: Units }) {
         <ol className="space-y-1">
           {room.points.map((p, i) => {
             const q = room.points[(i + 1) % room.points.length]
+            const open = isOpen(room, i)
+            // A room drawn next to it, with a wall between: the wall can come out.
+            const next = !open && !balcony ? wallAcross(room, i, floor.rooms) : null
             return (
               <li
                 key={i}
@@ -432,20 +483,53 @@ function RoomProps({ room, units }: { room: Room; units: Units }) {
                   vertex === i && 'bg-primary/10',
                 )}
               >
-                <span className="text-sm text-muted-foreground">Wall {i + 1}</span>
+                <span className={cn('text-sm text-muted-foreground', open && 'italic')} title={open ? 'No wall: open to the next room' : undefined}>
+                  {open ? 'Open' : `Wall ${i + 1}`}
+                </span>
                 <LengthInput
                   value={dist(p, q)}
                   units={units}
                   onChange={(v) => updateRoom(room.id, (r) => void (r.points = setWallLength(r.points, i, v)))}
                 />
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Button variant="ghost" size="icon-sm" onClick={() => splitWall(room.id, i)} aria-label="Split wall">
-                      <SplitSquareHorizontal />
-                    </Button>
-                  </TooltipTrigger>
-                  <TooltipContent side="left">Split wall (add a corner)</TooltipContent>
-                </Tooltip>
+                <span className="flex">
+                  {open && (
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Button variant="ghost" size="icon-sm" onClick={() => closeWall(room.id, i)} aria-label="Build a wall here">
+                          <BrickWall />
+                        </Button>
+                      </TooltipTrigger>
+                      <TooltipContent side="left">Open to the next room: build a wall here instead</TooltipContent>
+                    </Tooltip>
+                  )}
+                  {next && (
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Button
+                          variant="ghost"
+                          size="icon-sm"
+                          aria-label={`Open up to ${next.room.name}`}
+                          onClick={() => {
+                            const gone = openWall(room.id, i)
+                            if (gone > 0) toast(`Opened up to ${next.room.name}`, { description: `The ${gone === 1 ? 'door' : `${gone} doors and windows`} in that wall went with it.` })
+                            else if (gone === 0) toast(`Opened up to ${next.room.name}`, { description: 'No wall between them now: each keeps its own floor, ceiling and lights.' })
+                          }}
+                        >
+                          <DoorOpen />
+                        </Button>
+                      </TooltipTrigger>
+                      <TooltipContent side="left">Take this wall away: open up to {next.room.name}</TooltipContent>
+                    </Tooltip>
+                  )}
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button variant="ghost" size="icon-sm" onClick={() => splitWall(room.id, i)} aria-label="Split wall">
+                        <SplitSquareHorizontal />
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent side="left">Split wall (add a corner)</TooltipContent>
+                  </Tooltip>
+                </span>
               </li>
             )
           })}
@@ -1775,6 +1859,10 @@ function FloorAndProjectProps() {
             While drawing, type a length (e.g. <Kbd>3.5</Kbd>) and press <Kbd>Enter</Kbd> for exact walls.
           </li>
           <li>Add doors, windows and furniture from the Library tab. Dragged up to a wall, they're pulled flush against it.</li>
+          <li>
+            One open space with two looks (a reception and its corridor)? Divide it with <Kbd>S</Kbd>: two rooms, each with its
+            own floor, ceiling and lights, and no wall between them.
+          </li>
           <li>Scroll to zoom, drag empty space to pan, double-click a room to zoom to it. Switch to 3D at the top.</li>
         </ul>
         <Button variant="outline" size="sm" className="mt-3 w-full" onClick={startTour}>

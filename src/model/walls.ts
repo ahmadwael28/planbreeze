@@ -2,7 +2,7 @@
 import polygonClipping from 'polygon-clipping'
 import { add, area, bbox, dist, dot, inwardNormal, mul, normalize, pointInPolygon, projectOnSegment, signedArea, sub } from './geometry'
 import { wallBands, wallSurfaceAt } from './finishes'
-import { isOutdoor, roomOuter, symbolPose } from './project'
+import { isOpen, isOutdoor, roomOuter, symbolPose } from './project'
 import { SYMBOL_MAP } from './symbols'
 import type { Floor, Point, Room, WallSurface } from './types'
 
@@ -33,6 +33,7 @@ export function wallBehind(pose: { x: number; y: number; rotation: number }, dep
   const inside = rooms.filter((room) => !isOutdoor(room) && pointInPolygon(pose, room.points))
   for (const room of inside.length ? inside : rooms) {
     room.points.forEach((a, i) => {
+      if (isOpen(room, i)) return
       const b = room.points[(i + 1) % room.points.length]
       const d = projectOnSegment(back, a, b).dist
       if (d < bestD) {
@@ -140,8 +141,16 @@ export function roomFaces(room: Room, rooms: Room[]): WallFace[] {
     const b = pts[(i + 1) % pts.length]
     return { a, b, L: dist(a, b), dir: normalize(sub(b, a)), inward: inwardNormal(a, b, sa) }
   })
+  // No wall along an open edge: the room runs on into the next one there.
   const own = () =>
-    edges.flatMap((e, i): WallFace[] => (e.L < 0.5 ? [] : [{ edge: i, a: e.a, dir: e.dir, inward: e.inward, s1: 0, s2: e.L, t: room.wallThickness }]))
+    edges.flatMap((e, i): WallFace[] =>
+      e.L < 0.5 || isOpen(room, i) ? [] : [{ edge: i, a: e.a, dir: e.dir, inward: e.inward, s1: 0, s2: e.L, t: room.wallThickness }],
+    )
+  const onOpen = (p: Point, q: Point) =>
+    (room.openEdges ?? []).some((i) => {
+      const e = edges[i]
+      return !!e && projectOnSegment(p, e.a, e.b).dist < 0.5 && projectOnSegment(q, e.a, e.b).dist < 0.5
+    })
   // What stands in the room: other rooms' walls, and smaller rooms themselves where they overlap it.
   const box = bbox(pts)
   const others = rooms
@@ -175,7 +184,7 @@ export function roomFaces(room: Room, rooms: Room[]): WallFace[] {
     const sr = signedArea(r.pts) * (r.hole ? -1 : 1)
     r.pts.forEach((p, j) => {
       const q = r.pts[(j + 1) % r.pts.length]
-      if (dist(p, q) < 0.5) return
+      if (dist(p, q) < 0.5 || onOpen(p, q)) return
       const dir = normalize(sub(q, p))
       const inward = inwardNormal(p, q, sr)
       const m = mul(add(p, q), 0.5)

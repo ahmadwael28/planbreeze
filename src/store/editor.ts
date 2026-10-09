@@ -10,7 +10,7 @@ import {
   rectPoints,
   uid,
 } from '@/model/project'
-import { bbox, labelPoint, pointInPolygon } from '@/model/geometry'
+import { bbox, dist, dot, labelPoint, normalize, pointInPolygon, signedArea, sub } from '@/model/geometry'
 import { allRefs, clipFootprint, copyItems, deleteItems, exists, moveItems, pasteItems, refsOf, rotateItems, selectionOf, setGroup } from '@/model/items'
 import { arrange, arrangeable } from '@/model/arrange'
 import type { Arrangement } from '@/model/arrange'
@@ -19,7 +19,8 @@ import type { Side } from '@/model/guides'
 import { fixSizes } from '@/model/sizes'
 import type { Clip } from '@/model/items'
 import { CEILING_STYLES, mergeRoomLights, OTHER_LIGHTS, pruneControls, remapEdges, remapEdgeValues, ROOM_LIGHTS } from '@/model/lighting'
-import { columnIntoWall, dimensionPoints, roomOuter } from '@/model/project'
+import { columnIntoWall, dimensionPoints, findWallSnap, isOutdoor, moveWall, roomOuter, symbolPose } from '@/model/project'
+import { dividePoints, healOpenings, joinPoints, openedPoints, wallAcross } from '@/model/divide'
 import { personDepth, personSupport } from '@/model/people'
 import { behindSofa } from '@/model/placement'
 import { SYMBOL_MAP } from '@/model/symbols'
@@ -191,7 +192,10 @@ export const useEditor = create<EditorState>((set, get) => ({
   commit: (recipe) => {
     const { project, past } = get()
     if (isViewOnly(project)) return
-    const next = apply(project, recipe)
+    const next = apply(project, (d) => {
+      recipe(d)
+      healAll(d)
+    })
     if (next === project) return
     set({ project: next, past: [...past, project].slice(-HISTORY_LIMIT), future: [] })
   },
@@ -242,7 +246,7 @@ export const useEditor = create<EditorState>((set, get) => ({
     (!isViewOnly(get().project) || tool === 'select' || tool === 'pan' || tool === 'area') &&
     set({
       tool,
-      selection: tool === 'select' || tool === 'wire' ? get().selection : null,
+      selection: tool === 'select' || tool === 'wire' || tool === 'divide' ? get().selection : null,
       wireSwitch: tool === 'wire' ? get().wireSwitch : null,
     }),
   setViewMode: (viewMode) => set({ viewMode, tool: 'select', ...(viewMode === '3d' && { seen3d: true }) }),
@@ -626,19 +630,256 @@ export function splitWall(roomId: string, edge: number) {
 }
 
 /** Re-attach wall symbols after the room's outline changed (call inside a recipe). */
-export function fixAttachments(d: Project, oldRoom: Room) {
-  const f = draftFloor(d)
+export function fixAttachments(d: Project, oldRoom: Room, force = false) {
+  fixRoom(draftFloor(d), oldRoom, force)
+}
+
+/**
+ * After a room's outline changed on floor `f`: its doors and windows re-attached, and its per-wall settings carried
+ * over to the walls they're on now (`force`: even with as many corners as before, when they're not the same ones).
+ */
+function fixRoom(f: Floor, oldRoom: Room, force = false) {
   const r = f.rooms.find((x) => x.id === oldRoom.id)
   if (!r) return
   reattachSymbols(f, oldRoom, r)
   // Per-wall settings follow the walls.
-  if (r.shadowGaps) r.shadowGaps = remapEdges(oldRoom.points, r.points, r.shadowGaps)
-  if (r.curtainPockets) r.curtainPockets = remapEdges(oldRoom.points, r.points, r.curtainPockets)
-  if (r.ceiling?.bands) r.ceiling.bands = remapEdgeValues(oldRoom.points, r.points, r.ceiling.bands)
-  if (r.wallFinishes) r.wallFinishes = remapEdgeValues(oldRoom.points, r.points, r.wallFinishes)
+  if (r.shadowGaps) r.shadowGaps = remapEdges(oldRoom.points, r.points, r.shadowGaps, force)
+  if (r.curtainPockets) r.curtainPockets = remapEdges(oldRoom.points, r.points, r.curtainPockets, force)
+  if (r.openEdges) r.openEdges = remapEdges(oldRoom.points, r.points, r.openEdges, force)
+  if (r.ceiling?.bands) r.ceiling.bands = remapEdgeValues(oldRoom.points, r.points, r.ceiling.bands, force)
+  if (r.wallFinishes) r.wallFinishes = remapEdgeValues(oldRoom.points, r.points, r.wallFinishes, force)
   for (const s of f.symbols) {
-    if (s.room === r.id && s.cove?.off) s.cove = { ...s.cove, off: remapEdges(oldRoom.points, r.points, s.cove.off) }
+    if (s.room === r.id && s.cove?.off) s.cove = { ...s.cove, off: remapEdges(oldRoom.points, r.points, s.cove.off, force) }
   }
+}
+
+/** Keep the open walls on every floor matched (see healOpenings); part of every change. */
+function healAll(d: Project) {
+  for (const f of d.floors) healOpenings(f, (old) => fixRoom(f, old))
+}
+
+/** Match up open walls again after a drag (part of its undo step). */
+export function healDrag() {
+  useEditor.getState().mutate(healAll)
+}
+
+// ---------------------------------------------------------------------------
+// Rooms open to each other (see model/divide)
+
+/**
+ * Divide a room in two along the line a–b across it, with no wall between the parts: one space, two rooms with their
+ * own floors, ceilings and lights. The bigger part stays the room; the other is a new room like it. Returns the new
+ * room, or null if the line doesn't cut the room in two.
+ */
+export function divideRoom(roomId: string, a: Point, b: Point): Room | null {
+  const st = useEditor.getState()
+  const floor = currentFloor(st)
+  const room = floor.rooms.find((r) => r.id === roomId)
+  if (!room || isOutdoor(room)) return null
+  const parts = dividePoints(room.points, a, b)
+  if (!parts) return null
+  const [big, small] = Math.abs(signedArea(parts[0])) >= Math.abs(signedArea(parts[1])) ? parts : [parts[1], parts[0]]
+  const other: Room = { ...structuredClone(room), id: uid(), name: `${room.name} 2`, points: small }
+  // Per-wall settings stay on the walls they were on, whichever part has them now; the line between is open.
+  const carry = (r: Room, pts: Point[]) => {
+    r.shadowGaps = remapEdges(room.points, pts, room.shadowGaps, true)
+    r.curtainPockets = remapEdges(room.points, pts, room.curtainPockets, true)
+    r.wallFinishes = remapEdgeValues(room.points, pts, room.wallFinishes, true)
+    if (r.ceiling?.bands) r.ceiling.bands = remapEdgeValues(room.points, pts, room.ceiling!.bands, true)
+    r.openEdges = [...(remapEdges(room.points, pts, room.openEdges, true) ?? []), pts.length - 1]
+  }
+  carry(other, small)
+  // Lights that run round the room: the new part gets its own, worked by the same switches.
+  const lights = floor.symbols.filter((s) => s.room === roomId)
+  const copies = new Map(lights.map((s) => [s.id, uid()]))
+  st.commit((d) => {
+    const f = draftFloor(d)
+    const r = f.rooms.find((x) => x.id === roomId)!
+    r.points = big
+    carry(r, big)
+    f.rooms.splice(f.rooms.indexOf(r) + 1, 0, other)
+    // Doors and windows: on whichever part has their wall now.
+    for (const s of f.symbols) {
+      if (s.wall?.roomId !== roomId) continue
+      const snap = findWallSnap(symbolPose(s, [room]), [r, other], room.wallThickness + 5)
+      if (snap) s.wall = snap
+    }
+    for (const s of lights) {
+      const mine = f.symbols.find((x) => x.id === s.id)
+      if (mine?.cove?.off) mine.cove = { ...mine.cove, off: remapEdges(room.points, big, s.cove!.off, true) }
+      const copy: PlanSymbol = { ...structuredClone(s), id: copies.get(s.id)!, room: other.id }
+      if (copy.cove?.off) copy.cove.off = remapEdges(room.points, small, s.cove!.off, true)
+      f.symbols.push(copy)
+    }
+    for (const sw of f.symbols) {
+      if (sw.controls?.some((id) => copies.has(id))) sw.controls = [...sw.controls, ...sw.controls.flatMap((id) => (copies.has(id) ? [copies.get(id)!] : []))]
+    }
+  })
+  useEditor.setState({ selection: { kind: 'room', id: other.id }, tool: 'select' })
+  return other
+}
+
+/** Join a room and one it's open to back into one room (the first, with the other's doors and windows). */
+export function joinRooms(roomId: string, otherId: string): boolean {
+  const st = useEditor.getState()
+  const floor = currentFloor(st)
+  const a = floor.rooms.find((r) => r.id === roomId)
+  const b = floor.rooms.find((r) => r.id === otherId)
+  if (!a || !b) return false
+  const pts = joinPoints(a, b)
+  if (!pts) return false
+  // Each wall keeps the settings it had, from whichever room it was a wall of.
+  const edges = (key: 'shadowGaps' | 'curtainPockets' | 'openEdges') => {
+    const all = [...(remapEdges(a.points, pts, a[key], true) ?? []), ...(remapEdges(b.points, pts, b[key], true) ?? [])]
+    return all.length ? [...new Set(all)].sort((x, y) => x - y) : undefined
+  }
+  const values = <T,>(va?: (T | null)[], vb?: (T | null)[]) => {
+    const ma = remapEdgeValues(a.points, pts, va, true)
+    const mb = remapEdgeValues(b.points, pts, vb, true)
+    return ma || mb ? pts.map((_, i) => ma?.[i] ?? mb?.[i] ?? null) : undefined
+  }
+  st.commit((d) => {
+    const f = draftFloor(d)
+    const r = f.rooms.find((x) => x.id === a.id)!
+    r.points = pts
+    r.shadowGaps = edges('shadowGaps')
+    r.curtainPockets = edges('curtainPockets')
+    r.openEdges = edges('openEdges')
+    r.wallFinishes = values(a.wallFinishes, b.wallFinishes)
+    if (r.ceiling) r.ceiling.bands = values(a.ceiling?.bands, b.ceiling?.bands)
+    for (const s of f.symbols) {
+      if (s.wall?.roomId !== a.id && s.wall?.roomId !== b.id) continue
+      const snap = findWallSnap(symbolPose(s, [s.wall.roomId === a.id ? a : b]), [r], Math.max(a.wallThickness, b.wallThickness) + 5)
+      if (snap) s.wall = snap
+    }
+    for (const s of f.symbols) {
+      if (s.room === a.id && s.cove?.off) s.cove = { ...s.cove, off: remapEdges(a.points, pts, s.cove.off, true) }
+    }
+    // The other room's own lights go with it (this one's run round the whole room now).
+    f.symbols = f.symbols.filter((s) => s.room !== b.id)
+    f.rooms = f.rooms.filter((x) => x.id !== b.id)
+    pruneControls(f)
+  })
+  useEditor.setState({ selection: { kind: 'room', id: a.id } })
+  return true
+}
+
+/**
+ * Take away the wall between a room's wall `edge` and the room drawn next to it, leaving them open to each other. The
+ * doors and windows in that stretch of wall go with it: how many did, or -1 if there's no room there.
+ */
+export function openWall(roomId: string, edge: number): number {
+  const st = useEditor.getState()
+  const floor = currentFloor(st)
+  const room = floor.rooms.find((r) => r.id === roomId)
+  const across = room && wallAcross(room, edge, floor.rooms)
+  if (!room || !across) return -1
+  const { pts, open } = openedPoints(room, edge, across)
+  const a = room.points[edge]
+  const dir = normalize(sub(room.points[(edge + 1) % room.points.length], a))
+  const gone = new Set(
+    floor.symbols
+      .filter((s) => (s.wall?.roomId === room.id && s.wall.edge === edge) || (s.wall?.roomId === across.room.id && s.wall.edge === across.edge))
+      .filter((s) => {
+        const at = dot(sub(symbolPose(s, floor.rooms), a), dir)
+        return at > across.s1 - 1 && at < across.s2 + 1
+      })
+      .map((s) => s.id),
+  )
+  st.commit((d) => {
+    const f = draftFloor(d)
+    f.symbols = f.symbols.filter((s) => !gone.has(s.id))
+    const r = f.rooms.find((x) => x.id === room.id)!
+    r.points = pts
+    fixRoom(f, room, true)
+    r.openEdges = [...new Set([...(r.openEdges ?? []), open])].sort((x, y) => x - y)
+  })
+  return gone.size
+}
+
+/**
+ * Rooms open to each other given new outlines, each with the line between them as its last edge (inside a recipe on
+ * floor `f`): per-wall settings carried over from how they were (`coves`: their lights' dark walls then), and the doors
+ * and windows that were on them (`poses`: where they were) back on whichever's wall they're on.
+ */
+export function reshapeOpen(f: Floor, shapes: [Room, Point[]][], poses: { id: string; pose: Point }[], coves: { id: string; off: number[] }[] = []) {
+  const rooms: Room[] = []
+  for (const [old, pts] of shapes) {
+    const r = f.rooms.find((x) => x.id === old.id)
+    if (!r) continue
+    r.points = pts
+    r.shadowGaps = remapEdges(old.points, pts, old.shadowGaps, true)
+    r.curtainPockets = remapEdges(old.points, pts, old.curtainPockets, true)
+    r.wallFinishes = remapEdgeValues(old.points, pts, old.wallFinishes, true)
+    if (r.ceiling && old.ceiling?.bands) r.ceiling.bands = remapEdgeValues(old.points, pts, old.ceiling.bands, true)
+    r.openEdges = [...new Set([...(remapEdges(old.points, pts, old.openEdges, true) ?? []), pts.length - 1])].sort((x, y) => x - y)
+    // Room lights' dark walls, from where they were.
+    for (const cv of coves) {
+      const s = f.symbols.find((x) => x.id === cv.id)
+      if (s?.room === r.id && s.cove) s.cove = { ...s.cove, off: remapEdges(old.points, pts, cv.off, true) }
+    }
+    rooms.push(r)
+  }
+  const reach = Math.max(...rooms.map((r) => r.wallThickness)) + 5
+  for (const { id, pose } of poses) {
+    const s = f.symbols.find((x) => x.id === id)
+    const snap = s && findWallSnap(pose, rooms, reach)
+    if (s && snap) s.wall = snap
+  }
+}
+
+/** Build a wall again along an open wall of a room: the room gives up the wall's thickness for it. */
+export function closeWall(roomId: string, edge: number) {
+  const st = useEditor.getState()
+  const room = currentFloor(st).rooms.find((r) => r.id === roomId)
+  if (!room?.openEdges?.includes(edge)) return
+  const n = room.points.length
+  const moved = moveWall(room.points, edge, -room.wallThickness)
+  // Its ends: gone where they now sit on the next corner, or in line between their neighbours.
+  const ends = new Set([edge, (edge + 1) % n])
+  const pts = moved.filter((p, i) => {
+    if (!ends.has(i)) return true
+    const prev = moved[(i - 1 + n) % n]
+    const next = moved[(i + 1) % n]
+    if (dist(p, next) < 0.5 || dist(p, prev) < 0.5) return false
+    const u = sub(p, prev)
+    const v = sub(next, p)
+    return Math.abs(u.x * v.y - u.y * v.x) > 1e-3 * Math.hypot(u.x, u.y) * Math.hypot(v.x, v.y) || dot(u, v) < 0
+  })
+  if (pts.length < 3) return
+  st.commit((d) => {
+    const f = draftFloor(d)
+    const r = f.rooms.find((x) => x.id === roomId)!
+    r.points = moved
+    const open = room.openEdges!.filter((i) => i !== edge)
+    r.openEdges = open.length ? open : undefined
+    if (pts.length !== n) {
+      const before = { ...r, points: moved, openEdges: r.openEdges }
+      r.points = pts
+      fixRoom(f, before)
+    }
+  })
+}
+
+/** The rooms across a room's open walls, nearest first by how much they share. */
+export function roomsAcross(room: Room, rooms: Room[]): Room[] {
+  const out = new Map<string, Room>()
+  for (const i of room.openEdges ?? []) {
+    const a = room.points[i]
+    const b = room.points[(i + 1) % room.points.length]
+    if (!a || !b) continue
+    const m = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 }
+    const r = rooms.find((x) => x.id !== room.id && x.points.some((p, j) => dist(p, x.points[(j + 1) % x.points.length]) > 1 && pointOnSegment(m, p, x.points[(j + 1) % x.points.length])))
+    if (r) out.set(r.id, r)
+  }
+  return [...out.values()]
+}
+
+const pointOnSegment = (m: Point, p: Point, q: Point) => {
+  const L = dist(p, q)
+  const t = dot(sub(m, p), sub(q, p)) / (L * L)
+  const x = { x: p.x + (q.x - p.x) * t, y: p.y + (q.y - p.y) * t }
+  return t >= 0 && t <= 1 && dist(x, m) < 1
 }
 
 export function duplicateSelection() {
