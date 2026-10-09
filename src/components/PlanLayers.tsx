@@ -559,7 +559,8 @@ export function PlanLayers({
   const fade = (s: PlanSymbol) => fadedSet.has(SYMBOL_MAP.get(s.type)?.category ?? '')
   const isFixture = (s: PlanSymbol) => !!SYMBOL_MAP.get(s.type)?.fixture
   // Seen from above, higher things are drawn over lower ones (a wall TV over the unit under it, people over their seats).
-  const furniture = bottomUp(floor.symbols.filter((s) => !s.wall && !isFixture(s) && s.type !== 'gypsum-box'), floor)
+  const furniture = bottomUp(floor.symbols.filter((s) => !s.wall && !isFixture(s) && s.type !== 'gypsum-box' && s.type !== 'beam'), floor)
+  const beams = floor.symbols.filter((s) => s.type === 'beam')
   const fixtures = bottomUp(floor.symbols.filter((s) => isFixture(s) && !s.room), floor)
   const coves = floor.symbols.filter((s) => s.room)
   const boxes = floor.symbols.filter((s) => s.type === 'gypsum-box')
@@ -616,6 +617,12 @@ export function PlanLayers({
             }),
           )}
         </g>
+      </g>
+      {/* Beams overhead: dashed, under the furniture so that can still be picked. */}
+      <g>
+        {beams.map((s) => (
+          <SymbolGraphic key={s.id} sym={s} rooms={floor.rooms} theme={theme} forPrint={forPrint} faded={fade(s)} />
+        ))}
       </g>
       <g opacity={lighting ? 0.22 : 1} pointerEvents={lighting ? 'none' : undefined}>
         {furniture.map((s) => (

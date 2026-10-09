@@ -13,6 +13,7 @@ import type { Box } from './geom'
 import { analyze, facePoint, Layout } from './layout'
 import type { Analysis, Placed } from './layout'
 import { dressWindows, RECIPES, spread } from './recipes'
+import { underBeam } from '../beams'
 import type { Ctx, Marks } from './recipes'
 import { isWet } from './roles'
 import { styleById } from './styles'
@@ -92,7 +93,7 @@ const WORTH: Record<string, number> = {
 }
 
 /** Things that stay when a room is redesigned: built in, or not furniture. */
-const KEEP = new Set(['column', 'wall-post', 'stairs', 'gypsum-box', 'label'])
+const KEEP = new Set(['column', 'wall-post', 'beam', 'stairs', 'gypsum-box', 'label'])
 
 const isLight = (s: PlanSymbol) => !!SYMBOL_MAP.get(s.type)?.fixture
 /** Lights up on the ceiling don't get in the way of furniture. */
@@ -324,6 +325,8 @@ function lights(an: Analysis, use: RoomUse, style: DesignStyle, marks: Marks, op
     const inset = band ? band + 30 : wet ? 40 : 55
     const light = wet ? { color: 'cool' as const, brightness: 1 } : undefined
     for (const p of spread(room.points, inset, use === 'hall' || lounge ? 150 : 130)) {
+      // Not up against a beam.
+      if (underBeam(an.floor, p, 15)) continue
       const s = sym('spot', p, light ? { light } : {})
       out.push(s)
       main.push(s)

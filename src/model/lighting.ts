@@ -411,7 +411,7 @@ export function ceilingHeightAt(floor: Floor, p: Point): number {
     }
   }
   for (const s of floor.symbols) {
-    if (s.type !== 'gypsum-box') continue
+    if (s.type !== 'gypsum-box' && s.type !== 'beam') continue
     const r = (-s.rotation * Math.PI) / 180
     const dx = p.x - s.x
     const dy = p.y - s.y

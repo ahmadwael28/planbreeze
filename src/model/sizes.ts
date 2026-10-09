@@ -95,6 +95,7 @@ const RULES: Record<string, Rules> = {
   'gypsum-box': { height: [5, 100] },
   stairs: { width: [60, 300], depth: [150, 800], height: [150, 500] },
   column: { width: [10, 200], depth: [10, 200] },
+  beam: { width: [40, 2000], depth: [10, 120], height: [10, 150] },
   'wall-post': { width: [10, 200], depth: [5, 100] },
 }
 

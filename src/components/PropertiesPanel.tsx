@@ -10,7 +10,7 @@ import {
   AlignVerticalSpaceAround,
   ArrowRight,
   ArrowUpToLine,
-  Box, BrickWall, CircleHelp, DoorOpen, Merge, Scissors, ClipboardCopy, Sparkles, Columns2, Copy, Sofa, FlipHorizontal2, Group, Ungroup, FlipVertical2, ImageOff, Lightbulb, Link2Off, Lock, Ruler, RotateCw, SplitSquareHorizontal, Trash2, Video } from 'lucide-react'
+  Box, BrickWall, CircleHelp, DoorOpen, Merge, MoveHorizontal, Scissors, ClipboardCopy, Sparkles, Columns2, Copy, Sofa, FlipHorizontal2, Group, Ungroup, FlipVertical2, ImageOff, Lightbulb, Link2Off, Lock, Ruler, RotateCw, SplitSquareHorizontal, Trash2, Video } from 'lucide-react'
 import { toast } from 'sonner'
 import { arrange, arrangeable, layoutOf, spacingOf, wouldMove } from '@/model/arrange'
 import type { Unit } from '@/model/arrange'
@@ -30,6 +30,7 @@ import { cn } from '@/lib/utils'
 import { area, dist, perimeter, pointInPolygon } from '@/model/geometry'
 import { DEFAULT_RAILING, isOpen, isOutdoor, OUTDOOR, RAILING_THICKNESS, ROOM_COLORS, roomOuter, setWallLength, symbolPose } from '@/model/project'
 import { wallAcross } from '@/model/divide'
+import { beamSpan } from '@/model/beams'
 import { CABINETS, curtainLayers, frameOf, givesLight, hasGlass, SKIN_TONES, STYLES, styleOf, SYMBOL_MAP, tvInches, tvSize, WORKTOPS, worktopOf, hasWorktop } from '@/model/symbols'
 import type { Worktop } from '@/model/symbols'
 import type { FrameColor } from '@/model/symbols'
@@ -39,6 +40,8 @@ import type { Dimension, ItemRef, OutdoorKind, PlanSymbol, RailingStyle, Room, R
 import {
   arrangeSelection,
   autoDimension,
+  addBeamAlong,
+  beamAlong,
   ceilingJoined,
   centerSelection,
   closeWall,
@@ -296,6 +299,11 @@ function OpenSpaceControls({ room }: { room: Room }) {
               </span>
               <Switch size="sm" checked={joined} onCheckedChange={(on) => setCeilingJoined(room.id, r.id, on)} />
             </label>
+            {!beamAlong(floor, room, r) && (
+              <Button variant="outline" size="sm" className="w-full" onClick={() => addBeamAlong(room.id, r.id)}>
+                <MoveHorizontal /> A beam along the line
+              </Button>
+            )}
             <Button
               variant="outline"
               size="sm"
@@ -1227,6 +1235,7 @@ function SymbolProps({ sym, units }: { sym: PlanSymbol; units: Units }) {
   const wallRoom = sym.wall ? floor.rooms.find((r) => r.id === sym.wall!.roomId) : undefined
   const pose = symbolPose(sym, floor.rooms)
   const isLabel = sym.type === 'label'
+  const beam = sym.type === 'beam'
   // For a door or window: the wall's length and the gaps to its two ends.
   const wallLen =
     sym.wall && wallRoom
@@ -1273,9 +1282,9 @@ function SymbolProps({ sym, units }: { sym: PlanSymbol; units: Units }) {
         {sym.type === 'tv' && <TvSize sym={sym} />}
         {(
           [
-            ['width', isRound(sym.type) ? 'Diameter' : 'Width', true],
-            ['depth', isLabel ? 'Text size' : 'Depth', !sym.wall && !isRound(sym.type)],
-            ['height', sym.type === 'gypsum-box' ? 'Drop' : def?.fixture === 'switch' ? 'Mount height' : 'Height', !isLabel && !def?.fullHeight],
+            ['width', isRound(sym.type) ? 'Diameter' : beam ? 'Length' : 'Width', true],
+            ['depth', isLabel ? 'Text size' : beam ? 'Width' : 'Depth', !sym.wall && !isRound(sym.type)],
+            ['height', sym.type === 'gypsum-box' ? 'Drop' : beam ? 'Below the ceiling' : def?.fixture === 'switch' ? 'Mount height' : 'Height', !isLabel && !def?.fullHeight],
           ] as [Dim, string, boolean][]
         ).map(([dim, label, shown]) => {
           if (!shown || sym.type === 'person') return null
@@ -1615,6 +1624,26 @@ function SymbolProps({ sym, units }: { sym: PlanSymbol; units: Units }) {
               <Sofa /> Put it behind the sofa
             </Button>
             <p className="text-xs text-muted-foreground">Drag it near a sofa's back (or either back of a corner sofa) and it tucks in behind it.</p>
+          </div>
+        )}
+        {beam && (
+          <div className="space-y-1.5">
+            <Button
+              variant="outline"
+              size="sm"
+              className="w-full"
+              onClick={() => {
+                const span = beamSpan(sym, floor.rooms, sym.rotation)
+                if (span) updateSymbol(sym.id, (b) => void Object.assign(b, span))
+                else toast.error('There are no walls either side of it that way.')
+              }}
+            >
+              <MoveHorizontal /> Wall to wall
+            </Button>
+            <p className="text-xs text-muted-foreground">
+              Hung from the ceiling slab, drawn dashed as plans show what's overhead. A gypsum ceiling lower than it hides it. Suggested designs keep
+              tall furniture and ceiling spots clear of it.
+            </p>
           </div>
         )}
         {(sym.type === 'column' || sym.type === 'wall-post') && (

@@ -21,6 +21,7 @@ import type { Clip } from '@/model/items'
 import { CEILING_STYLES, mergeRoomLights, OTHER_LIGHTS, pruneControls, remapEdges, remapEdgeValues, ROOM_LIGHTS } from '@/model/lighting'
 import { columnIntoWall, dimensionPoints, findWallSnap, isOutdoor, moveWall, roomOuter, symbolPose } from '@/model/project'
 import { dividePoints, healOpenings, joinPoints, openedPoints, sharedStretch, wallAcross } from '@/model/divide'
+import { beamSpan } from '@/model/beams'
 import { personDepth, personSupport } from '@/model/people'
 import { behindSofa } from '@/model/placement'
 import { SYMBOL_MAP } from '@/model/symbols'
@@ -391,6 +392,8 @@ export function addSymbol(type: string, at?: Point, rotation = 0, wall?: PlanSym
     return room ?? null
   }
   const sym = { ...newSymbol(type, Math.round(p.x * 10) / 10, Math.round(p.y * 10) / 10), rotation, wall }
+  // A beam runs from wall to wall, the short way across the room it's put in.
+  if (type === 'beam') Object.assign(sym, beamSpan(p, floor0.rooms) ?? {})
   if (def?.wall) sym.depth = st0.project.defaultWallThickness
   if (def?.fixture === 'switch') sym.label = `S${floor0.symbols.filter((s) => s.type === 'switch').length + 1}`
   if (def?.fixture === 'cove') {
@@ -909,6 +912,36 @@ export function setCeilingJoined(roomId: string, otherId: string, joined: boolea
       r.ceilingBreaks = breaks.length ? breaks.sort((x, y) => x - y) : undefined
     }
   })
+}
+
+/** The line between two rooms open to each other, if there's a beam along it already: that beam. */
+export function beamAlong(floor: Floor, room: Room, other: Room): PlanSymbol | undefined {
+  const i = wallsFacing(room, other)[0]
+  if (i === undefined) return undefined
+  const a = room.points[i]
+  const b = room.points[(i + 1) % room.points.length]
+  const m = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 }
+  return floor.symbols.find((s) => s.type === 'beam' && dist(s, m) < s.depth / 2 + 5)
+}
+
+/** A beam along the line between two rooms open to each other (it often marks where one ends). */
+export function addBeamAlong(roomId: string, otherId: string): PlanSymbol | null {
+  const st = useEditor.getState()
+  const floor = currentFloor(st)
+  const room = floor.rooms.find((r) => r.id === roomId)
+  const other = floor.rooms.find((r) => r.id === otherId)
+  const i = room && other ? wallsFacing(room, other)[0] : undefined
+  if (!room || i === undefined) return null
+  const a = room.points[i]
+  const b = room.points[(i + 1) % room.points.length]
+  const beam: PlanSymbol = {
+    ...newSymbol('beam', Math.round(((a.x + b.x) / 2) * 10) / 10, Math.round(((a.y + b.y) / 2) * 10) / 10),
+    width: Math.round(dist(a, b) * 10) / 10,
+    rotation: Math.round(((Math.atan2(b.y - a.y, b.x - a.x) * 180) / Math.PI + 360) % 360 * 100) / 100,
+  }
+  st.commit((d) => void draftFloor(d).symbols.push(beam))
+  useEditor.setState({ selection: { kind: 'symbol', id: beam.id }, tool: 'select' })
+  return beam
 }
 
 /** The rooms across a room's open walls, nearest first by how much they share. */

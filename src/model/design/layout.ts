@@ -66,6 +66,8 @@ export const facePoint = (f: WallFace, s: number, off = 0): Point => add(add(f.a
 /** A symbol's footprint, at its height. */
 export function boxOf(sym: PlanSymbol, floor: Floor): Box {
   const def = SYMBOL_MAP.get(sym.type)
+  // Hung from the slab (a beam): from as far down as it comes, up to the ceiling.
+  if (def?.hangs) return { x: sym.x, y: sym.y, w: sym.width, d: sym.depth, rot: sym.rotation, z0: floor.height - sym.height, z1: floor.height }
   const z0 = sym.elevation ?? 0
   return { x: sym.x, y: sym.y, w: sym.width, d: sym.depth, rot: sym.rotation, z0, z1: def?.fullHeight ? floor.height : z0 + sym.height }
 }

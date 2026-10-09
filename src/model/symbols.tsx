@@ -56,6 +56,8 @@ export interface SymbolDef {
   keywords?: string
   /** Always floor to ceiling (columns): its height follows the floor's. */
   fullHeight?: boolean
+  /** Hung from the ceiling slab (beams, gypsum boxes): its height is how far down it comes. */
+  hangs?: boolean
   /** Not offered in the library (added from elsewhere, e.g. a room's settings). */
   hidden?: boolean
   /** What the `frames` choice is called (Frame, Color…). */
@@ -2337,6 +2339,7 @@ export const SYMBOLS: SymbolDef[] = [
     width: 120,
     depth: 60,
     height: 30,
+    hangs: true,
     render: (w, d, t) => {
       const k = kit(t)
       const hatch = t.dark ? '#52525b' : '#d4d4d8'
@@ -2386,6 +2389,23 @@ export const SYMBOLS: SymbolDef[] = [
     height: 250,
     fullHeight: true,
     render: (w, d, t) => kit(t).box(w, d, 0, t.wall),
+  },
+  {
+    // Drawn the way plans show what's overhead: dashed, with its centre line.
+    type: 'beam',
+    name: 'Beam',
+    keywords: 'girder lintel joist ceiling structure concrete',
+    category: 'Other',
+    width: 300,
+    depth: 25,
+    height: 50,
+    hangs: true,
+    render: (w, d, t) => (
+      <>
+        <rect x={-w / 2} y={-d / 2} width={w} height={d} fill={t.wall} fillOpacity={0.14} stroke={t.ink} strokeWidth={1.4} strokeDasharray="9 5" vectorEffect="non-scaling-stroke" />
+        <line x1={-w / 2} y1={0} x2={w / 2} y2={0} stroke={t.ink} strokeOpacity={0.55} strokeWidth={0.9} strokeDasharray="14 4 2 4" vectorEffect="non-scaling-stroke" />
+      </>
+    ),
   },
   {
     type: 'person',

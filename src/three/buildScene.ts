@@ -330,7 +330,7 @@ export function buildProjectGroup(project: Project, opts: BuildOptions): THREE.G
         if (obj) group.add(obj)
         continue
       }
-      if (sym.type === 'gypsum-box' || def?.ceilingStyle) continue
+      if (sym.type === 'gypsum-box' || sym.type === 'beam' || def?.ceilingStyle) continue
       const pose = symbolPose(sym, floor.rooms)
       const hl = isSelected(sel, 'symbol', sym.id)
       // Curtains and blinds hang from the ceiling above them (up in a curtain pocket if there's one).

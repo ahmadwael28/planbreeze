@@ -176,9 +176,10 @@ export function buildCeilings(floor: Floor, base: number): THREE.Object3D[] {
       out.push(m)
     }
   }
-  // Free-standing gypsum boxes (e.g. over a kitchen counter). The top is hidden so the view from above stays clear.
+  // Free-standing gypsum boxes (e.g. over a kitchen counter) and beams. The top is hidden so the view from above stays
+  // clear.
   for (const s of floor.symbols) {
-    if (s.type !== 'gypsum-box') continue
+    if (s.type !== 'gypsum-box' && s.type !== 'beam') continue
     const drop = s.height || 30
     const hidden = new THREE.MeshBasicMaterial({ visible: false })
     const mat = gypsum()
