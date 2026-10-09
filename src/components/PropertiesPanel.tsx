@@ -39,6 +39,7 @@ import type { Dimension, ItemRef, OutdoorKind, PlanSymbol, RailingStyle, Room, R
 import {
   arrangeSelection,
   autoDimension,
+  ceilingJoined,
   centerSelection,
   closeWall,
   convertColumns,
@@ -46,6 +47,7 @@ import {
   openWall,
   pushSelection,
   roomsAcross,
+  setCeilingJoined,
   placeBehindSofa,
   updatePerson,
   copySelection,
@@ -279,19 +281,34 @@ function OpenSpaceControls({ room }: { room: Room }) {
           Open to {names}, with no wall between: one space, but each has its own floor, ceiling and lights.
         </p>
       )}
-      {across.map((r) => (
-        <Button
-          key={r.id}
-          variant="outline"
-          size="sm"
-          className="w-full"
-          onClick={() => {
-            if (!joinRooms(room.id, r.id)) toast("These two can't be joined into one room", { description: 'They need to make one piece together.' })
-          }}
-        >
-          <Merge /> Join with {r.name}
-        </Button>
-      ))}
+      {across.map((r) => {
+        const joined = ceilingJoined(room, r)
+        return (
+          <div key={r.id} className="space-y-2">
+            <label className="flex items-start justify-between gap-3 text-sm">
+              <span className="min-w-0">
+                <span className="block">One ceiling with {r.name}</span>
+                <span className="block text-xs leading-relaxed text-muted-foreground">
+                  {joined
+                    ? 'The gypsum runs on across the line where the two are level (a step where they’re not).'
+                    : 'Each room’s gypsum stops at the line, with its own band along it.'}
+                </span>
+              </span>
+              <Switch size="sm" checked={joined} onCheckedChange={(on) => setCeilingJoined(room.id, r.id, on)} />
+            </label>
+            <Button
+              variant="outline"
+              size="sm"
+              className="w-full"
+              onClick={() => {
+                if (!joinRooms(room.id, r.id)) toast("These two can't be joined into one room", { description: 'They need to make one piece together.' })
+              }}
+            >
+              <Merge /> Join with {r.name}
+            </Button>
+          </div>
+        )
+      })}
       <Button
         variant="outline"
         size="sm"

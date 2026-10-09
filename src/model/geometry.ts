@@ -144,6 +144,28 @@ export function offsetEdges(pts: Point[], d: (number | undefined)[]): Point[] {
   })
 }
 
+/**
+ * Like offsetEdges, but where two neighbouring edges run in line and move by different amounts, a step joins them
+ * (so there may be more corners than before).
+ */
+export function offsetEdgesStepped(pts: Point[], d: (number | undefined)[]): Point[] {
+  const n = pts.length
+  if (n < 3) return pts
+  const sa = signedArea(pts)
+  const out: Point[] = []
+  const at = offsetEdges(pts, d)
+  pts.forEach((v, i) => {
+    const prev = (i - 1 + n) % n
+    const u = sub(v, pts[prev])
+    const w = sub(pts[(i + 1) % n], v)
+    const inLine = Math.abs(u.x * w.y - u.y * w.x) < 1e-6 * Math.hypot(u.x, u.y) * Math.hypot(w.x, w.y) && dot(u, w) > 0
+    if (inLine && (d[prev] ?? 0) !== (d[i] ?? 0)) {
+      out.push(add(v, mul(inwardNormal(pts[prev], v, sa), -(d[prev] ?? 0))), add(v, mul(inwardNormal(v, pts[(i + 1) % n], sa), -(d[i] ?? 0))))
+    } else out.push(at[i])
+  })
+  return out
+}
+
 export interface BBox {
   minX: number
   minY: number

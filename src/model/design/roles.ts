@@ -6,6 +6,7 @@ import type { Floor, Room, RoomUse } from '../types'
 
 export const ROOM_USES: { id: RoomUse; name: string; hint: string }[] = [
   { id: 'living', name: 'Living room', hint: 'Sofa facing the TV, coffee table, armchair' },
+  { id: 'reception', name: 'Reception', hint: 'Seating round the TV and a dining table: living and dining in one' },
   { id: 'kitchen', name: 'Kitchen', hint: 'Units along a wall, an island if there’s room' },
   { id: 'dining', name: 'Dining room', hint: 'A table for the space, a sideboard' },
   { id: 'master', name: 'Master bedroom', hint: 'A big bed, wardrobe, dressing table, TV' },
@@ -38,7 +39,8 @@ const NAMES: [RegExp, RoomUse][] = [
   [/bed|guest|نوم/i, 'bedroom'],
   [/kitchen|kitchenette|مطبخ/i, 'kitchen'],
   [/dining|سفرة|طعام/i, 'dining'],
-  [/living|lounge|salon|reception|family|sitting|ريسبشن|صالة|صالون|معيشة|استقبال/i, 'living'],
+  [/reception|ريسبشن|استقبال/i, 'reception'],
+  [/living|lounge|salon|family|sitting|صالة|صالون|معيشة/i, 'living'],
   [/office|study|work|مكتب/i, 'office'],
   [/dress|closet|wardrobe|walk.?in|دريسنج|دولاب/i, 'dressing'],
   [/laundry|utility|storage|store|pantry|غسيل|مخزن/i, 'laundry'],
@@ -56,7 +58,7 @@ function byContents(room: Room, floor: Floor): RoomUse | undefined {
   if (has('bed-double')) return 'bedroom'
   if (has('bed-single')) return 'kids'
   if (has('dining-table') && !has('sofa', 'sofa-corner')) return 'dining'
-  if (has('sofa', 'sofa-corner')) return 'living'
+  if (has('sofa', 'sofa-corner')) return has('dining-table', 'round-table') ? 'reception' : 'living'
   if (has('desk')) return 'office'
   return undefined
 }
@@ -118,8 +120,13 @@ export function guessUses(floor: Floor): Map<string, RoomUse> {
     if (out.has(r.room.id)) continue
     const windows = windowCount(r.room, floor)
     let use: RoomUse
-    if (!taken('living')) use = 'living'
-    else if (!taken('kitchen') && r.area < 16 && [...(links.get(r.room.id) ?? [])].some((id) => out.get(id) === 'living' || out.get(id) === 'hall')) use = 'kitchen'
+    if (!taken('living') && !taken('reception')) use = 'living'
+    else if (
+      !taken('kitchen') &&
+      r.area < 16 &&
+      [...(links.get(r.room.id) ?? [])].some((id) => out.get(id) === 'living' || out.get(id) === 'reception' || out.get(id) === 'hall')
+    )
+      use = 'kitchen'
     else if (!taken('master') && windows) use = 'master'
     else if (r.area < 7) use = 'office'
     else use = 'bedroom'

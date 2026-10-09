@@ -459,8 +459,8 @@ function seating(ctx: Ctx, unit: Placed, first: Placed) {
   plants(ctx, 2)
 }
 
-/** A dining table (its chairs round it) where there's room, as near the middle as it can be. */
-function diningTable(ctx: Ctx, sizes: [number, number][]): Placed | null {
+/** A dining table (its chairs round it) where there's room, as near the middle as it can be (and away from `away`). */
+function diningTable(ctx: Ctx, sizes: [number, number][], away?: Point): Placed | null {
   const { L } = ctx
   const an = L.an
   const c = labelPoint(an.poly)
@@ -487,10 +487,19 @@ function diningTable(ctx: Ctx, sizes: [number, number][]): Placed | null {
         }
       }
     }
-    const got = L.tryPlace(cands, (k) => -dist(k.box, c) / 10, 20)
+    const got = L.tryPlace(cands, (k) => -dist(k.box, c) / 10 + (away ? Math.min(dist(k.box, away), 500) / 4 : 0), 20)
     if (got) return got
   }
   return null
+}
+
+/** A reception: living and dining in one, seats round the TV and a dining table where the rest of the room allows. */
+function reception(ctx: Ctx) {
+  living(ctx)
+  // The table in the other part of the room, away from the seats round the TV.
+  const seats = ctx.L.placed.filter((p) => ['sofa', 'sofa-corner', 'coffee-table', 'tv-unit'].includes(p.sym.type))
+  const away = seats.length ? { x: seats.reduce((s, p) => s + p.box.x, 0) / seats.length, y: seats.reduce((s, p) => s + p.box.y, 0) / seats.length } : undefined
+  ctx.marks.table = diningTable(ctx, [[220, 100], [200, 100], [180, 90], [160, 90], [140, 80], [110, 110]], away) ?? undefined
 }
 
 function dining(ctx: Ctx) {
@@ -1203,6 +1212,7 @@ function balcony(ctx: Ctx) {
 
 export const RECIPES: Record<RoomUse, (ctx: Ctx) => void> = {
   living,
+  reception,
   kitchen,
   dining,
   master: bedroom,
@@ -1226,7 +1236,7 @@ export function dressWindows(ctx: Ctx, have: PlanSymbol[] = []) {
   const an = L.an
   // A window with a curtain or blind kept over it already keeps that.
   const covered = (o: Opening) => have.some((s) => dist(s, doorPoint(an, o)) < o.w / 2 + 40)
-  const curtains = use === 'living' || use === 'master' || use === 'bedroom' || use === 'dining' || use === 'office'
+  const curtains = use === 'living' || use === 'reception' || use === 'master' || use === 'bedroom' || use === 'dining' || use === 'office'
   const blinds = use === 'kitchen' || use === 'kids' || use === 'bathroom' || use === 'ensuite' || use === 'laundry'
   for (const o of an.openings) {
     if (!o.glazed || (o.kind !== 'window' && !curtains) || covered(o)) continue

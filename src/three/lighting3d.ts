@@ -8,7 +8,7 @@ import * as THREE from 'three'
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js'
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js'
 import { inwardNormal, offsetEdges, pointInPolygon, projectOnSegment, signedArea } from '@/model/geometry'
-import { bandInset, ceilingHeightAt, ceilingLight, ceilingOutline, ceilingRoom, ceilingZones, COVE_WIDTH, coveRuns, gapDrops, hiddenLightInGap, lightHex, SHADOW_GAP } from '@/model/lighting'
+import { bandEdge, ceilingDropAt, ceilingHeightAt, ceilingLight, ceilingOutline, ceilingRoom, ceilingZones, COVE_WIDTH, coveRuns, gapDrops, hiddenLightInGap, lightHex, onCeilingJoin, SHADOW_GAP } from '@/model/lighting'
 import { symbolPose } from '@/model/project'
 import { frameOf, styleOf } from '@/model/symbols'
 import type { FixtureKind } from '@/model/symbols'
@@ -55,14 +55,18 @@ function ceilingPlane(outer: Point[], inner: Point[] | undefined, y: number): TH
   return g
 }
 
-/** Vertical faces along a polygon between heights y0 and y1, facing into (or out of) the polygon. */
-function band(poly: Point[], y0: number, y1: number, facing: 'in' | 'out'): THREE.BufferGeometry {
+/**
+ * Vertical faces along a polygon between heights y0 and y1, facing into (or out of) the polygon; only along the sides
+ * `keep` keeps, if given.
+ */
+function band(poly: Point[], y0: number, y1: number, facing: 'in' | 'out', keep?: (a: Point, b: Point) => boolean): THREE.BufferGeometry {
   const inward = signedArea(poly) >= 0
   const flip = (facing === 'in') !== inward
   const pos: number[] = []
   for (let i = 0; i < poly.length; i++) {
     const a = poly[i]
     const b = poly[(i + 1) % poly.length]
+    if (keep && !keep(a, b)) continue
     const A0 = [a.x, y0, a.y]
     const B0 = [b.x, y0, b.y]
     const B1 = [b.x, y1, b.y]
@@ -108,36 +112,51 @@ export function buildCeilings(floor: Floor, base: number): THREE.Object3D[] {
       const j = (i + 1) % room.points.length
       geos.push(band([cut[i], cut[j]], H - c!.drop, H - 0.2, 'in'))
     }
-    // Open to the next room: where its ceiling is lower there, a gypsum face closes the step up to the other's.
-    const edgeHeight = (r: Room) => (r.ceiling && r.ceiling.style !== 'floating' ? H - r.ceiling.drop : H - 0.2)
+    // Open to the next room: wherever its ceiling is lower along the line, a gypsum face closes the step up to the
+    // other's (none where they're level: one ceiling).
     for (const i of room.openEdges ?? []) {
       const a = room.points[i]
       const b = room.points[(i + 1) % room.points.length]
       if (!a || !b) continue
       const n = inwardNormal(a, b, signedArea(room.points))
-      const beyond = { x: (a.x + b.x) / 2 - n.x, y: (a.y + b.y) / 2 - n.y }
-      const other = floor.rooms.find((r) => r.id !== plain.id && !r.kind && r.points.length >= 3 && pointInPolygon(beyond, r.points))
-      const mine = edgeHeight(room)
-      const theirs = other ? edgeHeight(ceilingRoom(other, floor)) : H
-      if (theirs > mine + 0.5) geos.push(band([a, b], mine, theirs, 'in'))
+      const L = Math.hypot(b.x - a.x, b.y - a.y)
+      const at = (t: number, side: number) => ({ x: a.x + ((b.x - a.x) * t) / L + n.x * side, y: a.y + ((b.y - a.y) * t) / L + n.y * side })
+      const mid = at(L / 2, -1)
+      const plainOther = floor.rooms.find((r) => r.id !== plain.id && !r.kind && r.points.length >= 3 && pointInPolygon(mid, r.points))
+      const other = plainOther && ceilingRoom(plainOther, floor)
+      // Each centimetre along it: how low each side's ceiling is; a face over each stretch where this side's is lower.
+      let run: { t: number; mine: number; theirs: number } | null = null
+      const close = (t: number) => {
+        if (run && run.mine > run.theirs + 0.5 && t - run.t > 0.5) geos.push(band([at(run.t, 0), at(t, 0)], H - run.mine, H - run.theirs, 'in'))
+      }
+      for (let t = 0.5; t < L; t += 1) {
+        const mine = ceilingDropAt(room, at(t, 1))
+        const theirs = other ? ceilingDropAt(other, at(t, -1)) : 0
+        if (!run || run.mine !== mine || run.theirs !== theirs) {
+          close(Math.max(0, t - 0.5))
+          run = { t: Math.max(0, t - 0.5), mine, theirs }
+        }
+      }
+      close(L)
     }
     if (!c) continue
     ceilingZones(room).forEach((z) => geos.push(ceilingPlane(z.outer, z.inner, H - z.drop)))
+    const keep = (p: Point, q: Point) => !onCeilingJoin(room, p, q)
     switch (c.style) {
       case 'tray':
-        geos.push(band(bandInset(room), H - c.drop, H, 'in'))
+        geos.push(band(bandEdge(room), H - c.drop, H, 'in', keep))
         break
       case 'stepped':
-        geos.push(band(bandInset(room), H - c.drop, H - c.drop / 2, 'in'))
-        geos.push(band(bandInset(room, 2), H - c.drop / 2, H, 'in'))
+        geos.push(band(bandEdge(room), H - c.drop, H - c.drop / 2, 'in', keep))
+        geos.push(band(bandEdge(room, 2), H - c.drop / 2, H, 'in', keep))
         break
       case 'cove':
         // A lip at the edge of the band hides the LED; behind it the trough rises to the ceiling.
-        geos.push(band(bandInset(room), H - c.drop, H - c.drop + 8, 'in'))
-        geos.push(band(bandInset(room, 1, -COVE_WIDTH), H - c.drop + 1, H, 'in'))
+        geos.push(band(bandEdge(room), H - c.drop, H - c.drop + 8, 'in', keep))
+        geos.push(band(bandEdge(room, 1, -COVE_WIDTH), H - c.drop + 1, H, 'in', keep))
         break
       case 'floating':
-        geos.push(band(bandInset(room), H - c.drop, H - c.drop + 6, 'out'))
+        geos.push(band(bandEdge(room), H - c.drop, H - c.drop + 6, 'out', keep))
         break
     }
   }

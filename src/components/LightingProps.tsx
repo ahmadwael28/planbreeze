@@ -8,7 +8,8 @@ import { cn } from '@/lib/utils'
 import { bbox, dist, polygonPath } from '@/model/geometry'
 import {
   bandAt,
-  bandInset,
+  ceilingJoins,
+  bandEdge,
   CEILING_STYLES,
   ceilingRoom,
   followsBand,
@@ -415,9 +416,13 @@ function WallBands({ room, units, set }: { room: Room; units: Units; set: (recip
         aria-label="Band width per wall"
       >
         <path d={polygonPath(pts)} className="fill-foreground/15" />
-        <path d={polygonPath(bandInset(ceilingRoom(room, floor)))} className="fill-background" />
+        <path d={polygonPath(bandEdge(ceilingRoom(room, floor)))} className="fill-background" />
         {pts.map((a, i) => {
           const p = pts[(i + 1) % pts.length]
+          // Open to the next room, one ceiling across: no band there.
+          if (ceilingJoins(room).includes(i)) {
+            return <line key={i} x1={a.x} y1={a.y} x2={p.x} y2={p.y} stroke="var(--muted-foreground)" strokeOpacity={0.5} strokeWidth={1.5} strokeDasharray="4 3" vectorEffect="non-scaling-stroke" />
+          }
           const name = `Wall ${i + 1}, ${formatLength(dist(a, p), units)}: band ${formatLength(bandAt(room, i), units)}`
           return (
             <g

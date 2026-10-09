@@ -126,7 +126,7 @@ export function analyze(room: Room, floor: Floor, fixed: PlanSymbol[], uses: Map
   })
   for (const p of passages) clear.push(againstWall(p.at, p.inward, p.w, 60, 0, 210))
   const glass = windows.map((o) => againstWall(facePoint(faces[o.face], o.s), faces[o.face].inward, o.w, 25, o.sill, o.top))
-  const publicUse = (u?: RoomUse) => u === 'hall' || u === 'living' || u === 'dining' || u === 'kitchen'
+  const publicUse = (u?: RoomUse) => u === 'hall' || u === 'living' || u === 'reception' || u === 'dining' || u === 'kitchen'
   const entry = [...doors].sort((a, b) => rank(b) - rank(a))[0]
   function rank(o: Opening) {
     return (o.kind === 'door' ? 2 : 1) + (o.to && publicUse(uses.get(o.to.id)) ? 3 : 0) + (o.to ? 1 : 0) + o.w / 1000

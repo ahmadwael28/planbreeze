@@ -119,6 +119,8 @@ interface OpenPair {
   union: Point[]
   poses: { id: string; pose: Point }[]
   coves: { id: string; off: number[] }[]
+  /** Each room's ceiling stops at the line (rather than one across it). */
+  apart: boolean
 }
 
 /** The room across a room's open wall `i` (the same line from the other side) and the space they make together. */
@@ -134,7 +136,7 @@ function openPair(floor: Floor, room: Room, i: number): OpenPair | null {
     .filter((s) => s.wall && (s.wall.roomId === room.id || s.wall.roomId === other.id))
     .map((s) => ({ id: s.id, pose: symbolPose(s, floor.rooms) as Point }))
   const coves = floor.symbols.filter((s) => (s.room === room.id || s.room === other.id) && s.cove?.off).map((s) => ({ id: s.id, off: s.cove!.off! }))
-  return { other, union, poses, coves }
+  return { other, union, poses, coves, apart: !!room.ceilingBreaks?.includes(i) }
 }
 
 /** The corners of the rooms a room is open to that sit on these corners of it. */
@@ -742,7 +744,7 @@ export function Canvas() {
         if (snap) amount = snapTo(amount, step)
         if (d.pair) {
           // The line between two open rooms: the space they make divided again, straight across, further along.
-          const { other, union, poses, coves } = d.pair
+          const { other, union, poses, coves, apart } = d.pair
           const line = movedLine(union, a, b, outward, amount)
           const parts = line && dividePoints(union, line[0], line[1])
           if (!line || !parts) break
@@ -756,6 +758,7 @@ export function Canvas() {
               ],
               poses,
               coves,
+              apart,
             ),
           )
           break

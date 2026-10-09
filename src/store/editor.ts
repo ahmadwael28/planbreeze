@@ -20,7 +20,7 @@ import { fixSizes } from '@/model/sizes'
 import type { Clip } from '@/model/items'
 import { CEILING_STYLES, mergeRoomLights, OTHER_LIGHTS, pruneControls, remapEdges, remapEdgeValues, ROOM_LIGHTS } from '@/model/lighting'
 import { columnIntoWall, dimensionPoints, findWallSnap, isOutdoor, moveWall, roomOuter, symbolPose } from '@/model/project'
-import { dividePoints, healOpenings, joinPoints, openedPoints, wallAcross } from '@/model/divide'
+import { dividePoints, healOpenings, joinPoints, openedPoints, sharedStretch, wallAcross } from '@/model/divide'
 import { personDepth, personSupport } from '@/model/people'
 import { behindSofa } from '@/model/placement'
 import { SYMBOL_MAP } from '@/model/symbols'
@@ -646,6 +646,7 @@ function fixRoom(f: Floor, oldRoom: Room, force = false) {
   if (r.shadowGaps) r.shadowGaps = remapEdges(oldRoom.points, r.points, r.shadowGaps, force)
   if (r.curtainPockets) r.curtainPockets = remapEdges(oldRoom.points, r.points, r.curtainPockets, force)
   if (r.openEdges) r.openEdges = remapEdges(oldRoom.points, r.points, r.openEdges, force)
+  if (r.ceilingBreaks) r.ceilingBreaks = remapEdges(oldRoom.points, r.points, r.ceilingBreaks, force)
   if (r.ceiling?.bands) r.ceiling.bands = remapEdgeValues(oldRoom.points, r.points, r.ceiling.bands, force)
   if (r.wallFinishes) r.wallFinishes = remapEdgeValues(oldRoom.points, r.points, r.wallFinishes, force)
   for (const s of f.symbols) {
@@ -687,6 +688,8 @@ export function divideRoom(roomId: string, a: Point, b: Point): Room | null {
     r.wallFinishes = remapEdgeValues(room.points, pts, room.wallFinishes, true)
     if (r.ceiling?.bands) r.ceiling.bands = remapEdgeValues(room.points, pts, room.ceiling!.bands, true)
     r.openEdges = [...(remapEdges(room.points, pts, room.openEdges, true) ?? []), pts.length - 1]
+    // One ceiling across the new line (it was one ceiling before).
+    r.ceilingBreaks = remapEdges(room.points, pts, room.ceilingBreaks, true)
   }
   carry(other, small)
   // Lights that run round the room: the new part gets its own, worked by the same switches.
@@ -729,7 +732,7 @@ export function joinRooms(roomId: string, otherId: string): boolean {
   const pts = joinPoints(a, b)
   if (!pts) return false
   // Each wall keeps the settings it had, from whichever room it was a wall of.
-  const edges = (key: 'shadowGaps' | 'curtainPockets' | 'openEdges') => {
+  const edges = (key: 'shadowGaps' | 'curtainPockets' | 'openEdges' | 'ceilingBreaks') => {
     const all = [...(remapEdges(a.points, pts, a[key], true) ?? []), ...(remapEdges(b.points, pts, b[key], true) ?? [])]
     return all.length ? [...new Set(all)].sort((x, y) => x - y) : undefined
   }
@@ -745,6 +748,7 @@ export function joinRooms(roomId: string, otherId: string): boolean {
     r.shadowGaps = edges('shadowGaps')
     r.curtainPockets = edges('curtainPockets')
     r.openEdges = edges('openEdges')
+    r.ceilingBreaks = edges('ceilingBreaks')
     r.wallFinishes = values(a.wallFinishes, b.wallFinishes)
     if (r.ceiling) r.ceiling.bands = values(a.ceiling?.bands, b.ceiling?.bands)
     for (const s of f.symbols) {
@@ -799,10 +803,17 @@ export function openWall(roomId: string, edge: number): number {
 
 /**
  * Rooms open to each other given new outlines, each with the line between them as its last edge (inside a recipe on
- * floor `f`): per-wall settings carried over from how they were (`coves`: their lights' dark walls then), and the doors
- * and windows that were on them (`poses`: where they were) back on whichever's wall they're on.
+ * floor `f`): per-wall settings carried over from how they were (`coves`: their lights' dark walls then), the ceiling
+ * one across the line or each room's stopping at it (`apart`), and the doors and windows that were on them (`poses`:
+ * where they were) back on whichever's wall they're on.
  */
-export function reshapeOpen(f: Floor, shapes: [Room, Point[]][], poses: { id: string; pose: Point }[], coves: { id: string; off: number[] }[] = []) {
+export function reshapeOpen(
+  f: Floor,
+  shapes: [Room, Point[]][],
+  poses: { id: string; pose: Point }[],
+  coves: { id: string; off: number[] }[] = [],
+  apart = false,
+) {
   const rooms: Room[] = []
   for (const [old, pts] of shapes) {
     const r = f.rooms.find((x) => x.id === old.id)
@@ -813,6 +824,9 @@ export function reshapeOpen(f: Floor, shapes: [Room, Point[]][], poses: { id: st
     r.wallFinishes = remapEdgeValues(old.points, pts, old.wallFinishes, true)
     if (r.ceiling && old.ceiling?.bands) r.ceiling.bands = remapEdgeValues(old.points, pts, old.ceiling.bands, true)
     r.openEdges = [...new Set([...(remapEdges(old.points, pts, old.openEdges, true) ?? []), pts.length - 1])].sort((x, y) => x - y)
+    // The line keeps its ceiling: one across it, or each room's stopping at it (`apart`).
+    const breaks = [...(remapEdges(old.points, pts, old.ceilingBreaks, true) ?? []).filter((i) => i !== pts.length - 1), ...(apart ? [pts.length - 1] : [])]
+    r.ceilingBreaks = breaks.length ? breaks : undefined
     // Room lights' dark walls, from where they were.
     for (const cv of coves) {
       const s = f.symbols.find((x) => x.id === cv.id)
@@ -857,6 +871,42 @@ export function closeWall(roomId: string, edge: number) {
       const before = { ...r, points: moved, openEdges: r.openEdges }
       r.points = pts
       fixRoom(f, before)
+    }
+  })
+}
+
+/** The open walls of `room` that lie along `other`'s (the line between them). */
+function wallsFacing(room: Room, other: Room): number[] {
+  return (room.openEdges ?? []).filter((i) => {
+    const a = room.points[i]
+    const b = room.points[(i + 1) % room.points.length]
+    const sa = signedArea(room.points)
+    const so = signedArea(other.points)
+    return !!a && !!b && other.points.some((c, j) => !!sharedStretch(a, b, sa, c, other.points[(j + 1) % other.points.length], so, 5))
+  })
+}
+
+/** Whether the gypsum ceiling runs on across the line between two rooms open to each other, as one ceiling. */
+export function ceilingJoined(room: Room, other: Room): boolean {
+  const mine = wallsFacing(room, other)
+  return mine.length > 0 && mine.some((i) => !room.ceilingBreaks?.includes(i))
+}
+
+/** One ceiling across the line between two rooms open to each other, or each room's stopping at it. */
+export function setCeilingJoined(roomId: string, otherId: string, joined: boolean) {
+  useEditor.getState().commit((d) => {
+    const f = draftFloor(d)
+    const a = f.rooms.find((r) => r.id === roomId)
+    const b = f.rooms.find((r) => r.id === otherId)
+    if (!a || !b) return
+    for (const [r, o] of [
+      [a, b],
+      [b, a],
+    ]) {
+      const line = wallsFacing(r, o)
+      const rest = (r.ceilingBreaks ?? []).filter((i) => !line.includes(i))
+      const breaks = joined ? rest : [...rest, ...line]
+      r.ceilingBreaks = breaks.length ? breaks.sort((x, y) => x - y) : undefined
     }
   })
 }

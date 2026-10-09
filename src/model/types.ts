@@ -71,6 +71,7 @@ export interface Ceiling {
 /** What a room is for, for designing it (see model/design). */
 export type RoomUse =
   | 'living'
+  | 'reception'
   | 'kitchen'
   | 'dining'
   | 'master'
@@ -124,6 +125,11 @@ export interface Room {
    * room across (see healOpenings).
    */
   openEdges?: number[]
+  /**
+   * Open walls (edge indices) where the gypsum ceiling stops, each room's its own (with a band along the line, if it
+   * has bands). Along the other open walls it runs on into the next room's, as one ceiling.
+   */
+  ceilingBreaks?: number[]
   /** An outdoor space: a railing (or nothing) instead of walls, none where it meets the building, and no ceiling. */
   kind?: OutdoorKind
   railing?: Railing

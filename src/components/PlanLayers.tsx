@@ -12,7 +12,7 @@ import {
   sub,
 } from '@/model/geometry'
 import { finishOf, surfaceLayout, wallSurfaceAt } from '@/model/finishes'
-import { ceilingLight, ceilingRoom, ceilingZones, coveRuns, nearestOnStrip, pocketWidth, SHADOW_GAP, WIRE_COLORS } from '@/model/lighting'
+import { ceilingLight, ceilingRoom, ceilingZones, coveRuns, nearestOnStrip, onCeilingJoin, pocketWidth, SHADOW_GAP, WIRE_COLORS } from '@/model/lighting'
 import { dimensionPoints, isOpen, isOutdoor, railingRuns, roomOuter, symbolPose } from '@/model/project'
 import { floorOrigin } from '@/model/divide'
 import { bottomUp } from '@/model/stacking'
@@ -347,6 +347,16 @@ function RoomLabels({
   )
 }
 
+/** A gypsum edge's outline, but not along a line its ceiling runs on across into the next room's (one ceiling). */
+function edgePath(room: Room, pts: Point[]) {
+  if (!room.openEdges?.length) return polygonPath(pts)
+  return pts
+    .map((a, i) => [a, pts[(i + 1) % pts.length]])
+    .filter(([a, b]) => !onCeilingJoin(room, a, b))
+    .map(([a, b]) => `M${a.x},${a.y}L${b.x},${b.y}`)
+    .join('')
+}
+
 /** Gypsum ceiling zones of one room (lighting layer). */
 function CeilingZones({ room, theme }: { room: Room; theme: PlanTheme }) {
   const fill = theme.dark ? '#71717a' : '#a1a1aa'
@@ -361,7 +371,7 @@ function CeilingZones({ room, theme }: { room: Room; theme: PlanTheme }) {
             fillRule="evenodd"
           />
           <path
-            d={polygonPath(z.inner ?? z.outer)}
+            d={edgePath(room, z.inner ?? z.outer)}
             fill="none"
             stroke={theme.ink}
             strokeWidth={1}

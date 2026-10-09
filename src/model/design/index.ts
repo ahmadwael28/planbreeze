@@ -65,7 +65,7 @@ export interface RoomDesign {
 }
 
 /** How many tries a room gets: more where the order things go in matters (a tight bathroom), fewer where it hardly does. */
-const TRIES: Partial<Record<RoomUse, number>> = { bathroom: 5, ensuite: 5, wc: 4, living: 4, kitchen: 2, balcony: 1, laundry: 2 }
+const TRIES: Partial<Record<RoomUse, number>> = { bathroom: 5, ensuite: 5, wc: 4, living: 4, reception: 5, kitchen: 2, balcony: 1, laundry: 2 }
 
 /** What matters most in a room: a design that fits these in beats one that doesn't. */
 const WORTH: Record<string, number> = {
@@ -235,6 +235,7 @@ function finishes(an: Analysis, use: RoomUse, style: DesignStyle, marks: Marks):
   let patch: Partial<Room>
   switch (use) {
     case 'living':
+    case 'reception':
     case 'dining':
       patch = { floor: F.main, walls: paint(style.paint.main) }
       accents.push([ownEdge(an, marks.tvUnit?.face), style.tvWall])
@@ -291,13 +292,14 @@ function lights(an: Analysis, use: RoomUse, style: DesignStyle, marks: Marks, op
   const out: PlanSymbol[] = []
   const wet = isWet(use)
   // The ceiling suggested, or (if ceilings are left alone) the room's own.
-  const suggested: CeilingStyle = use === 'living' && an.area >= 12 ? 'cove' : use === 'master' || (use === 'dining' && an.area >= 10) ? 'tray' : 'flat'
+  const lounge = use === 'living' || use === 'reception'
+  const suggested: CeilingStyle = lounge && an.area >= 12 ? 'cove' : use === 'master' || (use === 'dining' && an.area >= 10) ? 'tray' : 'flat'
   const ceiling: CeilingStyle | undefined = opts.ceilings ? suggested : room.ceiling?.style
   const patch: Partial<Room> = { ceiling: { style: suggested, ...CEILING_STYLES[suggested].defaults }, shadowGaps: undefined, curtainPockets: undefined }
   // Curtains hide up in pockets in the ceiling, lit in the living room and master bedroom.
   const pocketWalls = !opts.ceilings
     ? (room.curtainPockets ?? [])
-    : use === 'living' || use === 'master' || use === 'bedroom'
+    : lounge || use === 'master' || use === 'bedroom'
       ? [...new Set(an.openings.filter((o) => o.glazed).map((o) => ownEdge(an, o.face)).filter((e): e is number => e !== undefined))]
       : []
   if (opts.ceilings && pocketWalls.length) patch.curtainPockets = pocketWalls
@@ -314,14 +316,14 @@ function lights(an: Analysis, use: RoomUse, style: DesignStyle, marks: Marks, op
   const counter: PlanSymbol[] = [...marks.uppers.map((p) => p.sym), ...(marks.hood ? [marks.hood.sym] : [])]
   const mirror: PlanSymbol[] = marks.vanity ? [marks.vanity.sym] : []
   if (ceiling && ceiling !== 'flat') mood.push(roomLight('cove-light'))
-  if (pocketWalls.length && (use === 'living' || use === 'master')) curtains.push(roomLight('pocket-light'))
+  if (pocketWalls.length && (lounge || use === 'master')) curtains.push(roomLight('pocket-light'))
 
   const band = ceiling ? CEILING_STYLES[ceiling].defaults.band : 0
-  const spotted = ['living', 'kitchen', 'dining', 'hall', 'office', 'dressing', 'bathroom', 'ensuite', 'wc', 'laundry'].includes(use)
+  const spotted = ['living', 'reception', 'kitchen', 'dining', 'hall', 'office', 'dressing', 'bathroom', 'ensuite', 'wc', 'laundry'].includes(use)
   if (spotted) {
     const inset = band ? band + 30 : wet ? 40 : 55
     const light = wet ? { color: 'cool' as const, brightness: 1 } : undefined
-    for (const p of spread(room.points, inset, use === 'hall' || use === 'living' ? 150 : 130)) {
+    for (const p of spread(room.points, inset, use === 'hall' || lounge ? 150 : 130)) {
       const s = sym('spot', p, light ? { light } : {})
       out.push(s)
       main.push(s)

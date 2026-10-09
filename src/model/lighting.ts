@@ -1,5 +1,6 @@
 import polygonClipping from 'polygon-clipping'
-import { offsetEdges, offsetPolygon, pointInPolygon, projectOnSegment, signedArea } from './geometry'
+import { isDraft } from 'immer'
+import { offsetEdges, offsetEdgesStepped, offsetPolygon, pointInPolygon, projectOnSegment, signedArea } from './geometry'
 import type { Ceiling, CeilingStyle, Floor, LightColor, LightSettings, PlanSymbol, Point, Room } from './types'
 
 export const LIGHT_COLORS: Record<LightColor, { label: string; kelvin: number; hex: string }> = {
@@ -194,6 +195,7 @@ export function ceilingRoom(plain: Room, floor: Floor): Room {
         shadowGaps: map(room.shadowGaps, room.gapsAtColumns !== 'stop'),
         curtainPockets: map(room.curtainPockets, room.pocketsAtColumns === 'wrap'),
         openEdges: map(room.openEdges, false),
+        ceilingBreaks: map(room.ceilingBreaks, false),
         ceiling: room.ceiling && { ...room.ceiling, bands: room.ceiling.bands && pts.map((_, i) => room.ceiling!.bands![parent[i]] ?? null) },
       }
       shapes.set(out, { parent, face, room, columns: cols })
@@ -269,21 +271,44 @@ export function hiddenLightInGap(room: Room, sym: PlanSymbol) {
 
 export const pocketWidth = (room: Room) => room.pocketWidth ?? POCKET_WIDTH
 
-/** The ceiling's band width along wall i: its own, or the ceiling's. */
-export const bandAt = (room: Room, i: number) => room.ceiling?.bands?.[i] ?? room.ceiling?.band ?? 0
+/**
+ * The open walls (see Room.openEdges) a room's gypsum ceiling runs on across, into the next room's as one ceiling: all
+ * but those it stops at.
+ */
+export const ceilingJoins = (room: Room) => (room.openEdges ?? []).filter((i) => !room.ceilingBreaks?.includes(i))
+
+/** Whether a–b lies along one of the open walls the room's ceiling runs on across. */
+export function onCeilingJoin(room: Room, a: Point, b: Point): boolean {
+  return ceilingJoins(room).some((i) => {
+    const p = room.points[i]
+    const q = room.points[(i + 1) % room.points.length]
+    return !!p && !!q && projectOnSegment(a, p, q).dist < 0.5 && projectOnSegment(b, p, q).dist < 0.5
+  })
+}
+
+/** The ceiling's band width along wall i: its own, or the ceiling's (none where it runs on into the next room). */
+export const bandAt = (room: Room, i: number) => (ceilingJoins(room).includes(i) ? 0 : (room.ceiling?.bands?.[i] ?? room.ceiling?.band ?? 0))
 
 /**
  * The room moved in by the ceiling's band on each wall (each its own width) times `k`, plus `extra`: the band's inner
  * edge, and what runs along it. Measured from the walls, so it stays straight past columns built into them, unless a
  * column stands out further than the band (then it goes around it).
  */
-export function bandInset(room: Room, k = 1, extra = 0): Point[] {
+export function bandInset(room: Room, k = 1, extra = 0, stepped = false): Point[] {
   const info = shapes.get(room)
   const base = info?.room ?? room
-  const d = base.points.map((_, i) => -(bandAt(base, i) * k + extra))
-  const inner = d.every((x) => x === 0) ? base.points : offsetEdges(base.points, d)
+  // Where it runs on into the next room's ceiling: right to the line, to meet that one's.
+  const joins = new Set(ceilingJoins(base))
+  const d = base.points.map((_, i) => (joins.has(i) ? 0 : -(bandAt(base, i) * k + extra)))
+  const inner = d.every((x) => x === 0) ? base.points : stepped ? offsetEdgesStepped(base.points, d) : offsetEdges(base.points, d)
   return info ? clearOfColumns(inner, info.columns) : inner
 }
+
+/**
+ * The band's inner edge as it's built: like bandInset, but with a step where a wall with a band runs in line into an
+ * open wall the ceiling runs on across (more corners, so not for what's numbered by wall, like lights' dark walls).
+ */
+export const bandEdge = (room: Room, k = 1, extra = 0) => bandInset(room, k, extra, true)
 
 /**
  * Where a gypsum ceiling's outer edge runs: along the walls, or short of them where there's a shadow gap or a
@@ -316,8 +341,42 @@ export function remapEdgeValues<T>(oldPts: Point[], newPts: Point[], values: (T 
   })
 }
 
+type Zone = { outer: Point[]; inner?: Point[]; drop: number }
+
+/**
+ * A band: what's between `outer` and `inner`. Where the ceiling runs on into the next room's, the inner edge reaches
+ * the line, so the band is open there (a U, not a ring).
+ */
+function bandZone(room: Room, outer: Point[], inner: Point[], drop: number): Zone[] {
+  if (!ceilingJoins(room).length) return [{ outer, inner, drop }]
+  const ring = (pts: Point[]) => [pts.map((p) => [p.x, p.y] as [number, number])]
+  // Its inner edge reaches a little past the line, so the band comes out open there however the sums round.
+  const past = offsetEdges(
+    inner,
+    inner.map((p, i) => (onCeilingJoin(room, p, inner[(i + 1) % inner.length]) ? 1 : undefined)),
+  )
+  try {
+    return polygonClipping.difference(ring(outer), ring(past)).map((poly) => {
+      const [o, h] = poly.map((r) => r.slice(0, -1).map(([x, y]) => ({ x, y })))
+      return { outer: o, inner: h, drop }
+    })
+  } catch {
+    return [{ outer, inner, drop }]
+  }
+}
+
+const zoneCache = new WeakMap<Room, Zone[]>()
+
 /** Areas of a room's ceiling at different heights, for drawing and 3D. `drop` is below the structural ceiling. */
-export function ceilingZones(room: Room): { outer: Point[]; inner?: Point[]; drop: number }[] {
+export function ceilingZones(room: Room): Zone[] {
+  // Rooms being changed (drafts) are worked out afresh each time.
+  if (isDraft(room) || isDraft(room.points)) return zonesOf(room)
+  let z = zoneCache.get(room)
+  if (!z) zoneCache.set(room, (z = zonesOf(room)))
+  return z
+}
+
+function zonesOf(room: Room): Zone[] {
   const c = room.ceiling
   if (!c) return []
   switch (c.style) {
@@ -325,15 +384,21 @@ export function ceilingZones(room: Room): { outer: Point[]; inner?: Point[]; dro
       return [{ outer: ceilingOutline(room), drop: c.drop }]
     case 'tray':
     case 'cove':
-      return [{ outer: ceilingOutline(room), inner: bandInset(room), drop: c.drop }]
+      return bandZone(room, ceilingOutline(room), bandEdge(room), c.drop)
     case 'stepped':
-      return [
-        { outer: ceilingOutline(room), inner: bandInset(room), drop: c.drop },
-        { outer: bandInset(room), inner: bandInset(room, 2), drop: c.drop / 2 },
-      ]
+      return [...bandZone(room, ceilingOutline(room), bandEdge(room), c.drop), ...bandZone(room, bandEdge(room), bandEdge(room, 2), c.drop / 2)]
     case 'floating':
-      return [{ outer: bandInset(room), drop: c.drop }]
+      return [{ outer: bandEdge(room), drop: c.drop }]
   }
+}
+
+/** How far below the structure a room's ceiling is at `p` (in the room's ceiling, as `ceilingRoom` makes it). */
+export function ceilingDropAt(croom: Room, p: Point): number {
+  let drop = 0.2
+  for (const z of ceilingZones(croom)) {
+    if (pointInPolygon(p, z.outer) && !(z.inner && pointInPolygon(p, z.inner))) drop = Math.max(drop, z.drop)
+  }
+  return drop
 }
 
 /** Ceiling height (cm above the floor) at a point, taking gypsum ceilings and boxes into account. */
@@ -405,8 +470,9 @@ export function coveRuns(room: Room, sym?: PlanSymbol): { runs: { a: Point; b: P
   // A hidden light in a gap runs where its gap is (see ceilingRoom).
   else if (sym && hiddenLightInGap(room, sym)) only = (e) => hidden.has(e)
   const off = new Set(sym?.cove?.off ?? [])
-  // Along the walls: none where there's no wall (the band's inner edge runs all round, though).
-  if (!sym || !followsBand(room, sym)) for (const i of room.openEdges ?? []) off.add(i)
+  // Along the walls: none where there's no wall. Along the band's inner edge: none where the ceiling runs on into the
+  // next room's (the band's open there).
+  for (const i of !sym || !followsBand(room, sym) ? (room.openEdges ?? []) : ceilingJoins(room)) off.add(i)
   const runs = path
     .map((a, i) => ({ a, b: path[(i + 1) % path.length], edge: i }))
     .filter((r) => (!only || only(r.edge)) && !off.has(r.edge))
