@@ -1,3 +1,4 @@
+import { t } from '@/i18n'
 import type { ReactNode } from 'react'
 import { Check, X } from 'lucide-react'
 import { cn } from '@/lib/utils'
@@ -209,14 +210,14 @@ export function TipCard({ tip }: { tip: Tip }) {
   return (
     <div className="space-y-2 rounded-lg border bg-card p-3">
       <div>
-        <p className="text-sm font-medium">{tip.title}</p>
-        <p className="mt-0.5 text-xs leading-relaxed text-muted-foreground">{tip.body}</p>
+        <p className="text-sm font-medium">{t(tip.title)}</p>
+        <p className="mt-0.5 text-xs leading-relaxed text-muted-foreground">{t(tip.body)}</p>
       </div>
       <div className="grid grid-cols-2 gap-2">
-        <Example ok label={tip.good}>
+        <Example ok label={t(tip.good)}>
           {ex.good}
         </Example>
-        <Example ok={false} label={tip.bad}>
+        <Example ok={false} label={t(tip.bad)}>
           {ex.bad}
         </Example>
       </div>
@@ -226,11 +227,11 @@ export function TipCard({ tip }: { tip: Tip }) {
 
 /** The tips as a grid of cards. */
 export function DrawingTips({ only, className }: { only?: Tip['id'][]; className?: string }) {
-  const tips = only ? TIPS.filter((t) => only.includes(t.id)) : TIPS
+  const tips = only ? TIPS.filter((x) => only.includes(x.id)) : TIPS
   return (
     <div className={cn('grid gap-3 sm:grid-cols-2', className)}>
-      {tips.map((t) => (
-        <TipCard key={t.id} tip={t} />
+      {tips.map((x) => (
+        <TipCard key={x.id} tip={x} />
       ))}
     </div>
   )

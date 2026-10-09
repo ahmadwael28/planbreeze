@@ -1,3 +1,4 @@
+import { t } from '@/i18n'
 import { useEffect, useRef, useState } from 'react'
 import { Bookmark, BookmarkPlus, Camera, ChevronLeft, ChevronRight, Crosshair, MoreHorizontal, Pause, Pencil, Play, Trash2, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -36,7 +37,7 @@ export function ViewpointMarkers({
             register(vp.id, el)
           }}
           onClick={() => onGo(vp.id)}
-          aria-label={`Go to ${vp.label}`}
+          aria-label={t('Go to {place}', { place: vp.label })}
           style={{ visibility: 'hidden' }}
           className="group pointer-events-auto absolute top-0 left-0 flex flex-col items-center gap-1 rounded-full outline-none"
         >
@@ -102,16 +103,16 @@ export function ViewpointBar({
   return (
     <div
       role="toolbar"
-      aria-label="Viewpoints"
+      aria-label={t('Viewpoints')}
       className="absolute bottom-16 left-1/2 z-10 flex max-w-[calc(100%-1.5rem)] -translate-x-1/2 items-center gap-1 rounded-full border bg-background/95 p-1 shadow-lg backdrop-blur"
     >
       <Tooltip>
         <TooltipTrigger asChild>
-          <Button variant="ghost" size="icon" className="shrink-0 rounded-full" onClick={() => onStep(-1)} aria-label="Previous viewpoint">
+          <Button variant="ghost" size="icon" className="shrink-0 rounded-full" onClick={() => onStep(-1)} aria-label={t('Previous viewpoint')}>
             <ChevronLeft />
           </Button>
         </TooltipTrigger>
-        <TooltipContent>Previous (Page Up)</TooltipContent>
+        <TooltipContent>{t('Previous (Page Up)')}</TooltipContent>
       </Tooltip>
       <div ref={listRef} className="flex min-w-0 items-center gap-1 overflow-x-auto [scrollbar-width:none]">
         {rooms.map((vp) => (
@@ -148,14 +149,14 @@ export function ViewpointBar({
                       </DropdownMenuTrigger>
                       <DropdownMenuContent side="top" align="end">
                         <DropdownMenuItem onSelect={() => setRenaming(vp)}>
-                          <Pencil /> Rename…
+                          <Pencil /> {t('Rename…')}
                         </DropdownMenuItem>
                         <DropdownMenuItem onSelect={() => actions.onUpdate(vp.savedId!)}>
-                          <Crosshair /> Keep the current angle
+                          <Crosshair /> {t('Keep the current angle')}
                         </DropdownMenuItem>
                         <DropdownMenuSeparator />
                         <DropdownMenuItem variant="destructive" onSelect={() => actions.onDelete(vp.savedId!)}>
-                          <Trash2 /> Delete
+                          <Trash2 /> {t('Delete')}
                         </DropdownMenuItem>
                       </DropdownMenuContent>
                     </DropdownMenu>
@@ -167,7 +168,7 @@ export function ViewpointBar({
         )}
         {outside.length > 0 && (
           <div className={cn('flex shrink-0 items-center gap-0.5', rooms.length + saved.length > 0 && 'ml-1 border-l pl-2')}>
-            <span className="pr-1 text-xs text-muted-foreground">Outside</span>
+            <span className="pr-1 text-xs text-muted-foreground">{t('Outside')}</span>
             {outside.map((vp) => (
               <Tooltip key={vp.id}>
                 <TooltipTrigger asChild>
@@ -190,20 +191,20 @@ export function ViewpointBar({
       </div>
       <Tooltip>
         <TooltipTrigger asChild>
-          <Button variant="ghost" size="icon" className="shrink-0 rounded-full" onClick={() => onStep(1)} aria-label="Next viewpoint">
+          <Button variant="ghost" size="icon" className="shrink-0 rounded-full" onClick={() => onStep(1)} aria-label={t('Next viewpoint')}>
             <ChevronRight />
           </Button>
         </TooltipTrigger>
-        <TooltipContent>Next (Page Down)</TooltipContent>
+        <TooltipContent>{t('Next (Page Down)')}</TooltipContent>
       </Tooltip>
       <div className="mx-0.5 h-6 w-px shrink-0 bg-border" />
       <Tooltip>
         <TooltipTrigger asChild>
-          <Button variant="ghost" size="icon" className="shrink-0 rounded-full" onClick={actions.onSave} aria-label="Save this view">
+          <Button variant="ghost" size="icon" className="shrink-0 rounded-full" onClick={actions.onSave} aria-label={t('Save this view')}>
             <BookmarkPlus />
           </Button>
         </TooltipTrigger>
-        <TooltipContent>Save this view</TooltipContent>
+        <TooltipContent>{t('Save this view')}</TooltipContent>
       </Tooltip>
       <Tooltip>
         <TooltipTrigger asChild>
@@ -212,25 +213,25 @@ export function ViewpointBar({
             size="icon"
             className="shrink-0 rounded-full"
             onClick={onTogglePlay}
-            aria-label={playing ? 'Pause the tour' : 'Play a tour of every viewpoint'}
+            aria-label={playing ? t('Pause the tour') : t('Play a tour of every viewpoint')}
           >
             {playing ? <Pause /> : <Play />}
           </Button>
         </TooltipTrigger>
-        <TooltipContent>{playing ? 'Pause the tour' : 'Tour every viewpoint automatically'}</TooltipContent>
+        <TooltipContent>{playing ? t('Pause the tour') : t('Tour every viewpoint automatically')}</TooltipContent>
       </Tooltip>
       <Tooltip>
         <TooltipTrigger asChild>
-          <Button variant="ghost" size="icon" className="shrink-0 rounded-full" onClick={onExit} aria-label="Leave viewpoints">
+          <Button variant="ghost" size="icon" className="shrink-0 rounded-full" onClick={onExit} aria-label={t('Leave viewpoints')}>
             <X />
           </Button>
         </TooltipTrigger>
-        <TooltipContent>Leave viewpoints (Esc)</TooltipContent>
+        <TooltipContent>{t('Leave viewpoints (Esc)')}</TooltipContent>
       </Tooltip>
       <Dialog open={!!renaming} onOpenChange={(o) => !o && setRenaming(null)}>
         <DialogContent className="sm:max-w-sm">
           <DialogHeader>
-            <DialogTitle>Rename view</DialogTitle>
+            <DialogTitle>{t('Rename view')}</DialogTitle>
           </DialogHeader>
           {renaming && (
             <form
@@ -241,12 +242,12 @@ export function ViewpointBar({
                 setRenaming(null)
               }}
             >
-              <Input name="name" defaultValue={renaming.label} aria-label="View name" autoFocus onFocus={(e) => e.currentTarget.select()} />
+              <Input name="name" defaultValue={renaming.label} aria-label={t('View name')} autoFocus onFocus={(e) => e.currentTarget.select()} />
               <DialogFooter className="mt-4">
                 <Button type="button" variant="outline" onClick={() => setRenaming(null)}>
-                  Cancel
+                  {t('Cancel')}
                 </Button>
-                <Button type="submit">Save</Button>
+                <Button type="submit">{t('Save')}</Button>
               </DialogFooter>
             </form>
           )}

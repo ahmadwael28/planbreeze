@@ -12,6 +12,11 @@
         const t = localStorage.getItem('fp.theme')
         const dark = t === 'dark' || (t !== 'light' && matchMedia('(prefers-color-scheme: dark)').matches)
         document.documentElement.classList.toggle('dark', dark)
+        const l = localStorage.getItem('planbreeze.lang')
+        if (l === 'ar' || (!l && navigator.language.toLowerCase().startsWith('ar'))) {
+          document.documentElement.lang = 'ar'
+          document.documentElement.dir = 'rtl'
+        }
       } catch {}
     </script>
     <style>

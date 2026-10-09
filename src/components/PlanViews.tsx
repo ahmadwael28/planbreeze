@@ -1,3 +1,4 @@
+import { t } from '@/i18n'
 import type { PlanTheme } from '@/model/theme'
 import type { SavedView } from '@/model/types'
 
@@ -50,7 +51,7 @@ export function PlanViews({
               }}
             />
             <g data-kind="view" data-id={v.id} className="plan-view">
-              <title>{`${v.name}: drag to move · open it in 3D from the panel`}</title>
+              <title>{`${v.name}: ${t('drag to move · open it in 3D from the panel')}`}</title>
               <circle
                 r={px(13)}
                 strokeWidth={sel ? 3 : 2}
@@ -81,7 +82,7 @@ export function PlanViews({
               <g transform={`rotate(${yaw})`}>
                 <line x1={px(13)} y1={0} x2={R + px(6)} y2={0} className="sel-outline" />
                 <circle data-kind="view-rotate" className="handle rotate-handle" cx={R + px(6)} cy={0} r={px(7)}>
-                  <title>Turn the camera (hold Shift for free rotation)</title>
+                  <title>{t('Turn the camera (hold Shift for free rotation)')}</title>
                 </circle>
               </g>
             )}

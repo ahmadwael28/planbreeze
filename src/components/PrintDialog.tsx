@@ -1,3 +1,4 @@
+import { t, tc } from '@/i18n'
 import { useMemo, useState } from 'react'
 import type { ReactNode } from 'react'
 import { FileDown } from 'lucide-react'
@@ -75,7 +76,7 @@ export function PrintDialog() {
       const { exportPdf } = await import('@/utils/pdf')
       const floors = opts.floors === 'all' ? project.floors.filter((f) => f.rooms.length) : [floor]
       await exportPdf(project, floors.length ? floors : [floor], opts)
-      toast.success('PDF saved. Print it at 100% (actual size) to keep the scale.')
+      toast.success(t('PDF saved. Print it at 100% (actual size) to keep the scale.'))
       setOpen(false)
     } catch (e) {
       toast.error((e as Error).message)
@@ -91,8 +92,8 @@ export function PrintDialog() {
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogContent className="flex max-h-[94dvh] flex-col gap-0 overflow-hidden p-0 sm:max-w-5xl">
         <DialogHeader className="border-b px-5 py-4">
-          <DialogTitle>Print to scale</DialogTitle>
-          <DialogDescription>A vector PDF at an exact scale, with a title block and a scale bar.</DialogDescription>
+          <DialogTitle>{t('Print to scale')}</DialogTitle>
+          <DialogDescription>{t('A vector PDF at an exact scale, with a title block and a scale bar.')}</DialogDescription>
         </DialogHeader>
         <div className="grid min-h-0 flex-1 overflow-y-auto md:grid-cols-[1fr_320px] md:overflow-hidden">
           {/* page preview */}
@@ -142,7 +143,7 @@ export function PrintDialog() {
           {/* options */}
           <div className="flex min-h-0 flex-col border-t md:border-t-0 md:border-l">
             <div className="flex-1 space-y-4 overflow-y-auto p-4">
-              <Row label="Paper">
+              <Row label={t('Paper')}>
                 <Select value={opts.paper} onValueChange={(v) => set({ paper: v as Paper })}>
                   <SelectTrigger size="sm" className="w-full">
                     <SelectValue />
@@ -156,7 +157,7 @@ export function PrintDialog() {
                   </SelectContent>
                 </Select>
               </Row>
-              <Row label="Orientation">
+              <Row label={t('Orientation')}>
                 <ToggleGroup
                   type="single"
                   variant="outline"
@@ -166,14 +167,14 @@ export function PrintDialog() {
                   className="w-full"
                 >
                   <ToggleGroupItem value="portrait" className={`flex-1 ${on}`}>
-                    Portrait
+                    {t('Portrait')}
                   </ToggleGroupItem>
                   <ToggleGroupItem value="landscape" className={`flex-1 ${on}`}>
-                    Landscape
+                    {t('Landscape')}
                   </ToggleGroupItem>
                 </ToggleGroup>
               </Row>
-              <Row label="Scale">
+              <Row label={t('Scale')}>
                 <Select
                   value={String(opts.scale)}
                   onValueChange={(v) => set({ scale: v === 'fit' ? 'fit' : Number(v) })}
@@ -193,11 +194,13 @@ export function PrintDialog() {
               </Row>
               {!layout.fits && (
                 <p className="rounded-md bg-amber-500/15 px-2.5 py-1.5 text-xs text-amber-700 dark:text-amber-300">
-                  The plan is cut off at {scaleLabel(layout.scale, units)}. Pick {scaleLabel(layout.fitScale, units)}, a bigger paper,
-                  or the other orientation.
+                  {t('The plan is cut off at {scale}. Pick {fit}, a bigger paper, or the other orientation.', {
+                    scale: scaleLabel(layout.scale, units),
+                    fit: scaleLabel(layout.fitScale, units),
+                  })}
                 </p>
               )}
-              <Row label="Plan">
+              <Row label={t('Plan')}>
                 <ToggleGroup
                   type="single"
                   variant="outline"
@@ -207,22 +210,22 @@ export function PrintDialog() {
                   className="w-full"
                 >
                   <ToggleGroupItem value="plan" className={`flex-1 ${on}`}>
-                    Floor plan
+                    {t('Floor plan')}
                   </ToggleGroupItem>
                   <ToggleGroupItem value="lighting" className={`flex-1 ${on}`}>
-                    Lighting
+                    {t('Lighting')}
                   </ToggleGroupItem>
                 </ToggleGroup>
               </Row>
               {project.floors.length > 1 && (
-                <Row label="Floors">
+                <Row label={tc('levels', 'Floors')}>
                   <Select value={opts.floors} onValueChange={(v) => set({ floors: v as PrintOptions['floors'] })}>
                     <SelectTrigger size="sm" className="w-full">
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="current">This floor</SelectItem>
-                      <SelectItem value="all">All floors (one page each)</SelectItem>
+                      <SelectItem value="current">{t('This floor')}</SelectItem>
+                      <SelectItem value="all">{t('All floors (one page each)')}</SelectItem>
                     </SelectContent>
                   </Select>
                 </Row>
@@ -238,21 +241,21 @@ export function PrintDialog() {
                   ] as const
                 ).map(([key, label]) => (
                   <label key={key} className="flex items-center justify-between text-sm">
-                    {label}
+                    {t(label)}
                     <Switch checked={opts[key]} onCheckedChange={(v) => set({ [key]: v })} />
                   </label>
                 ))}
               </div>
               <p className="text-xs leading-relaxed text-muted-foreground">
-                When printing the PDF, choose <b>Actual size / 100%</b>. Check the scale bar with a ruler.
+                {t('When printing the PDF, choose “Actual size / 100%”. Check the scale bar with a ruler.')}
               </p>
             </div>
             <div className="flex justify-end gap-2 border-t p-4">
               <Button variant="ghost" onClick={() => setOpen(false)}>
-                Cancel
+                {t('Cancel')}
               </Button>
               <Button onClick={download} disabled={busy || layout.empty}>
-                {busy ? <Loader label="Making the PDF" /> : <FileDown />} Download PDF
+                {busy ? <Loader label={t('Making the PDF')} /> : <FileDown />} Download PDF
               </Button>
             </div>
           </div>

@@ -36,7 +36,7 @@ export function LengthInput({ value, units, onChange, min = 0.5, className, id }
   }
 
   return (
-    <Input
+    <Input dir="ltr"
       id={id}
       className={cn('h-8 tabular-nums', className)}
       aria-invalid={invalid || undefined}
@@ -67,7 +67,7 @@ export function TextInput({ value, onChange, id }: { value: string; onChange: (v
     setDraft(null)
   }
   return (
-    <Input
+    <Input dir="ltr"
       id={id}
       className="h-8"
       value={draft ?? value}
@@ -107,7 +107,7 @@ export function NumberInput({
   }
   return (
     <div className="relative">
-      <Input
+      <Input dir="ltr"
         id={id}
         type="number"
         step={step}

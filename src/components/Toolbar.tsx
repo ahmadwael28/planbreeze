@@ -8,6 +8,7 @@ import { cn } from '@/lib/utils'
 import type { Tool } from '@/model/types'
 import { addLShapeRoomAtCenter, addRectRoomAtCenter, isViewOnly, useEditor } from '@/store/editor'
 import { useUi } from '@/store/ui'
+import { isRtl, t } from '@/i18n'
 
 const TOOLS: { tool: Tool; icon: LucideIcon; label: string; key: string }[] = [
   { tool: 'select', icon: MousePointer2, label: 'Select & move (Shift + click to add)', key: 'V' },
@@ -45,7 +46,7 @@ function ToolButton({ label, active, onClick, tour, children }: { label: string;
           {children}
         </Button>
       </TooltipTrigger>
-      <TooltipContent side="right">{label}</TooltipContent>
+      <TooltipContent side={isRtl() ? 'left' : 'right'}>{label}</TooltipContent>
     </Tooltip>
   )
 }
@@ -57,42 +58,42 @@ export function Toolbar() {
   const layer = useEditor((s) => s.layer)
   // Shared to view: only the tools for looking around.
   const viewOnly = useEditor((s) => isViewOnly(s.project))
-  const tools = viewOnly ? TOOLS.filter((t) => t.tool === 'select' || t.tool === 'pan') : TOOLS
+  const tools = viewOnly ? TOOLS.filter((x) => x.tool === 'select' || x.tool === 'pan') : TOOLS
 
   return (
-    <nav className="flex w-13 shrink-0 flex-col items-center gap-1 overflow-y-auto border-r bg-background py-2" data-tour="tools">
-      {tools.map(({ tool: t, icon: Icon, label, key }) => (
-        <ToolButton key={t} label={`${label} (${key})`} active={tool === t} onClick={() => setTool(t)}>
+    <nav className="flex w-13 shrink-0 flex-col items-center gap-1 overflow-y-auto border-e bg-background py-2" data-tour="tools">
+      {tools.map(({ tool: id, icon: Icon, label, key }) => (
+        <ToolButton key={id} label={`${t(label)} (${key})`} active={tool === id} onClick={() => setTool(id)}>
           <Icon />
         </ToolButton>
       ))}
       {layer === 'lighting' && !viewOnly && (
-        <ToolButton label="Connect switches to lights (W)" active={tool === 'wire'} onClick={() => setTool('wire')}>
+        <ToolButton label={t('Connect switches to lights (W)')} active={tool === 'wire'} onClick={() => setTool('wire')}>
           <Cable />
         </ToolButton>
       )}
       {!viewOnly && (
         <>
           <Separator className="my-1 w-7!" />
-          <ToolButton label="Add 4 × 3 m room" onClick={() => addRectRoomAtCenter()}>
+          <ToolButton label={t('Add 4 × 3 m room')} onClick={() => addRectRoomAtCenter()}>
             <Plus />
           </ToolButton>
-          <ToolButton label="Add L-shaped room" onClick={addLShapeRoomAtCenter}>
+          <ToolButton label={t('Add L-shaped room')} onClick={addLShapeRoomAtCenter}>
             <SquareDashedBottom />
           </ToolButton>
-          <ToolButton label="Import a sketch or photo" onClick={() => useUi.getState().openImport('current')} tour="import">
+          <ToolButton label={t('Import a sketch or photo')} onClick={() => useUi.getState().openImport('current')} tour="import">
             <ScanLine />
           </ToolButton>
         </>
       )}
       <Separator className="my-1 w-7!" />
-      <ToolButton label="Zoom in (+)" onClick={() => zoomBy(1.25)}>
+      <ToolButton label={t('Zoom in (+)')} onClick={() => zoomBy(1.25)}>
         <ZoomIn />
       </ToolButton>
-      <ToolButton label="Zoom out (−)" onClick={() => zoomBy(0.8)}>
+      <ToolButton label={t('Zoom out (−)')} onClick={() => zoomBy(0.8)}>
         <ZoomOut />
       </ToolButton>
-      <ToolButton label="Zoom to fit (F)" onClick={requestFit}>
+      <ToolButton label={t('Zoom to fit (F)')} onClick={requestFit}>
         <Maximize />
       </ToolButton>
     </nav>

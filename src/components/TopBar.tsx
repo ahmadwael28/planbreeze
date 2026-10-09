@@ -9,6 +9,7 @@ import {
   FileUp,
   FolderOpen,
   ImageIcon,
+  Languages,
   Monitor,
   Moon,
   PanelRight,
@@ -44,6 +45,8 @@ import { ShareControls } from './ShareControls'
 import { startTour } from './tour'
 import { Logo } from './Logo'
 import type { ViewMode } from '@/store/editor'
+import { LANGS, setLang, t, useLang } from '@/i18n'
+import type { Lang } from '@/i18n'
 
 interface Props {
   onToggleSidebar: () => void
@@ -79,13 +82,38 @@ function Tip({ label, children }: { label: string; children: ReactNode }) {
   )
 }
 
+/** English or Arabic. */
+function LanguageMenu() {
+  const lang = useLang()
+  return (
+    <DropdownMenu>
+      <Tip label={t('Language')}>
+        <DropdownMenuTrigger asChild>
+          <Button variant="ghost" size="icon" aria-label={t('Language')}>
+            <Languages />
+          </Button>
+        </DropdownMenuTrigger>
+      </Tip>
+      <DropdownMenuContent align="end">
+        <DropdownMenuRadioGroup value={lang} onValueChange={(v) => setLang(v as Lang)}>
+          {LANGS.map((l) => (
+            <DropdownMenuRadioItem key={l.id} value={l.id} lang={l.id}>
+              {l.name}
+            </DropdownMenuRadioItem>
+          ))}
+        </DropdownMenuRadioGroup>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  )
+}
+
 function ThemeMenu() {
   const { theme, setTheme } = useTheme()
   return (
     <DropdownMenu>
-      <Tip label="Theme">
+      <Tip label={t('Theme')}>
         <DropdownMenuTrigger asChild>
-          <Button variant="ghost" size="icon" aria-label="Theme">
+          <Button variant="ghost" size="icon" aria-label={t('Theme')}>
             <Sun className="dark:hidden" />
             <Moon className="hidden dark:block" />
           </Button>
@@ -94,13 +122,13 @@ function ThemeMenu() {
       <DropdownMenuContent align="end">
         <DropdownMenuRadioGroup value={theme} onValueChange={(v) => setTheme(v as Theme)}>
           <DropdownMenuRadioItem value="light">
-            <Sun /> Light
+            <Sun /> {t('Light')}
           </DropdownMenuRadioItem>
           <DropdownMenuRadioItem value="dark">
-            <Moon /> Dark
+            <Moon /> {t('Dark')}
           </DropdownMenuRadioItem>
           <DropdownMenuRadioItem value="system">
-            <Monitor /> System
+            <Monitor /> {t('System')}
           </DropdownMenuRadioItem>
         </DropdownMenuRadioGroup>
       </DropdownMenuContent>
@@ -128,7 +156,7 @@ export function TopBar({ onToggleSidebar, sidebarOpen }: Props) {
 
   return (
     <header className="z-10 flex h-13 shrink-0 items-center gap-1 overflow-hidden border-b bg-background px-2 sm:gap-2 sm:px-3">
-      <div className="mr-1 hidden items-center gap-2 sm:flex">
+      <div className="me-1 hidden items-center gap-2 sm:flex">
         <Logo className="size-8" />
         <span className="hidden text-[15px] font-semibold tracking-tight lg:inline">Planbreeze</span>
       </div>
@@ -141,14 +169,14 @@ export function TopBar({ onToggleSidebar, sidebarOpen }: Props) {
       <ShareControls />
 
       <div className="flex shrink-0 items-center">
-        <Tip label="Undo (Ctrl+Z)">
-          <Button variant="ghost" size="icon" disabled={!canUndo} onClick={undo} aria-label="Undo">
-            <Undo2 />
+        <Tip label={t('Undo (Ctrl+Z)')}>
+          <Button variant="ghost" size="icon" disabled={!canUndo} onClick={undo} aria-label={t('Undo')}>
+            <Undo2 className="rtl-flip" />
           </Button>
         </Tip>
-        <Tip label="Redo (Ctrl+Y)">
-          <Button variant="ghost" size="icon" disabled={!canRedo} onClick={redo} aria-label="Redo">
-            <Redo2 />
+        <Tip label={t('Redo (Ctrl+Y)')}>
+          <Button variant="ghost" size="icon" disabled={!canRedo} onClick={redo} aria-label={t('Redo')}>
+            <Redo2 className="rtl-flip" />
           </Button>
         </Tip>
       </div>
@@ -160,7 +188,7 @@ export function TopBar({ onToggleSidebar, sidebarOpen }: Props) {
           size="sm"
           value={viewMode}
           onValueChange={(v) => v && setViewMode(v as ViewMode)}
-          aria-label="View mode"
+          aria-label={t('View mode')}
           data-tour="view-mode"
         >
           <ToggleGroupItem value="2d" className="px-3 font-semibold data-[state=on]:bg-primary data-[state=on]:text-primary-foreground">
@@ -174,14 +202,14 @@ export function TopBar({ onToggleSidebar, sidebarOpen }: Props) {
 
       <div className="flex shrink-0 items-center">
         {!viewOnly && (
-          <Tip label="Suggest an interior design">
+          <Tip label={t('Suggest an interior design')}>
             <Button variant="ghost" onClick={openDesign} className="gap-1.5 px-2.5" data-tour="design">
               <Sparkles className="text-primary" />
-              <span className="max-lg:hidden">Design</span>
+              <span className="max-lg:hidden">{t('Design')}</span>
             </Button>
           </Tip>
         )}
-        <Tip label="Switch units">
+        <Tip label={t('Switch units')}>
           <Button
             variant="ghost"
             size="icon"
@@ -193,77 +221,77 @@ export function TopBar({ onToggleSidebar, sidebarOpen }: Props) {
         </Tip>
 
         <DropdownMenu>
-          <Tip label="View options">
+          <Tip label={t('View options')}>
             <DropdownMenuTrigger asChild>
-              <Button variant="ghost" size="icon" aria-label="View options">
+              <Button variant="ghost" size="icon" aria-label={t('View options')}>
                 <Settings2 />
               </Button>
             </DropdownMenuTrigger>
           </Tip>
           <DropdownMenuContent align="end" className="w-56">
-            <DropdownMenuLabel>Plan view</DropdownMenuLabel>
+            <DropdownMenuLabel>{t('Plan view')}</DropdownMenuLabel>
             <DropdownMenuCheckboxItem checked={settings.snap} onCheckedChange={(v) => setSettings({ snap: v })}>
-              Snap to grid & walls
+              {t('Snap to grid & walls')}
             </DropdownMenuCheckboxItem>
             <DropdownMenuCheckboxItem checked={settings.showGrid} onCheckedChange={(v) => setSettings({ showGrid: v })}>
-              Show grid
+              {t('Show grid')}
             </DropdownMenuCheckboxItem>
             <DropdownMenuCheckboxItem
               checked={settings.showWallLengths}
               onCheckedChange={(v) => setSettings({ showWallLengths: v })}
             >
-              Show wall lengths
+              {t('Show wall lengths')}
             </DropdownMenuCheckboxItem>
             <DropdownMenuCheckboxItem checked={settings.showAreas} onCheckedChange={(v) => setSettings({ showAreas: v })}>
-              Show room areas
+              {t('Show room areas')}
             </DropdownMenuCheckboxItem>
             <DropdownMenuCheckboxItem
               checked={settings.showDimensions}
               onCheckedChange={(v) => setSettings({ showDimensions: v })}
             >
-              Show dimension lines
+              {t('Show dimension lines')}
             </DropdownMenuCheckboxItem>
             <DropdownMenuCheckboxItem
               checked={settings.showFloorBelow}
               onCheckedChange={(v) => setSettings({ showFloorBelow: v })}
             >
-              Show floor below
+              {t('Show floor below')}
             </DropdownMenuCheckboxItem>
           </DropdownMenuContent>
         </DropdownMenu>
 
         <DropdownMenu>
-          <Tip label="Export / import">
+          <Tip label={t('Export / import')}>
             <DropdownMenuTrigger asChild>
-              <Button variant="ghost" size="icon" aria-label="Export or import" data-tour="export">
+              <Button variant="ghost" size="icon" aria-label={t('Export or import')} data-tour="export">
                 <Download />
               </Button>
             </DropdownMenuTrigger>
           </Tip>
           <DropdownMenuContent align="end" className="w-60">
             <DropdownMenuItem onSelect={() => useUi.getState().openPrint(true)}>
-              <Printer /> Print to scale (PDF)…
+              <Printer /> {t('Print to scale (PDF)…')}
             </DropdownMenuItem>
             <DropdownMenuSeparator />
-            <DropdownMenuLabel>Export current floor</DropdownMenuLabel>
+            <DropdownMenuLabel>{t('Export current floor')}</DropdownMenuLabel>
             <DropdownMenuItem onSelect={() => run((m) => m.exportPng(project(), floor(), exportOpts()))}>
-              <ImageIcon /> PNG image
+              <ImageIcon /> {t('PNG image')}
             </DropdownMenuItem>
             <DropdownMenuItem onSelect={() => run((m) => m.exportSvg(project(), floor(), exportOpts()))}>
-              <ImageIcon /> SVG vector
+              <ImageIcon /> {t('SVG vector')}
             </DropdownMenuItem>
             <DropdownMenuSeparator />
-            <DropdownMenuLabel>Import</DropdownMenuLabel>
+            <DropdownMenuLabel>{t('Import')}</DropdownMenuLabel>
             <DropdownMenuItem onSelect={() => useUi.getState().openImport('current')}>
-              <ScanLine /> Sketch or photo of a plan…
+              <ScanLine /> {t('Sketch or photo of a plan…')}
             </DropdownMenuItem>
             <DropdownMenuSeparator />
-            <DropdownMenuLabel>Project file</DropdownMenuLabel>
+            <DropdownMenuLabel>{t('Project file')}</DropdownMenuLabel>
             <DropdownMenuItem onSelect={() => run((m) => m.exportJson(project()))}>
-              <FileJson /> Save project (.json)
+              <FileJson /> {t('Save project (.json)')}
             </DropdownMenuItem>
             <DropdownMenuItem onSelect={() => fileRef.current?.click()}>
-              <FileUp /> Open project file…
+              <FileUp /> {t('Open project file…')}
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
@@ -278,29 +306,30 @@ export function TopBar({ onToggleSidebar, sidebarOpen }: Props) {
             if (file) {
               await run(
                 async (m) => useEditor.getState().loadProject(await m.importJson(file)),
-                `Opened “${file.name}”`,
+                t('Opened “{name}”', { name: file.name }),
               )
             }
           }}
         />
 
+        <LanguageMenu />
         <ThemeMenu />
-        <Tip label="Take the tour">
-          <Button variant="ghost" size="icon" onClick={startTour} aria-label="Take the tour" data-tour="help">
+        <Tip label={t('Take the tour')}>
+          <Button variant="ghost" size="icon" onClick={startTour} aria-label={t('Take the tour')} data-tour="help">
             <CircleHelp />
           </Button>
         </Tip>
         <AccountButton />
 
         <Separator orientation="vertical" className="mx-1 hidden h-5! sm:block" />
-        <Tip label={sidebarOpen ? 'Hide panel' : 'Show panel'}>
+        <Tip label={sidebarOpen ? t('Hide panel') : t('Show panel')}>
           <Button
             variant={sidebarOpen ? 'secondary' : 'ghost'}
             size="icon"
             onClick={onToggleSidebar}
-            aria-label="Toggle panel"
+            aria-label={t('Toggle panel')}
           >
-            <PanelRight />
+            <PanelRight className="rtl-flip" />
           </Button>
         </Tip>
       </div>

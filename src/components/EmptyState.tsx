@@ -2,6 +2,7 @@ import { LayoutTemplate, RectangleHorizontal, ScanLine } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { useEditor, useFloor } from '@/store/editor'
 import { useUi } from '@/store/ui'
+import { t } from '@/i18n'
 
 /** Shown on an empty floor so the first step is obvious. */
 export function EmptyState() {
@@ -16,18 +17,18 @@ export function EmptyState() {
   return (
     <div className="pointer-events-none absolute inset-0 grid place-items-center p-4">
       <div className="pointer-events-auto w-full max-w-sm rounded-2xl border bg-background/95 p-5 text-center shadow-lg backdrop-blur">
-        <h2 className="text-lg font-semibold">Let's get your floor plan in</h2>
-        <p className="mt-1 text-sm text-muted-foreground">Pick whatever is quickest for you.</p>
+        <h2 className="text-lg font-semibold">{t("Let's get your floor plan in")}</h2>
+        <p className="mt-1 text-sm text-muted-foreground">{t('Pick whatever is quickest for you.')}</p>
         <div className="mt-4 grid gap-2">
           <Button size="lg" className="h-11 justify-start" onClick={() => openImport('current')}>
-            <ScanLine /> Import a sketch or photo
+            <ScanLine /> {t('Import a sketch or photo')}
           </Button>
           <Button size="lg" variant="outline" className="h-11 justify-start" onClick={() => setTool('rect')}>
-            <RectangleHorizontal /> Draw a room
-            <kbd className="ml-auto rounded border px-1.5 font-mono text-xs text-muted-foreground">R</kbd>
+            <RectangleHorizontal /> {t('Draw a room')}
+            <kbd className="ms-auto rounded border px-1.5 font-mono text-xs text-muted-foreground">R</kbd>
           </Button>
           <Button size="lg" variant="ghost" className="h-11 justify-start" onClick={() => openStart(true)}>
-            <LayoutTemplate /> Use a template
+            <LayoutTemplate /> {t('Use a template')}
           </Button>
         </div>
       </div>

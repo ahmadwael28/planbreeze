@@ -1,3 +1,4 @@
+import { t, tc } from '@/i18n'
 import { useId, useRef, useState } from 'react'
 import type { KeyboardEvent, ReactNode } from 'react'
 import { ImagePlus, X } from 'lucide-react'
@@ -37,7 +38,7 @@ function updateRoom(id: string, recipe: (r: Room, d: Project) => void) {
   })
 }
 
-const sizeName = (kind: string, [a, b]: [number, number]) => (kind === 'slats' ? `${a} cm slats, ${b} cm gaps` : `${a} × ${b} cm`)
+const sizeName = (kind: string, [a, b]: [number, number]) => (kind === 'slats' ? t('{a} cm slats, {b} cm gaps', { a, b }) : t('{a} × {b} cm', { a, b }))
 
 /** The preset size whose shape best matches a photo's (it's of one tile or plank). */
 function sizeForPhoto(sizes: [number, number][], current: [number, number] | undefined, img: ProjectImage): [number, number] | undefined {
@@ -67,13 +68,13 @@ function FinishSelect<F extends Finish>({
         <SelectValue />
       </SelectTrigger>
       <SelectContent>
-        <SelectItem value="none">{none}</SelectItem>
+        <SelectItem value="none">{t(none)}</SelectItem>
         {groups.map(([group, list]) => (
           <SelectGroup key={group}>
-            <SelectLabel>{group}</SelectLabel>
+            <SelectLabel>{t(group)}</SelectLabel>
             {list.map((k) => (
               <SelectItem key={k} value={k}>
-                {FINISHES[k].name}
+                {t(FINISHES[k].name)}
               </SelectItem>
             ))}
           </SelectGroup>
@@ -88,8 +89,8 @@ function Swatch({ color, name, on, onClick, small }: { color: string; name: stri
   return (
     <button
       type="button"
-      title={name}
-      aria-label={name}
+      title={t(name)}
+      aria-label={t(name)}
       aria-pressed={on}
       onClick={onClick}
       className={cn(
@@ -107,7 +108,7 @@ function CustomColor({ value, on, onChange }: { value: string; on: boolean; onCh
   const started = useRef(false)
   return (
     <label
-      title="Any color"
+      title={t('Any color')}
       className={cn(
         'relative size-6 shrink-0 cursor-pointer rounded-full border shadow-sm focus-within:ring-2 focus-within:ring-ring',
         on && 'ring-2 ring-primary ring-offset-2 ring-offset-background',
@@ -116,7 +117,7 @@ function CustomColor({ value, on, onChange }: { value: string; on: boolean; onCh
     >
       <input
         type="color"
-        aria-label="Any color"
+        aria-label={t('Any color')}
         className="absolute inset-0 size-full cursor-pointer opacity-0"
         value={value}
         onFocus={() => (started.current = false)}
@@ -168,7 +169,7 @@ function SurfaceControls<S extends Surface>({
         : ([kind === 'paper' ? 53 : 100, Math.round((kind === 'paper' ? 53 : 100) * (img.h / img.w))] as [number, number])
       set({ image: img.id, size } as Partial<S>, (d) => void (d.images = [...(d.images ?? []), img]))
     } catch {
-      toast.error("That file couldn't be read as a picture.")
+      toast.error(t("That file couldn't be read as a picture."))
     } finally {
       setBusy(false)
     }
@@ -192,8 +193,8 @@ function SurfaceControls<S extends Surface>({
 
   return (
     <>
-      {kind !== 'paint' && <p className="text-xs text-muted-foreground">{f.def.hint}</p>}
-      <Field label="Color">
+      {kind !== 'paint' && <p className="text-xs text-muted-foreground">{t(f.def.hint)}</p>}
+      <Field label={t('Color')}>
         {() => (
           <div className="space-y-1.5 py-1">
             <div className="flex flex-wrap items-center gap-2">
@@ -212,7 +213,7 @@ function SurfaceControls<S extends Surface>({
                   <button
                     type="button"
                     title={img.name}
-                    aria-label={`Photo: ${img.name}`}
+                    aria-label={t('Photo: {name}', { name: img.name })}
                     aria-pressed={photo?.id === img.id}
                     onClick={() => set({ image: img.id } as Partial<S>)}
                     className={cn(
@@ -224,17 +225,17 @@ function SurfaceControls<S extends Surface>({
                   </button>
                   <button
                     type="button"
-                    aria-label={`Remove photo ${img.name}`}
-                    title="Remove this photo from the plan"
+                    aria-label={t('Remove photo {name}', { name: img.name })}
+                    title={t('Remove this photo from the plan')}
                     onClick={() => removePhoto(img)}
-                    className="absolute -top-1.5 -right-1.5 hidden size-4 items-center justify-center rounded-full border bg-background text-muted-foreground shadow-sm group-focus-within:flex group-hover:flex hover:text-foreground"
+                    className="absolute -end-1.5 -top-1.5 hidden size-4 items-center justify-center rounded-full border bg-background text-muted-foreground shadow-sm group-focus-within:flex group-hover:flex hover:text-foreground"
                   >
                     <X className="size-3" />
                   </button>
                 </span>
               ))}
               <Button type="button" variant="outline" size="sm" className="h-7 px-2 text-xs" disabled={busy} onClick={() => fileRef.current?.click()}>
-                <ImagePlus /> {images.length ? 'Add' : 'Use a photo'}
+                <ImagePlus /> {images.length ? t('Add') : t('Use a photo')}
               </Button>
               <input
                 ref={fileRef}
@@ -250,14 +251,24 @@ function SurfaceControls<S extends Surface>({
             </div>
             <p className="text-xs text-muted-foreground">
               {photo
-                ? `${photo.name}: ${pieces ? `one ${kind === 'tile' ? 'tile' : kind === 'slats' ? 'slat' : 'plank'}, laid like the others` : 'repeated over the surface'}`
-                : (named ?? 'Custom color')}
+                ? `${photo.name}: ${
+                    !pieces
+                      ? t('repeated over the surface')
+                      : kind === 'tile'
+                        ? t('one tile, laid like the others')
+                        : kind === 'slats'
+                          ? t('one slat, laid like the others')
+                          : t('one plank, laid like the others')
+                  }`
+                : named
+                  ? t(named)
+                  : t('Custom color')}
             </p>
           </div>
         )}
       </Field>
       {f.design && !photo && (
-        <Field label="Design">
+        <Field label={t('Design')}>
           {(id) => (
             <Select value={f.design!.id} onValueChange={(v) => set({ design: v } as Partial<S>)}>
               <SelectTrigger id={id} size="sm" className="w-full">
@@ -266,7 +277,7 @@ function SurfaceControls<S extends Surface>({
               <SelectContent>
                 {f.def.designs!.map((d) => (
                   <SelectItem key={d.id} value={d.id}>
-                    {d.name}
+                    {t(d.name)}
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -275,7 +286,7 @@ function SurfaceControls<S extends Surface>({
         </Field>
       )}
       {pieces && f.sizes.length > 0 && (
-        <Field label={kind === 'tile' ? 'Tile size' : kind === 'slats' ? 'Slats' : 'Plank size'}>
+        <Field label={kind === 'tile' ? t('Tile size') : kind === 'slats' ? t('Slats') : t('Plank size')}>
           {(id) => (
             <Select
               value={showCustom ? 'custom' : f.size!.join('x')}
@@ -295,14 +306,14 @@ function SurfaceControls<S extends Surface>({
                   </SelectItem>
                 ))}
                 <SelectSeparator />
-                <SelectItem value="custom">Another size…</SelectItem>
+                <SelectItem value="custom">{t('Another size…')}</SelectItem>
               </SelectContent>
             </Select>
           )}
         </Field>
       )}
       {f.size && (showCustom || (!pieces && photo)) && (
-        <Field label={pieces ? (kind === 'slats' ? 'Slat, gap (cm)' : 'Size (cm)') : 'Covers (cm)'}>
+        <Field label={pieces ? (kind === 'slats' ? t('Slat, gap (cm)') : t('Size (cm)')) : t('Covers (cm)')}>
           {() => (
             <div className="grid grid-cols-2 gap-1.5">
               {[0, 1].map((k) => (
@@ -323,7 +334,7 @@ function SurfaceControls<S extends Surface>({
         </Field>
       )}
       {f.patterns.length > 1 && (
-        <Field label="Laying">
+        <Field label={t('Laying')}>
           {(id) => (
             <Select value={f.pattern} onValueChange={(v) => set({ pattern: v as FloorPattern } as Partial<S>)}>
               <SelectTrigger id={id} size="sm" className="w-full">
@@ -332,7 +343,7 @@ function SurfaceControls<S extends Surface>({
               <SelectContent>
                 {f.patterns.map((p) => (
                   <SelectItem key={p} value={p}>
-                    {PATTERN_NAMES[p]}
+                    {t(PATTERN_NAMES[p])}
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -342,23 +353,23 @@ function SurfaceControls<S extends Surface>({
       )}
       {pieces && !(kind === 'tile' && square && (f.pattern === 'straight' || f.pattern === 'diagonal')) && (
         <Choice
-          label="Direction"
+          label={t('Direction')}
           value={surface.turned ? 'across' : 'along'}
           onChange={(v) => set({ turned: v === 'across' || undefined } as Partial<S>)}
           options={(place === 'floor' ? ['Horizontal', 'Vertical'] : kind === 'slats' ? ['Upright', 'Lying'] : ['Lying', 'Upright']).map((label, i) => ({
             value: i ? 'across' : 'along',
-            label,
+            label: tc('direction', label),
           }))}
         />
       )}
       {f.pattern === 'herringbone' && (
         <Choice
-          label="Angle"
+          label={t('Angle')}
           value={surface.parallel ? 'parallel' : 'diagonal'}
           onChange={(v) => set({ parallel: v === 'parallel' || undefined } as Partial<S>)}
           options={[
-            { value: 'diagonal', label: 'At 45°', title: 'Planks at 45° to the walls: the classic herringbone' },
-            { value: 'parallel', label: 'Along walls', title: 'Planks parallel to the walls: a straight herringbone' },
+            { value: 'diagonal', label: t('At 45°'), title: t('Planks at 45° to the walls: the classic herringbone') },
+            { value: 'parallel', label: t('Along walls'), title: t('Planks parallel to the walls: a straight herringbone') },
           ]}
         />
       )}
@@ -373,18 +384,18 @@ function PartWay({ surface, units, set }: { surface: WallSurface; units: Units; 
   return (
     <>
       <Choice
-        label="Up to"
+        label={t('Up to')}
         value={surface.height ? 'part' : 'full'}
         onChange={(v) => set({ height: v === 'part' ? 120 : undefined })}
         options={[
-          { value: 'full', label: 'The ceiling' },
-          { value: 'part', label: 'Part way' },
+          { value: 'full', label: t('The ceiling') },
+          { value: 'part', label: t('Part way') },
         ]}
       />
       {surface.height && (
         <>
-          <Field label="Height">{(id) => <LengthInput id={id} value={surface.height!} units={units} min={10} onChange={(v) => set({ height: v })} />}</Field>
-          <Field label="Paint above">
+          <Field label={t('Height')}>{(id) => <LengthInput id={id} value={surface.height!} units={units} min={10} onChange={(v) => set({ height: v })} />}</Field>
+          <Field label={t('Paint above')}>
             {() => (
               <div className="flex flex-wrap items-center gap-1.5 py-1">
                 {FINISHES.paint.colors.map((c) => (
@@ -404,7 +415,7 @@ export function FloorSection({ room, units }: { room: Room; units: Units }) {
   const floor = room.floor
   return (
     <div className="space-y-2.5 rounded-lg bg-muted/60 p-3">
-      <Field label="Floor">
+      <Field label={tc('finish', 'Floor')}>
         {(id) => (
           <FinishSelect<FloorFinish>
             id={id}
@@ -488,7 +499,7 @@ export function WallsSection({ room, units }: { room: Room; units: Units }) {
   return (
     <div className="space-y-2.5">
       <div className="space-y-2.5 rounded-lg bg-muted/60 p-3">
-        <Field label="All walls">
+        <Field label={t('All walls')}>
           {(id) => (
             <FinishSelect<WallFinish>
               id={id}
@@ -514,14 +525,14 @@ export function WallsSection({ room, units }: { room: Room; units: Units }) {
           className="h-28 w-full rounded-md bg-muted/60"
           preserveAspectRatio="xMidYMid meet"
           role="group"
-          aria-label="Finish per wall"
+          aria-label={t('Finish per wall')}
         >
           <path d={polygonPath(pts)} className="fill-background" />
           {pts.map((a, i) => {
             const p = pts[(i + 1) % pts.length]
             const s = wallSurfaceAt(room, i)
             const custom = !!room.wallFinishes?.[i]
-            const name = `Wall ${i + 1}, ${formatLength(dist(a, p), units)}: ${s ? FINISHES[s.finish].name : 'plain'}`
+            const name = t('Wall {n}, {length}: {finish}', { n: i + 1, length: formatLength(dist(a, p), units), finish: s ? t(FINISHES[s.finish].name) : t('plain') })
             return (
               <g
                 key={i}
@@ -557,10 +568,10 @@ export function WallsSection({ room, units }: { room: Room; units: Units }) {
           })}
         </svg>
         {at === null ? (
-          <p className="text-xs text-muted-foreground">Click a wall to give it a different finish, e.g. an accent wall or tiles behind the sink.</p>
+          <p className="text-xs text-muted-foreground">{t('Click a wall to give it a different finish, e.g. an accent wall or tiles behind the sink.')}</p>
         ) : (
           <div className="space-y-2.5 rounded-lg border p-3">
-            <Field label={`Wall ${at + 1}`}>
+            <Field label={t('Wall {n}', { n: at + 1 })}>
               {(id) => (
                 <FinishSelect<WallFinish>
                   id={id}

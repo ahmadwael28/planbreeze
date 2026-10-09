@@ -1,3 +1,4 @@
+import { t } from '@/i18n'
 import {
   AlertDialog,
   AlertDialogAction,
@@ -18,7 +19,7 @@ interface Props {
   onConfirm: () => void
 }
 
-export function ConfirmDialog({ open, onOpenChange, title, description, confirmLabel = 'Delete', onConfirm }: Props) {
+export function ConfirmDialog({ open, onOpenChange, title, description, confirmLabel, onConfirm }: Props) {
   return (
     <AlertDialog open={open} onOpenChange={onOpenChange}>
       <AlertDialogContent>
@@ -27,9 +28,9 @@ export function ConfirmDialog({ open, onOpenChange, title, description, confirmL
           <AlertDialogDescription>{description}</AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>
-          <AlertDialogCancel>Cancel</AlertDialogCancel>
+          <AlertDialogCancel>{t('Cancel')}</AlertDialogCancel>
           <AlertDialogAction variant="destructive" onClick={onConfirm}>
-            {confirmLabel}
+            {confirmLabel ?? t('Delete')}
           </AlertDialogAction>
         </AlertDialogFooter>
       </AlertDialogContent>

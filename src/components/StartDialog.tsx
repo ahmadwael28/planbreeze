@@ -1,3 +1,4 @@
+import { t } from '@/i18n'
 import { useEffect, useMemo, useRef } from 'react'
 import { ArrowRight, PenLine, ScanLine } from 'lucide-react'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
@@ -48,9 +49,9 @@ export function StartDialog() {
   }, [isOpen])
   const previews = useMemo(
     () =>
-      TEMPLATES.map((t) => {
-        const floor = t.build()
-        return { t, floor, area: floorStats(floor).interiorArea }
+      TEMPLATES.map((tpl) => {
+        const floor = tpl.build()
+        return { tpl, floor, area: floorStats(floor).interiorArea }
       }),
     [],
   )
@@ -60,7 +61,7 @@ export function StartDialog() {
     openStart(false)
   }
   const blank = () => {
-    openProjectNow(newProject('My plan'))
+    openProjectNow(newProject(t('My plan')))
     useEditor.getState().setTool('rect')
     openStart(false)
   }
@@ -73,64 +74,64 @@ export function StartDialog() {
     <Dialog open={isOpen} onOpenChange={openStart}>
       <DialogContent className="max-h-[94dvh] overflow-y-auto sm:max-w-3xl">
         <DialogHeader>
-          <DialogTitle className="text-xl">Start a new plan</DialogTitle>
-          <DialogDescription>Pick the quickest way in. You can change everything afterwards.</DialogDescription>
+          <DialogTitle className="text-xl">{t('Start a new plan')}</DialogTitle>
+          <DialogDescription>{t('Pick the quickest way in. You can change everything afterwards.')}</DialogDescription>
         </DialogHeader>
 
         <div className="grid gap-3 sm:grid-cols-2">
           <button
             onClick={fromDrawing}
-            className="group relative flex flex-col gap-3 overflow-hidden rounded-xl border-2 border-primary/40 bg-primary/5 p-5 text-left transition-colors hover:border-primary hover:bg-primary/10"
+            className="group relative flex flex-col gap-3 overflow-hidden rounded-xl border-2 border-primary/40 bg-primary/5 p-5 text-start transition-colors hover:border-primary hover:bg-primary/10"
           >
             <span className="grid size-11 place-items-center rounded-xl bg-primary text-primary-foreground">
               <ScanLine className="size-5.5" />
             </span>
             <span>
               <span className="flex items-center gap-2 text-base font-semibold">
-                From a drawing or photo
+                {t('From a drawing or photo')}
                 <span className="rounded-full bg-primary px-2 py-0.5 text-[10px] font-semibold tracking-wide text-primary-foreground uppercase">
-                  Fastest
+                  {t('Fastest')}
                 </span>
               </span>
               <span className="mt-1 block text-sm text-muted-foreground">
-                Snap a hand sketch or an existing plan. Rooms are detected for you.
+                {t('Snap a hand sketch or an existing plan. Rooms are detected for you.')}
               </span>
             </span>
-            <ArrowRight className="absolute top-5 right-5 size-5 text-primary transition-transform group-hover:translate-x-1" />
+            <ArrowRight className="rtl-flip absolute end-5 top-5 size-5 text-primary" />
           </button>
           <button
             onClick={blank}
-            className="group relative flex flex-col gap-3 rounded-xl border p-5 text-left transition-colors hover:border-foreground/30 hover:bg-muted/50"
+            className="group relative flex flex-col gap-3 rounded-xl border p-5 text-start transition-colors hover:border-foreground/30 hover:bg-muted/50"
           >
             <span className="grid size-11 place-items-center rounded-xl bg-muted text-foreground">
               <PenLine className="size-5.5" />
             </span>
             <span>
-              <span className="text-base font-semibold">Draw it yourself</span>
+              <span className="text-base font-semibold">{t('Draw it yourself')}</span>
               <span className="mt-1 block text-sm text-muted-foreground">
-                Start empty and drag out rooms. Type sizes for exact walls.
+                {t('Start empty and drag out rooms. Type sizes for exact walls.')}
               </span>
             </span>
-            <ArrowRight className="absolute top-5 right-5 size-5 text-muted-foreground transition-transform group-hover:translate-x-1" />
+            <ArrowRight className="rtl-flip absolute end-5 top-5 size-5 text-muted-foreground" />
           </button>
         </div>
 
         <div className="space-y-2.5">
-          <h3 className="text-sm font-medium">Or begin with a ready-made layout</h3>
+          <h3 className="text-sm font-medium">{t('Or begin with a ready-made layout')}</h3>
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-5">
-            {previews.map(({ t, floor, area }) => (
+            {previews.map(({ tpl, floor, area }) => (
               <button
-                key={t.id}
-                onClick={() => pickTemplate(t)}
-                className="flex flex-col overflow-hidden rounded-xl border text-left transition-colors hover:border-primary"
+                key={tpl.id}
+                onClick={() => pickTemplate(tpl)}
+                className="flex flex-col overflow-hidden rounded-xl border text-start transition-colors hover:border-primary"
               >
                 <div className="aspect-[4/3] bg-muted/40 p-2">
                   <Thumbnail floor={floor} />
                 </div>
                 <div className="border-t px-3 py-2">
-                  <div className="text-sm font-medium">{t.name}</div>
+                  <div className="text-sm font-medium">{t(tpl.name)}</div>
                   <div className="text-xs text-muted-foreground">
-                    {floor.rooms.length} rooms · {formatArea(area, units)}
+                    {t('{n} rooms', { n: floor.rooms.length })} · {formatArea(area, units)}
                   </div>
                 </div>
               </button>

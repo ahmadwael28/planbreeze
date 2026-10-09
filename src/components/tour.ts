@@ -1,3 +1,4 @@
+import { t } from '@/i18n'
 /** Starting the guided tour (see GuidedTour), and offering it once on a first visit. */
 import { toast } from 'sonner'
 import { useUi } from '@/store/ui'
@@ -24,9 +25,9 @@ export function offerTour() {
     return
   }
   if (useUi.getState().importTarget) return
-  toast('New to Planbreeze?', {
-    description: 'Take a one-minute tour of where everything is.',
+  toast(t('New to Planbreeze?'), {
+    description: t('Take a one-minute tour of where everything is.'),
     duration: 15000,
-    action: { label: 'Take the tour', onClick: startTour },
+    action: { label: t('Take the tour'), onClick: startTour },
   })
 }

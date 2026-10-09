@@ -1,3 +1,4 @@
+import { t } from '@/i18n'
 import { useState } from 'react'
 import type { FormEvent } from 'react'
 import { Globe, Link2, Lock, UserPlus } from 'lucide-react'
@@ -94,12 +95,12 @@ export function ShareDialog() {
   const invite = (ev: FormEvent) => {
     ev.preventDefault()
     const address = email.trim().toLowerCase()
-    if (!EMAIL.test(address)) return toast.error('Enter an email address, like name@example.com.')
-    if (address === user?.email?.toLowerCase()) return toast.error("That's your own address: you already have this plan.")
+    if (!EMAIL.test(address)) return toast.error(t('Enter an email address, like name@example.com.'))
+    if (address === user?.email?.toLowerCase()) return toast.error(t("That's your own address: you already have this plan."))
     void change(async () => {
       await sharingApi().share(project.id, address, role)
       setEmail('')
-    }, `Shared with ${address}. Send them the link so they can open it.`)
+    }, t('Shared with {email}. Send them the link so they can open it.', { email: address }))
   }
 
   const setLink = (on: boolean) => {
@@ -116,9 +117,9 @@ export function ShareDialog() {
     const url = shareLink(project.id, linkKey)
     try {
       await navigator.clipboard.writeText(url)
-      toast.success(linkKey ? 'Link copied. Anyone with it can view this plan.' : 'Link copied. It opens the plan for the people you added.')
+      toast.success(linkKey ? t('Link copied. Anyone with it can view this plan.') : t('Link copied. It opens the plan for the people you added.'))
     } catch {
-      window.prompt('Copy this link:', url)
+      window.prompt(t('Copy this link:'), url)
     }
   }
 
@@ -128,19 +129,19 @@ export function ShareDialog() {
         <DialogHeader>
           <DialogTitle className="truncate pr-6">Share “{project.name}”</DialogTitle>
           <DialogDescription>
-            People you add open it by signing in with that email address. Planbreeze doesn't email them, so send them the link.
+            {t("People you add open it by signing in with that email address. Planbreeze doesn't email them, so send them the link.")}
           </DialogDescription>
         </DialogHeader>
 
         {status === 'loading' ? (
           <div className="flex items-center gap-2 py-6 text-sm text-muted-foreground">
-            <Loader label="Loading" /> Getting the plan ready to share…
+            <Loader label={t('Loading')} /> {t('Getting the plan ready to share…')}
           </div>
         ) : status === 'error' ? (
           <div className="space-y-3">
             <p className="rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive">{problem}</p>
             <Button variant="outline" onClick={() => void load()}>
-              Try again
+              {t('Try again')}
             </Button>
           </div>
         ) : (
@@ -149,35 +150,35 @@ export function ShareDialog() {
               <Input
                 type="email"
                 autoComplete="off"
-                placeholder="Add people by email"
-                aria-label="Email address to share with"
+                placeholder={t('Add people by email')}
+                aria-label={t('Email address to share with')}
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 className="h-9 min-w-0 flex-1"
               />
               <Select value={role} onValueChange={(v) => setRole(v as ShareRole)}>
-                <SelectTrigger className="w-28" aria-label="Access for the new person">
+                <SelectTrigger className="w-28" aria-label={t('Access for the new person')}>
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="viewer">{ROLES.viewer}</SelectItem>
-                  <SelectItem value="editor">{ROLES.editor}</SelectItem>
+                  <SelectItem value="viewer">{t(ROLES.viewer)}</SelectItem>
+                  <SelectItem value="editor">{t(ROLES.editor)}</SelectItem>
                 </SelectContent>
               </Select>
-              <Button type="submit" disabled={busy || !email.trim()} aria-label="Share">
-                <UserPlus /> <span className="max-sm:hidden">Share</span>
+              <Button type="submit" disabled={busy || !email.trim()} aria-label={t('Share')}>
+                <UserPlus /> <span className="max-sm:hidden">{t('Share')}</span>
               </Button>
             </form>
 
             <section className="space-y-2">
-              <h4 className="text-sm font-medium">People with access</h4>
+              <h4 className="text-sm font-medium">{t('People with access')}</h4>
               <ul className="space-y-1">
                 <li className="flex items-center gap-3 py-1">
                   <Initial email={user?.email ?? user?.name ?? '?'} />
                   <span className="min-w-0 flex-1 truncate text-sm">
-                    {user?.email ?? user?.name} <span className="text-muted-foreground">(you)</span>
+                    {user?.email ?? user?.name} <span className="text-muted-foreground">{t('(you)')}</span>
                   </span>
-                  <span className="pr-3 text-sm text-muted-foreground">Owner</span>
+                  <span className="pr-3 text-sm text-muted-foreground">{t('Owner')}</span>
                 </li>
                 {shares.map((s) => (
                   <li key={s.email} className="flex items-center gap-3 py-1">
@@ -190,14 +191,14 @@ export function ShareDialog() {
                         void change(() => (v === 'remove' ? sharingApi().unshare(project.id, s.email) : sharingApi().share(project.id, s.email, v as ShareRole)))
                       }
                     >
-                      <SelectTrigger size="sm" className="w-28 border-transparent shadow-none" aria-label={`Access for ${s.email}`}>
+                      <SelectTrigger size="sm" className="w-28 border-transparent shadow-none" aria-label={t('Access for {email}', { email: s.email })}>
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent align="end">
-                        <SelectItem value="viewer">{ROLES.viewer}</SelectItem>
-                        <SelectItem value="editor">{ROLES.editor}</SelectItem>
+                        <SelectItem value="viewer">{t(ROLES.viewer)}</SelectItem>
+                        <SelectItem value="editor">{t(ROLES.editor)}</SelectItem>
                         <SelectSeparator />
-                        <SelectItem value="remove">Remove access</SelectItem>
+                        <SelectItem value="remove">{t('Remove access')}</SelectItem>
                       </SelectContent>
                     </Select>
                   </li>
@@ -206,25 +207,25 @@ export function ShareDialog() {
             </section>
 
             <section className="space-y-2">
-              <h4 className="text-sm font-medium">General access</h4>
+              <h4 className="text-sm font-medium">{t('General access')}</h4>
               <div className="flex items-start gap-3">
                 <span className="grid size-8 shrink-0 place-items-center rounded-full bg-muted text-muted-foreground [&>svg]:size-4">
                   {linkKey ? <Globe /> : <Lock />}
                 </span>
                 <div className="min-w-0 flex-1 space-y-0.5">
                   <Select value={linkKey ? 'link' : 'people'} disabled={busy} onValueChange={(v) => setLink(v === 'link')}>
-                    <SelectTrigger size="sm" className="-ml-2.5 w-auto border-transparent font-medium shadow-none" aria-label="General access">
+                    <SelectTrigger size="sm" className="-ms-2.5 w-auto border-transparent font-medium shadow-none" aria-label={t('General access')}>
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="people">Only people added</SelectItem>
-                      <SelectItem value="link">Anyone with the link can view</SelectItem>
+                      <SelectItem value="people">{t('Only people added')}</SelectItem>
+                      <SelectItem value="link">{t('Anyone with the link can view')}</SelectItem>
                     </SelectContent>
                   </Select>
                   <p className="text-xs text-muted-foreground">
                     {linkKey
-                      ? "Anyone who has the link can view this plan, without signing in. They can't change it."
-                      : 'Only the people above can open it, after signing in.'}
+                      ? t("Anyone who has the link can view this plan, without signing in. They can't change it.")
+                      : t('Only the people above can open it, after signing in.')}
                   </p>
                 </div>
               </div>
@@ -234,7 +235,7 @@ export function ShareDialog() {
 
         <DialogFooter className="sm:justify-between">
           <Button variant="outline" disabled={status !== 'ready'} onClick={() => void copyLink()}>
-            <Link2 /> Copy link
+            <Link2 /> {t('Copy link')}
           </Button>
           <Button onClick={() => setOpen(false)}>Done</Button>
         </DialogFooter>

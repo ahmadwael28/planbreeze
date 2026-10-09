@@ -16,6 +16,7 @@ import {
   sub,
 } from './geometry'
 import { SYMBOL_MAP } from './symbols'
+import { t } from '@/i18n'
 import type { Dimension, Floor, OutdoorKind, PlanSymbol, Point, Pose, Project, Railing, Room, WallAttachment } from './types'
 
 export const uid = () => Math.random().toString(36).slice(2, 10) + Date.now().toString(36).slice(-4)
@@ -42,7 +43,7 @@ export function newProject(name = 'Untitled plan'): Project {
     name,
     units: 'metric',
     defaultWallThickness: 10,
-    floors: [newFloor('Ground floor')],
+    floors: [newFloor(t('Ground floor'))],
     createdAt: now,
     updatedAt: now,
   }
@@ -52,7 +53,7 @@ export function newRoom(floor: Floor, points: Point[], wallThickness: number): R
   const n = floor.rooms.length
   return {
     id: uid(),
-    name: `Room ${n + 1}`,
+    name: t('Room {n}', { n: n + 1 }),
     points,
     wallThickness,
     color: ROOM_COLORS[n % ROOM_COLORS.length],
@@ -79,7 +80,7 @@ export function newOutdoor(floor: Floor, points: Point[], kind: OutdoorKind): Ro
   const d = OUTDOOR[kind]
   return {
     id: uid(),
-    name: n ? `${d.name} ${n + 1}` : d.name,
+    name: n ? `${t(d.name)} ${n + 1}` : t(d.name),
     points,
     wallThickness: RAILING_THICKNESS,
     color: d.color,

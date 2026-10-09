@@ -1,3 +1,4 @@
+import { t } from '@/i18n'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { DragEvent, PointerEvent as RPointerEvent, ReactNode } from 'react'
 import { Camera, ImageUp, Lightbulb, PenLine, ScanLine, Sparkles, Wand2 } from 'lucide-react'
@@ -174,7 +175,7 @@ function DrawingPreview({
                   onLine({ a, b })
                 }}
               >
-                <title>Measure this wall</title>
+                <title>{t('Measure this wall')}</title>
               </line>
             )
           }),
@@ -202,7 +203,7 @@ function ResultPreview({ floor, units }: { floor: Floor; units: 'metric' | 'impe
   const theme = usePlanTheme()
   const pts = floorBounds(floor)
   if (!pts.length) {
-    return <div className="grid h-full place-items-center text-sm text-muted-foreground">No rooms yet</div>
+    return <div className="grid h-full place-items-center text-sm text-muted-foreground">{t('No rooms yet')}</div>
   }
   const b = bbox(pts)
   const m = Math.max(b.maxX - b.minX, b.maxY - b.minY) * 0.06 + 20
@@ -351,7 +352,7 @@ export function ImportWizard() {
       }),
       ...detection.windows.map(([a, b]) => ({ kind: 'window' as const, a: toCm(a), b: toCm(b) })),
     ]
-    return { rooms: tidy.map((points, i) => ({ name: `Room ${i + 1}`, points })), openings }
+    return { rooms: tidy.map((points, i) => ({ name: t('Room {n}', { n: i + 1 }), points })), openings }
   }, [img, detection, cmPerPx, autoWall])
   const importWall = method === 'auto' ? autoWall : wall
 
@@ -484,12 +485,13 @@ export function ImportWizard() {
     if (st.viewMode !== '2d') st.setViewMode('2d')
     if (method === 'trace') {
       st.setTool('rect')
-      toast.success('Drawing placed. Drag over each room to trace it.')
+      toast.success(t('Drawing placed. Drag over each room to trace it.'))
     } else {
+      const rooms = content.rooms.length === 1 ? t('1 room') : t('{n} rooms', { n: content.rooms.length })
       toast.success(
-        `Created ${content.rooms.length} room${content.rooms.length === 1 ? '' : 's'}` +
-          (content.symbols.length ? ` and ${content.symbols.length} doors/windows` : '') +
-          '. Tap a room to fine-tune its walls.',
+        content.symbols.length
+          ? t('Created {rooms} and {n} doors/windows. Tap a room to fine-tune its walls.', { rooms, n: content.symbols.length })
+          : t('Created {rooms}. Tap a room to fine-tune its walls.', { rooms }),
       )
     }
     close()
@@ -508,13 +510,13 @@ export function ImportWizard() {
       (method === 'ai' && ai.status === 'done' && ai.result.rooms.length > 0))
 
   const scaleStep = (
-    <Step n={1} title="Set the scale">
+    <Step n={1} title={t('Set the scale')}>
       <p className="text-xs leading-relaxed text-muted-foreground">
         Click a detected wall (or drag the ends of the dashed line; they stick to room corners) whose length you know, such as one
         with a written dimension, then enter that length.
       </p>
       <div className="flex items-center gap-2">
-        <Label className="shrink-0 font-normal text-muted-foreground">Line length</Label>
+        <Label className="shrink-0 font-normal text-muted-foreground">{t('Line length')}</Label>
         <LengthInput
           value={lineLen}
           units={units}
@@ -526,7 +528,7 @@ export function ImportWizard() {
       </div>
       {!scaleSet && (
         <p className="rounded-md bg-amber-500/15 px-2.5 py-1.5 text-xs text-amber-700 dark:text-amber-300">
-          The scale is a guess until you set it. Room sizes depend on it.
+          {t('The scale is a guess until you set it. Room sizes depend on it.')}
         </p>
       )}
     </Step>
@@ -537,27 +539,27 @@ export function ImportWizard() {
       <Dialog open={tipsOpen} onOpenChange={setTipsOpen}>
         <DialogContent className="max-h-[90dvh] overflow-y-auto sm:max-w-3xl">
           <DialogHeader>
-            <DialogTitle>Getting a drawing recognized well</DialogTitle>
-            <DialogDescription>What helps, with examples, and what to try when the result isn't right.</DialogDescription>
+            <DialogTitle>{t('Getting a drawing recognized well')}</DialogTitle>
+            <DialogDescription>{t("What helps, with examples, and what to try when the result isn't right.")}</DialogDescription>
           </DialogHeader>
           <DrawingTips />
           <div className="space-y-2 rounded-lg bg-muted/60 p-3 text-sm">
-            <p className="font-medium">When the result isn't right</p>
+            <p className="font-medium">{t("When the result isn't right")}</p>
             <ul className="list-disc space-y-1 pl-5 text-xs leading-relaxed text-muted-foreground">
               <li>
-                <b className="text-foreground">Two rooms come out as one:</b> the doorway between them is wider than “Close doorways up to”.
+                <b className="text-foreground">{t('Two rooms come out as one:')}</b> the doorway between them is wider than “Close doorways up to”.
                 Raise it.
               </li>
               <li>
-                <b className="text-foreground">A room is missing:</b> it leaks to the outside through a gap, often a window drawn without
+                <b className="text-foreground">{t('A room is missing:')}</b> it leaks to the outside through a gap, often a window drawn without
                 lines. Raise “Close doorways up to”, or the line sensitivity if the walls are pale.
               </li>
               <li>
-                <b className="text-foreground">Furniture or text becomes rooms:</b> choose Printed plan under Drawing type, so only thick
+                <b className="text-foreground">{t('Furniture or text becomes rooms:')}</b> choose Printed plan under Drawing type, so only thick
                 walls count.
               </li>
               <li>
-                <b className="text-foreground">Still wrong:</b> crop the image to just the plan, or use Trace to draw over it. You can
+                <b className="text-foreground">{t('Still wrong:')}</b> crop the image to just the plan, or use Trace to draw over it. You can
                 also fix any room afterwards by dragging its corners and walls.
               </li>
             </ul>
@@ -566,9 +568,9 @@ export function ImportWizard() {
       </Dialog>
       <DialogContent className="flex max-h-[94dvh] flex-col gap-0 overflow-hidden p-0 sm:max-w-5xl">
         <DialogHeader className="border-b px-5 py-4">
-          <DialogTitle>Start from a drawing</DialogTitle>
+          <DialogTitle>{t('Start from a drawing')}</DialogTitle>
           <DialogDescription>
-            Use a photo, scan or hand sketch of a floor plan. Rooms are detected for you, or you can trace over it.
+            {t('Use a photo, scan or hand sketch of a floor plan. Rooms are detected for you, or you can trace over it.')}
           </DialogDescription>
         </DialogHeader>
 
@@ -583,31 +585,31 @@ export function ImportWizard() {
               onDrop={onDrop}
             >
               <div className="grid size-14 place-items-center rounded-2xl bg-primary/10 text-primary">
-                {loading ? <Loader className="size-8" label="Opening your drawing" /> : <ImageUp className="size-7" />}
+                {loading ? <Loader className="size-8" label={t('Opening your drawing')} /> : <ImageUp className="size-7" />}
               </div>
               <div>
-                <p className="font-medium">Drop an image here, paste it, or choose a file</p>
-                <p className="mt-1 text-sm text-muted-foreground">JPEG or PNG · photo, scan or screenshot</p>
+                <p className="font-medium">{t('Drop an image here, paste it, or choose a file')}</p>
+                <p className="mt-1 text-sm text-muted-foreground">{t('JPEG or PNG · photo, scan or screenshot')}</p>
               </div>
               <div className="flex flex-wrap justify-center gap-2">
                 <Button onClick={() => fileRef.current?.click()} disabled={loading}>
-                  <ImageUp /> Choose image
+                  <ImageUp /> {t('Choose image')}
                 </Button>
                 <Button variant="outline" onClick={() => cameraRef.current?.click()} disabled={loading}>
-                  <Camera /> Take a photo
+                  <Camera /> {t('Take a photo')}
                 </Button>
                 <Button variant="ghost" onClick={loadSample} disabled={loading}>
-                  <PenLine /> Try a sample sketch
+                  <PenLine /> {t('Try a sample sketch')}
                 </Button>
               </div>
             </div>
             <div className="mt-6 space-y-3">
               <h4 className="flex items-center gap-2 text-sm font-medium">
-                <Lightbulb className="size-4 text-amber-500" /> For the best results
+                <Lightbulb className="size-4 text-amber-500" /> {t('For the best results')}
               </h4>
               <DrawingTips only={['walls', 'crop', 'photo', 'sketch']} />
               <p className="text-xs text-muted-foreground">
-                Know the length of one wall (a written dimension is perfect): you'll use it to set the scale.
+                {t("Know the length of one wall (a written dimension is perfect): you'll use it to set the scale.")}
               </p>
             </div>
             <input
@@ -649,10 +651,10 @@ export function ImportWizard() {
                     className="bg-background"
                   >
                     <ToggleGroupItem value="drawing" className="px-3">
-                      Drawing
+                      {t('Drawing')}
                     </ToggleGroupItem>
                     <ToggleGroupItem value="result" className="px-3">
-                      Result
+                      {t('Result')}
                     </ToggleGroupItem>
                   </ToggleGroup>
                 </div>
@@ -675,7 +677,7 @@ export function ImportWizard() {
               </div>
               {detecting && (
                 <div className="absolute top-3 right-3 flex items-center gap-1.5 rounded-full bg-background/90 px-2.5 py-1 text-xs shadow">
-                  <Loader className="size-4" label="Detecting" /> Detecting…
+                  <Loader className="size-4" label={t('Detecting')} /> {t('Detecting…')}
                 </div>
               )}
             </div>
@@ -691,24 +693,23 @@ export function ImportWizard() {
                   className="w-full"
                 >
                   <ToggleGroupItem value="auto" className="flex-1">
-                    <ScanLine /> Detect
+                    <ScanLine /> {t('Detect')}
                   </ToggleGroupItem>
                   <ToggleGroupItem value="ai" className="flex-1">
-                    <Sparkles /> AI
+                    <Sparkles /> {t('AI')}
                   </ToggleGroupItem>
                   <ToggleGroupItem value="trace" className="flex-1">
-                    <PenLine /> Trace
+                    <PenLine /> {t('Trace')}
                   </ToggleGroupItem>
                 </ToggleGroup>
 
                 {method === 'auto' && (
                   <>
                     <p className="text-xs leading-relaxed text-muted-foreground">
-                      Finds rooms, doors and windows on your device, in printed plans (CAD, estate agent, scans and photos) and
-                      hand sketches. Nothing is uploaded.
+                      {t('Finds rooms, doors and windows on your device, in printed plans (CAD, estate agent, scans and photos) and hand sketches. Nothing is uploaded.')}
                     </p>
                     <div className="space-y-1.5">
-                      <Label className="text-xs font-normal text-muted-foreground">Drawing type</Label>
+                      <Label className="text-xs font-normal text-muted-foreground">{t('Drawing type')}</Label>
                       <ToggleGroup
                         type="single"
                         size="sm"
@@ -718,22 +719,22 @@ export function ImportWizard() {
                         className="w-full"
                       >
                         <ToggleGroupItem value="auto" className="flex-1">
-                          Auto
+                          {t('Auto')}
                         </ToggleGroupItem>
                         <ToggleGroupItem value="plan" className="flex-1">
-                          Printed plan
+                          {t('Printed plan')}
                         </ToggleGroupItem>
                         <ToggleGroupItem value="sketch" className="flex-1">
-                          Sketch
+                          {t('Sketch')}
                         </ToggleGroupItem>
                       </ToggleGroup>
                     </div>
                     {scaleStep}
-                    <Step n={2} title="Check the rooms">
+                    <Step n={2} title={t('Check the rooms')}>
                       <div className="space-y-3">
                         <div className="space-y-2">
                           <div className="flex justify-between text-xs">
-                            <span className="text-muted-foreground">Close doorways up to</span>
+                            <span className="text-muted-foreground">{t('Close doorways up to')}</span>
                             <span className="font-medium tabular-nums">
                               {formatLength(gap * Math.max(img.width, img.height) * cmPerPx, units)}
                             </span>
@@ -742,7 +743,7 @@ export function ImportWizard() {
                         </div>
                         <div className="space-y-2">
                           <div className="flex justify-between text-xs">
-                            <span className="text-muted-foreground">Line sensitivity</span>
+                            <span className="text-muted-foreground">{t('Line sensitivity')}</span>
                             <span className="font-medium tabular-nums">{Math.round(sensitivity * 100)}%</span>
                           </div>
                           <Slider min={0} max={1} step={0.05} value={[sensitivity]} onValueChange={([v]) => setSensitivity(v)} />
@@ -752,34 +753,39 @@ export function ImportWizard() {
                         <div className="space-y-1.5 text-sm">
                           <p>
                             {autoResult.rooms.length
-                              ? `Found ${autoResult.rooms.length} room${autoResult.rooms.length === 1 ? '' : 's'}`
-                              : 'No rooms found yet'}
+                              ? autoResult.rooms.length === 1
+                                ? t('Found 1 room')
+                                : t('Found {n} rooms', { n: autoResult.rooms.length })
+                              : t('No rooms found yet')}
                             {(() => {
                               const doors = autoResult.openings.filter((o) => o.kind !== 'window').length
                               const windows = autoResult.openings.length - doors
-                              const parts = [doors && `${doors} door${doors === 1 ? '' : 's'}`, windows && `${windows} window${windows === 1 ? '' : 's'}`].filter(Boolean)
-                              return parts.length ? `, ${parts.join(' and ')}.` : '.'
+                              const parts = [
+                                doors && (doors === 1 ? t('1 door') : t('{n} doors', { n: doors })),
+                                windows && (windows === 1 ? t('1 window') : t('{n} windows', { n: windows })),
+                              ].filter(Boolean)
+                              return parts.length ? `${t(', ')}${parts.join(t(' and '))}.` : '.'
                             })()}
                           </p>
                           <p className="text-xs text-muted-foreground">
                             {detection.kind === 'plan'
-                              ? `Read as a printed plan${detection.style === 'outlined' ? ' with outlined walls' : ''}` +
-                                (detection.wallThickness && scaleSet ? `, walls about ${formatLength(autoWall, units)} thick` : '') +
-                                (detection.angle ? `, straightened by ${Math.abs(detection.angle)}°` : '') +
+                              ? (detection.style === 'outlined' ? t('Read as a printed plan with outlined walls') : t('Read as a printed plan')) +
+                                (detection.wallThickness && scaleSet ? t(', walls about {size} thick', { size: formatLength(autoWall, units) }) : '') +
+                                (detection.angle ? t(', straightened by {n}°', { n: Math.abs(detection.angle) }) : '') +
                                 '.'
-                              : 'Read as a hand sketch.'}
+                              : t('Read as a hand sketch.')}
                           </p>
                           {autoResult.rooms.length === 0 && (
                             <p className="rounded-md bg-amber-500/15 px-2.5 py-1.5 text-xs leading-relaxed text-amber-800 dark:text-amber-300">
                               {kind === 'auto' && detection.kind === 'sketch'
-                                ? 'No drawn walls found. If this is a printed plan, choose Printed plan and raise the sensitivity; for a sketch, make sure the walls meet at the corners.'
-                                : 'Rooms may be leaking into each other or to the outside through a gap. Close wider doorways, or raise the sensitivity if walls are faint.'}
+                                ? t('No drawn walls found. If this is a printed plan, choose Printed plan and raise the sensitivity; for a sketch, make sure the walls meet at the corners.')
+                                : t('Rooms may be leaking into each other or to the outside through a gap. Close wider doorways, or raise the sensitivity if walls are faint.')}
                             </p>
                           )}
                         </div>
                       )}
                       <Button variant="link" size="sm" className="h-auto px-0" onClick={() => setTipsOpen(true)}>
-                        <Lightbulb /> Tips for better results
+                        <Lightbulb /> {t('Tips for better results')}
                       </Button>
                     </Step>
                   </>
@@ -788,35 +794,33 @@ export function ImportWizard() {
                 {method === 'ai' && (
                   <>
                     <p className="text-xs leading-relaxed text-muted-foreground">
-                      Claude reads the drawing, including handwritten room names and dimensions, so rough sketches that aren't to
-                      scale come out right. It also places doors and windows.
+                      {t("Claude reads the drawing, including handwritten room names and dimensions, so rough sketches that aren't to scale come out right. It also places doors and windows.")}
                     </p>
                     <div className="space-y-2">
-                      <Label htmlFor="api-key">Anthropic API key</Label>
+                      <Label htmlFor="api-key">{t('Anthropic API key')}</Label>
                       <Input
                         id="api-key"
                         type="password"
                         autoComplete="off"
-                        placeholder="sk-ant-…"
+                        placeholder={t('sk-ant-…')}
                         value={apiKey}
                         onChange={(e) => setApiKey(e.target.value)}
                       />
                       <label className="flex items-center gap-2 text-xs text-muted-foreground">
                         <Switch checked={rememberKey} onCheckedChange={setRememberKey} size="sm" />
-                        Remember on this device
+                        {t('Remember on this device')}
                       </label>
                       <p className="text-xs leading-relaxed text-muted-foreground">
-                        Get a key at console.anthropic.com. The image is sent to Anthropic with your key, and usage is billed to
-                        your account. The key stays in this browser.
+                        {t('Get a key at console.anthropic.com. The image is sent to Anthropic with your key, and usage is billed to your account. The key stays in this browser.')}
                       </p>
                     </div>
                     {ai.status === 'running' ? (
                       <div className="flex items-center gap-2">
                         <Button disabled className="flex-1">
-                          <Loader label="Reading your drawing" /> Reading your drawing…
+                          <Loader label={t('Reading your drawing')} /> {t('Reading your drawing…')}
                         </Button>
                         <Button variant="outline" onClick={() => abortRef.current?.abort()}>
-                          Cancel
+                          {t('Cancel')}
                         </Button>
                       </div>
                     ) : (
@@ -824,17 +828,17 @@ export function ImportWizard() {
                         <Wand2 /> {ai.status === 'done' ? 'Recognize again' : 'Recognize plan'}
                       </Button>
                     )}
-                    {ai.status === 'running' && <p className="text-xs text-muted-foreground">This usually takes 20–60 seconds.</p>}
+                    {ai.status === 'running' && <p className="text-xs text-muted-foreground">{t('This usually takes 20–60 seconds.')}</p>}
                     {ai.status === 'error' && (
                       <p className="rounded-md bg-destructive/10 px-2.5 py-1.5 text-sm text-destructive">{ai.message}</p>
                     )}
                     {ai.status === 'done' && (
                       <div className="space-y-1.5 text-sm">
                         <p>
-                          Found {ai.result.rooms.length} rooms and {ai.result.openings.length} doors/windows.
+                          {t('Found {rooms} rooms and {openings} doors/windows.', { rooms: ai.result.rooms.length, openings: ai.result.openings.length })}
                         </p>
                         <Badge variant="secondary">
-                          {ai.scaleSource === 'labels' ? 'Sizes from written dimensions' : 'Sizes estimated, so check wall lengths'}
+                          {ai.scaleSource === 'labels' ? t('Sizes from written dimensions') : t('Sizes estimated, so check wall lengths')}
                         </Badge>
                       </div>
                     )}
@@ -844,8 +848,7 @@ export function ImportWizard() {
                 {method === 'trace' && (
                   <>
                     <p className="text-xs leading-relaxed text-muted-foreground">
-                      The drawing is placed behind your plan at the right size. Then drag over each room with the rectangle tool, or
-                      click its corners with the room tool.
+                      {t('The drawing is placed behind your plan at the right size. Then drag over each room with the rectangle tool, or click its corners with the room tool.')}
                     </p>
                     {scaleStep}
                   </>
@@ -854,13 +857,13 @@ export function ImportWizard() {
                 <div className="space-y-3 border-t pt-4">
                   {method === 'auto' && (
                     <label className="flex items-center justify-between gap-3 text-sm">
-                      Keep the drawing behind the plan
+                      {t('Keep the drawing behind the plan')}
                       <Switch checked={keepUnderlay} onCheckedChange={setKeepUnderlay} />
                     </label>
                   )}
                   {target === 'current' && floorHasContent && (
                     <label className="flex items-center justify-between gap-3 text-sm">
-                      Replace what's on this floor
+                      {t("Replace what's on this floor")}
                       <Switch checked={replace} onCheckedChange={setReplace} />
                     </label>
                   )}
@@ -869,7 +872,7 @@ export function ImportWizard() {
 
               <div className="flex items-center justify-between gap-2 border-t p-4">
                 <Button variant="ghost" onClick={reset}>
-                  Change image
+                  {t('Change image')}
                 </Button>
                 <Button onClick={create} disabled={!canCreate}>
                   {method === 'trace' ? 'Start tracing' : target === 'new' ? 'Create plan' : 'Add to floor'}

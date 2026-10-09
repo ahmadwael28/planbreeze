@@ -1,3 +1,4 @@
+import { t } from '@/i18n'
 import { useRef, useState } from 'react'
 import type { KeyboardEvent, ReactNode } from 'react'
 import { Cable, Lightbulb, Plus, SlidersHorizontal, Trash2, X } from 'lucide-react'
@@ -78,22 +79,22 @@ export function KelvinPicker({
   return (
     <div className="space-y-2">
       <div className="flex justify-between gap-2 text-sm">
-        <span className="text-muted-foreground">Color temperature</span>
+        <span className="text-muted-foreground">{t('Color temperature')}</span>
         {value === null ? (
-          <span className="text-muted-foreground">Mixed</span>
+          <span className="text-muted-foreground">{t('Mixed')}</span>
         ) : (
           <span className="truncate tabular-nums">
-            {value} K <span className="text-muted-foreground">· {kelvinName(value)}</span>
+            {value} K <span className="text-muted-foreground">· {t(kelvinName(value))}</span>
           </span>
         )}
       </div>
-      <div className="grid grid-cols-7 gap-0.5" role="group" aria-label="Color temperature">
+      <div className="grid grid-cols-7 gap-0.5" role="group" aria-label={t('Color temperature')}>
         {KELVINS.map(({ kelvin, name }) => (
           <button
             key={kelvin}
             type="button"
-            title={`${name} · ${kelvin} K`}
-            aria-label={`${name}, ${kelvin} K`}
+            title={`${t(name)} · ${kelvin} K`}
+            aria-label={`${t(name)}, ${kelvin} K`}
             aria-pressed={value === kelvin}
             onClick={() => onChange(kelvin)}
             className="flex min-w-0 flex-col items-center gap-1 rounded-md py-1 outline-none hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring"
@@ -116,7 +117,7 @@ export function KelvinPicker({
         value={[value ?? fallback]}
         onValueChange={([k]) => onLive(k)}
         onValueCommit={() => onDone?.()}
-        aria-label="Color temperature, any value"
+        aria-label={t('Color temperature, any value')}
         style={{ '--kelvin-track': KELVIN_TRACK } as React.CSSProperties}
         className="[&_[data-slot=slider-range]]:bg-transparent [&_[data-slot=slider-track]]:border [&_[data-slot=slider-track]]:bg-(image:--kelvin-track)"
       />
@@ -173,7 +174,7 @@ export function WallPicker({
         {pts.map((a, i) => {
           const p = pts[(i + 1) % pts.length]
           const active = set.has(i)
-          const name = `Wall ${i + 1}, ${formatLength(dist(a, p), units)}`
+          const name = t('Wall {n}, {length}', { n: i + 1, length: formatLength(dist(a, p), units) })
           return (
             <g
               key={i}
@@ -190,7 +191,7 @@ export function WallPicker({
                 }
               }}
             >
-              <title>{`${name} · click to ${active ? 'remove' : 'add'}`}</title>
+              <title>{`${name} · ${active ? t('click to remove') : t('click to add')}`}</title>
               <line x1={a.x} y1={a.y} x2={p.x} y2={p.y} stroke="transparent" strokeWidth={18} vectorEffect="non-scaling-stroke" />
               <line
                 x1={a.x}
@@ -210,15 +211,21 @@ export function WallPicker({
       </svg>
       <div className="flex items-center justify-between gap-2 text-xs text-muted-foreground">
         <span>
-          {on.length === pickable.size ? (only ? 'All of them' : 'All walls') : on.length ? `${on.length} of ${pickable.size} walls` : 'No walls'} · click a
-          wall to switch it
+          {on.length === pickable.size
+            ? only
+              ? t('All of them')
+              : t('All walls')
+            : on.length
+              ? t('{n} of {total} walls', { n: on.length, total: pickable.size })
+              : t('No walls')}{' '}
+          · {t('click a wall to switch it')}
         </span>
         <span className="flex gap-2">
           <button className="underline-offset-2 hover:text-foreground hover:underline" onClick={() => onChange([...pickable].sort((p, q) => p - q))}>
-            All
+            {t('All')}
           </button>
           <button className="underline-offset-2 hover:text-foreground hover:underline" onClick={() => onChange([])}>
-            None
+            {t('None')}
           </button>
         </span>
       </div>
@@ -241,7 +248,7 @@ export function GrooveLightWalls({ room, sym, units }: { room: Room; sym: PlanSy
       only={walls}
       units={units}
       tone="light"
-      label="Walls with light"
+      label={t('Walls with light')}
       onChange={(lit) =>
         updateSymbol(sym.id, (s) => {
           const next = walls.filter((i) => !lit.includes(i))
@@ -265,11 +272,11 @@ function GrooveLight({ room, sym, label, hint, units, onToggle }: { room: Room; 
         </span>
         {sym ? (
           <Button variant="ghost" size="xs" className="text-destructive hover:text-destructive" onClick={() => onToggle(false)}>
-            <Trash2 /> Remove
+            <Trash2 /> {t('Remove')}
           </Button>
         ) : (
           <Button variant="outline" size="xs" onClick={() => onToggle(true)}>
-            <Plus /> Add
+            <Plus /> {t('Add')}
           </Button>
         )}
       </div>
@@ -286,7 +293,7 @@ function GrooveLight({ room, sym, label, hint, units, onToggle }: { room: Room; 
               st.select({ kind: 'symbol', id: sym.id })
             }}
           >
-            <SlidersHorizontal /> Color, brightness and switches
+            <SlidersHorizontal /> {t('Color, brightness and switches')}
           </Button>
         </>
       ) : (
@@ -301,12 +308,12 @@ function AtColumns({ value, onChange }: { value: 'wrap' | 'stop'; onChange: (v: 
   return (
     <Choice
       stacked
-      label="At columns in the walls"
+      label={t('At columns in the walls')}
       value={value}
       onChange={onChange}
       options={[
-        { value: 'wrap', label: 'Go around' },
-        { value: 'stop', label: 'Stop' },
+        { value: 'wrap', label: t('Go around') },
+        { value: 'stop', label: t('Stop') },
       ]}
     />
   )
@@ -327,18 +334,18 @@ export function HiddenLightControls({ room, sym, units }: { room: Room; sym: Pla
       {hasTrayEdge(room) && (
         <Choice
           stacked
-          label="Where"
+          label={t('Where')}
           value={sym.cove?.at ?? 'walls'}
           onChange={(v) => updateSymbol(sym.id, (s) => void (s.cove = { ...s.cove, at: v }))}
           options={[
-            { value: 'walls', label: 'Along the walls' },
-            { value: 'inner', label: `Inside the ${style === 'stepped' ? 'steps' : 'tray'}` },
+            { value: 'walls', label: t('Along the walls') },
+            { value: 'inner', label: style === 'stepped' ? t('Inside the steps') : t('Inside the tray') },
           ]}
         >
           <p className="text-xs text-muted-foreground">
             {sym.cove?.at === 'inner'
-              ? 'On top of the lowered band, hidden behind its edge, washing the raised middle with light.'
-              : 'In a gap between the gypsum and the walls, washing them with light.'}
+              ? t('On top of the lowered band, hidden behind its edge, washing the raised middle with light.')
+              : t('In a gap between the gypsum and the walls, washing them with light.')}
           </p>
         </Choice>
       )}
@@ -348,7 +355,7 @@ export function HiddenLightControls({ room, sym, units }: { room: Room; sym: Pla
         only={pockets.size ? walls : undefined}
         units={units}
         tone="light"
-        label="Walls with light"
+        label={t('Walls with light')}
         onChange={(chosen) =>
           updateSymbol(sym.id, (s) => {
             // Walls with a pocket aren't switched off: if the pocket goes, the strip carries on along them.
@@ -359,12 +366,12 @@ export function HiddenLightControls({ room, sym, units }: { room: Room; sym: Pla
       />
       {pockets.size > 0 && (
         <p className="text-xs text-muted-foreground">
-          Walls with a curtain pocket (greyed) get their light from the pocket's LED instead, which can be on a switch of its own.
+          {t("Walls with a curtain pocket (greyed) get their light from the pocket's LED instead, which can be on a switch of its own.")}
         </p>
       )}
       {hiddenLightInGap(room, sym) && (
         <div className="space-y-1">
-          <Row label="Gap to the wall">
+          <Row label={t('Gap to the wall')}>
             <LengthInput
               value={sym.cove?.gap ?? HIDDEN_GAP}
               units={units}
@@ -413,7 +420,7 @@ function WallBands({ room, units, set }: { room: Room; units: Units; set: (recip
         className="h-28 w-full rounded-md bg-muted/60"
         preserveAspectRatio="xMidYMid meet"
         role="group"
-        aria-label="Band width per wall"
+        aria-label={t('Band width per wall')}
       >
         <path d={polygonPath(pts)} className="fill-foreground/15" />
         <path d={polygonPath(bandEdge(ceilingRoom(room, floor)))} className="fill-background" />
@@ -423,7 +430,7 @@ function WallBands({ room, units, set }: { room: Room; units: Units; set: (recip
           if (ceilingJoins(room).includes(i)) {
             return <line key={i} x1={a.x} y1={a.y} x2={p.x} y2={p.y} stroke="var(--muted-foreground)" strokeOpacity={0.5} strokeWidth={1.5} strokeDasharray="4 3" vectorEffect="non-scaling-stroke" />
           }
-          const name = `Wall ${i + 1}, ${formatLength(dist(a, p), units)}: band ${formatLength(bandAt(room, i), units)}`
+          const name = t('Wall {n}, {length}: band {band}', { n: i + 1, length: formatLength(dist(a, p), units), band: formatLength(bandAt(room, i), units) })
           return (
             <g
               key={i}
@@ -458,15 +465,15 @@ function WallBands({ room, units, set }: { room: Room; units: Units; set: (recip
         })}
       </svg>
       {at === null ? (
-        <p className="text-xs text-muted-foreground">Click a wall to give it a different width, e.g. deeper over a wardrobe.</p>
+        <p className="text-xs text-muted-foreground">{t('Click a wall to give it a different width, e.g. deeper over a wardrobe.')}</p>
       ) : (
         <div className="space-y-1">
-          <Row label={`Wall ${at + 1}`}>
+          <Row label={t('Wall {n}', { n: at + 1 })}>
             <LengthInput value={bandAt(room, at)} units={units} min={c.style === 'floating' ? 5 : 10} onChange={(v) => setBand(at, v)} />
           </Row>
           {custom(at) && (
             <button className="text-xs text-muted-foreground underline-offset-2 hover:text-foreground hover:underline" onClick={() => setBand(at, null)}>
-              Same as the other walls
+              {t('Same as the other walls')}
             </button>
           )}
         </div>
@@ -526,16 +533,16 @@ export function CeilingSection({ room, units }: { room: Room; units: Units }) {
     })
   return (
     <div className="space-y-3">
-      <Row label="Style">
+      <Row label={t('Style')}>
         <Select value={c?.style ?? 'none'} onValueChange={(v) => applyCeiling(room.id, v === 'none' ? null : (v as CeilingStyle))}>
           <SelectTrigger size="sm" className="w-full">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="none">No gypsum ceiling</SelectItem>
+            <SelectItem value="none">{t('No gypsum ceiling')}</SelectItem>
             {(Object.keys(CEILING_STYLES) as CeilingStyle[]).map((s) => (
               <SelectItem key={s} value={s}>
-                {CEILING_STYLES[s].name}
+                {t(CEILING_STYLES[s].name)}
               </SelectItem>
             ))}
           </SelectContent>
@@ -543,13 +550,13 @@ export function CeilingSection({ room, units }: { room: Room; units: Units }) {
       </Row>
       {c && (
         <>
-          <p className="text-xs text-muted-foreground">{CEILING_STYLES[c.style].description}.</p>
-          <Row label="Drop">
+          <p className="text-xs text-muted-foreground">{t(CEILING_STYLES[c.style].description)}.</p>
+          <Row label={t('Drop')}>
             <LengthInput value={c.drop} units={units} min={5} onChange={(v) => set((r) => void (r.ceiling!.drop = v))} />
           </Row>
           {c.style !== 'flat' && (
             <>
-              <Row label={c.style === 'floating' ? 'Gap to walls' : 'Band width'}>
+              <Row label={c.style === 'floating' ? t('Gap to walls') : t('Band width')}>
                 <LengthInput value={c.band} units={units} min={10} onChange={(v) => set((r) => void (r.ceiling!.band = v))} />
               </Row>
               <WallBands room={room} units={units} set={set} />
@@ -560,11 +567,11 @@ export function CeilingSection({ room, units }: { room: Room; units: Units }) {
       <div className="space-y-3 rounded-lg border p-3">
         <div className="flex items-center justify-between gap-2">
           <span className="flex items-center gap-1.5 text-sm font-medium">
-            <Lightbulb className="size-4" /> Hidden LED strip
+            <Lightbulb className="size-4" /> {t('Hidden LED strip')}
           </span>
           {cove ? (
             <Button variant="ghost" size="xs" className="text-destructive hover:text-destructive" onClick={removeCove}>
-              <Trash2 /> Remove
+              <Trash2 /> {t('Remove')}
             </Button>
           ) : (
             <Button
@@ -578,7 +585,7 @@ export function CeilingSection({ room, units }: { room: Room; units: Units }) {
                 })
               }
             >
-              <Plus /> Add
+              <Plus /> {t('Add')}
             </Button>
           )}
         </div>
@@ -595,29 +602,29 @@ export function CeilingSection({ room, units }: { room: Room; units: Units }) {
                 st.select({ kind: 'symbol', id: cove.id })
               }}
             >
-              <SlidersHorizontal /> Color, brightness and switches
+              <SlidersHorizontal /> {t('Color, brightness and switches')}
             </Button>
           </>
         ) : (
-          <p className="text-xs text-muted-foreground">An LED strip hidden in the ceiling, lighting the walls or the ceiling itself.</p>
+          <p className="text-xs text-muted-foreground">{t('An LED strip hidden in the ceiling, lighting the walls or the ceiling itself.')}</p>
         )}
       </div>
       <div className="space-y-2 rounded-lg border p-3">
-        <span className="text-sm font-medium">Curtain pocket</span>
+        <span className="text-sm font-medium">{t('Curtain pocket')}</span>
         {canPocket ? (
           <>
-            <p className="text-xs text-muted-foreground">A gap in the gypsum ceiling along a wall, up to the slab, that hides the curtain track.</p>
+            <p className="text-xs text-muted-foreground">{t('A gap in the gypsum ceiling along a wall, up to the slab, that hides the curtain track.')}</p>
             <WallPicker
               room={room}
               on={room.curtainPockets ?? []}
               units={units}
               tone="dark"
-              label="Walls with a curtain pocket"
+              label={t('Walls with a curtain pocket')}
               onChange={(walls) => setPockets(walls)}
             />
             {!!room.curtainPockets?.length && (
               <>
-                <Row label="Width">
+                <Row label={t('Width')}>
                   <LengthInput
                     value={pocketWidth(room)}
                     units={units}
@@ -634,8 +641,8 @@ export function CeilingSection({ room, units }: { room: Room; units: Units }) {
                 <GrooveLight
                   room={room}
                   sym={pocketLight}
-                  label="LED light in the pocket"
-                  hint="An LED strip up in the pocket, lighting the curtains like a hidden LED strip."
+                  label={t('LED light in the pocket')}
+                  hint={t('An LED strip up in the pocket, lighting the curtains like a hidden LED strip.')}
                   units={units}
                   onToggle={(on) => setPockets(room.curtainPockets ?? [], on)}
                 />
@@ -643,18 +650,18 @@ export function CeilingSection({ room, units }: { room: Room; units: Units }) {
             )}
           </>
         ) : (
-          <p className="text-xs text-muted-foreground">Needs a gypsum ceiling (not a floating panel): choose a style above.</p>
+          <p className="text-xs text-muted-foreground">{t('Needs a gypsum ceiling (not a floating panel): choose a style above.')}</p>
         )}
       </div>
       <div className="space-y-2 rounded-lg border p-3">
-        <span className="text-sm font-medium">Shadow gap</span>
-        <p className="text-xs text-muted-foreground">A recessed groove where the wall meets the ceiling.</p>
+        <span className="text-sm font-medium">{t('Shadow gap')}</span>
+        <p className="text-xs text-muted-foreground">{t('A recessed groove where the wall meets the ceiling.')}</p>
         <WallPicker
           room={room}
           on={room.shadowGaps ?? []}
           units={units}
           tone="dark"
-          label="Walls with a shadow gap"
+          label={t('Walls with a shadow gap')}
           onChange={(walls) => setGaps(walls)}
         />
         {!!room.shadowGaps?.length && (
@@ -665,8 +672,8 @@ export function CeilingSection({ room, units }: { room: Room; units: Units }) {
             <GrooveLight
               room={room}
               sym={gapLight}
-              label="LED light in the gap"
-              hint="An LED strip in the gap, washing the walls below like a hidden LED strip."
+              label={t('LED light in the gap')}
+              hint={t('An LED strip in the gap, washing the walls below like a hidden LED strip.')}
               units={units}
               onToggle={(on) => setGaps(room.shadowGaps ?? [], on)}
             />
@@ -699,7 +706,7 @@ function TrackModules({ sym, units }: { sym: PlanSymbol; units: Units }) {
     })
   return (
     <div className="space-y-2">
-      <span className="text-sm text-muted-foreground">Modules on the track</span>
+      <span className="text-sm text-muted-foreground">{t('Modules on the track')}</span>
       <ul className="space-y-1.5">
         {mods.map((m, i) => (
           <li key={m.id} className="grid grid-cols-[1fr_96px_auto] items-center gap-1.5">
@@ -711,9 +718,9 @@ function TrackModules({ sym, units }: { sym: PlanSymbol; units: Units }) {
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="spot">Spot</SelectItem>
-                <SelectItem value="linear">Linear light</SelectItem>
-                <SelectItem value="grille">Grille (3 spots)</SelectItem>
+                <SelectItem value="spot">{t('Spot')}</SelectItem>
+                <SelectItem value="linear">{t('Linear light')}</SelectItem>
+                <SelectItem value="grille">{t('Grille (3 spots)')}</SelectItem>
               </SelectContent>
             </Select>
             <LengthInput
@@ -725,7 +732,7 @@ function TrackModules({ sym, units }: { sym: PlanSymbol; units: Units }) {
             <Button
               variant="ghost"
               size="icon-sm"
-              aria-label="Remove module"
+              aria-label={t('Remove module')}
               onClick={() => updateSymbol(sym.id, (s) => void (s.modules = s.modules!.filter((x) => x.id !== m.id)))}
             >
               <X />
@@ -741,8 +748,7 @@ function TrackModules({ sym, units }: { sym: PlanSymbol; units: Units }) {
         ))}
       </div>
       <p className="text-xs text-muted-foreground">
-        Positions are measured from the left end of the track. Making the track longer or shorter adds or removes modules to fill
-        it.
+        {t('Positions are measured from the left end of the track. Making the track longer or shorter adds or removes modules to fill it.')}
       </p>
     </div>
   )
@@ -792,7 +798,11 @@ export function GroupLightSection({ ids }: { ids: string[] }) {
   return (
     <div className="space-y-3">
       <p className="text-xs text-muted-foreground">
-        {lights.length === 1 ? '1 light' : `All ${lights.length} lights`} in the selection{kelvins.length > 1 ? ', now at different color temperatures' : ''}.
+        {lights.length === 1
+          ? t('1 light in the selection.')
+          : kelvins.length > 1
+            ? t('All {n} lights in the selection, now at different color temperatures.', { n: lights.length })
+            : t('All {n} lights in the selection.', { n: lights.length })}
       </p>
       <KelvinPicker
         value={kelvins.length === 1 ? kelvins[0] : null}
@@ -803,7 +813,7 @@ export function GroupLightSection({ ids }: { ids: string[] }) {
       />
       <div className="space-y-2">
         <div className="flex justify-between text-sm">
-          <span className="text-muted-foreground">Brightness</span>
+          <span className="text-muted-foreground">{t('Brightness')}</span>
           <span className="tabular-nums">{same ? `${Math.round(levels[0] * 100)}%` : 'Mixed'}</span>
         </div>
         <Slider
@@ -813,7 +823,7 @@ export function GroupLightSection({ ids }: { ids: string[] }) {
           value={[same ? levels[0] : average]}
           onValueChange={([v]) => apply((l) => ({ ...l, brightness: v }), true)}
           onValueCommit={drag.done}
-          aria-label="Brightness of all of them"
+          aria-label={t('Brightness of all of them')}
         />
       </div>
     </div>
@@ -843,7 +853,7 @@ export function LightSection({ sym, units }: { sym: PlanSymbol; units: Units }) 
       />
       <div className="space-y-2">
         <div className="flex justify-between text-sm">
-          <span className="text-muted-foreground">Brightness</span>
+          <span className="text-muted-foreground">{t('Brightness')}</span>
           <span className="tabular-nums">{Math.round(light.brightness * 100)}%</span>
         </div>
         <Slider
@@ -856,7 +866,7 @@ export function LightSection({ sym, units }: { sym: PlanSymbol; units: Units }) 
         />
       </div>
       {(hangs || def?.fixture === 'wall') && (
-        <Row label={hangs ? 'Hang height' : 'Mount height'}>
+        <Row label={hangs ? t('Hang height') : t('Mount height')}>
           <LengthInput
             value={sym.elevation ?? def?.elevation ?? 170}
             units={units}
@@ -867,7 +877,7 @@ export function LightSection({ sym, units }: { sym: PlanSymbol; units: Units }) 
       )}
       {def?.fixture === 'track' && <TrackModules sym={sym} units={units} />}
       <div className="space-y-1.5">
-        <span className="text-sm text-muted-foreground">Switched by</span>
+        <span className="text-sm text-muted-foreground">{t('Switched by')}</span>
         {allSwitches.length ? (
           <div className="flex flex-wrap gap-1.5">
             {allSwitches.map((sw) => {
@@ -883,13 +893,13 @@ export function LightSection({ sym, units }: { sym: PlanSymbol; units: Units }) 
                   )}
                   style={on ? { background: color, borderColor: color } : undefined}
                 >
-                  {sw.label || 'Switch'}
+                  {sw.label || t('Switch')}
                 </button>
               )
             })}
           </div>
         ) : (
-          <p className="text-xs text-muted-foreground">Add a light switch from the Library to control this light.</p>
+          <p className="text-xs text-muted-foreground">{t('Add a light switch from the Library to control this light.')}</p>
         )}
       </div>
     </div>
@@ -905,8 +915,8 @@ export function SwitchSection({ sym }: { sym: PlanSymbol }) {
   const lights = (sym.controls ?? []).map((id) => byId.get(id)).filter((s): s is PlanSymbol => !!s)
   const wiring = useEditor((s) => s.tool === 'wire' && s.wireSwitch === sym.id)
   const name = (s: PlanSymbol) => {
-    if (s.room) return `${s.type === 'gap-light' ? 'Shadow gap light' : s.type === 'pocket-light' ? 'Curtain pocket light' : 'Hidden LED'} · ${floor.rooms.find((r) => r.id === s.room)?.name ?? 'room'}`
-    return SYMBOL_MAP.get(s.type)?.name ?? s.type
+    if (s.room) return `${t(s.type === 'gap-light' ? 'Shadow gap light' : s.type === 'pocket-light' ? 'Curtain pocket light' : 'Hidden LED')} · ${floor.rooms.find((r) => r.id === s.room)?.name ?? t('the room')}`
+    return t(SYMBOL_MAP.get(s.type)?.name ?? s.type)
   }
   const startWiring = () => {
     const st = useEditor.getState()
@@ -919,7 +929,7 @@ export function SwitchSection({ sym }: { sym: PlanSymbol }) {
     <div className="space-y-3">
       <div className="space-y-1.5">
         <span className="text-sm text-muted-foreground">
-          Controls {lights.length} light{lights.length === 1 ? '' : 's'}
+          {lights.length === 1 ? t('Controls 1 light') : t('Controls {n} lights', { n: lights.length })}
         </span>
         {lights.length > 0 && (
           <ul className="space-y-1">
@@ -929,7 +939,7 @@ export function SwitchSection({ sym }: { sym: PlanSymbol }) {
                   <span className="size-2.5 shrink-0 rounded-full border border-black/10" style={{ background: lightHex(l.light) }} />
                   <span className="truncate">{name(l)}</span>
                 </span>
-                <Button variant="ghost" size="icon-xs" aria-label="Disconnect" onClick={() => toggleWire(sym.id, l.id)}>
+                <Button variant="ghost" size="icon-xs" aria-label={t('Disconnect')} onClick={() => toggleWire(sym.id, l.id)}>
                   <X />
                 </Button>
               </li>
@@ -939,14 +949,14 @@ export function SwitchSection({ sym }: { sym: PlanSymbol }) {
       </div>
       {wiring ? (
         <Button className="w-full" onClick={() => useEditor.getState().setTool('select')}>
-          Done connecting
+          {t('Done connecting')}
         </Button>
       ) : (
         <Button variant="outline" className="w-full" onClick={startWiring}>
-          <Cable /> Connect lights
+          <Cable /> {t('Connect lights')}
         </Button>
       )}
-      {wiring && <p className="text-xs text-muted-foreground">Click lights on the plan to connect or disconnect them.</p>}
+      {wiring && <p className="text-xs text-muted-foreground">{t('Click lights on the plan to connect or disconnect them.')}</p>}
     </div>
   )
 }

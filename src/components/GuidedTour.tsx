@@ -1,10 +1,10 @@
+import { isRtl, t } from '@/i18n'
 /**
  * A guided tour of the app: one step at a time it lights up a part of the screen (the rest dimmed) and says what it's
  * for, getting the app ready first (the 3D view, a tab of the side panel…). Started from the help button at the top,
  * or offered once on a first visit.
  */
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
-import type { ReactNode } from 'react'
 import { ArrowLeft, ArrowRight, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { currentFloor, useEditor } from '@/store/editor'
@@ -15,7 +15,7 @@ interface Step {
   /** What to light up: the element with this `data-tour`; without one, the card sits in the middle. */
   target?: string
   title: string
-  body: ReactNode
+  body: string
   /** Where the card goes: beside the target, or over the middle of it (a big one, like the plan). */
   side?: 'right' | 'left' | 'top' | 'bottom' | 'over'
   /** Gets the app ready for the step: the view, the side panel and its tab, a selection. */
@@ -277,7 +277,8 @@ function Tour({ step }: { step: number }) {
       e.preventDefault()
       e.stopPropagation()
       if (k === 'Escape') setStep(null)
-      else go(k === 'ArrowLeft' ? step - 1 : step + 1)
+      // Right to left, the left arrow goes on.
+      else go((k === 'ArrowLeft') !== isRtl() ? step - 1 : step + 1)
     }
     window.addEventListener('keydown', onKey, true)
     return () => window.removeEventListener('keydown', onKey, true)
@@ -310,26 +311,26 @@ function Tour({ step }: { step: number }) {
         </div>
         <div className="flex items-start justify-between gap-2">
           <h2 id="tour-title" className="text-base font-semibold">
-            {s.title}
+            {t(s.title)}
           </h2>
-          <Button variant="ghost" size="icon-xs" className="-mt-0.5 -mr-1.5" onClick={() => setStep(null)} aria-label="Close the tour">
+          <Button variant="ghost" size="icon-xs" className="-me-1.5 -mt-0.5" onClick={() => setStep(null)} aria-label={t('Close the tour')}>
             <X />
           </Button>
         </div>
-        <p className="mt-1.5 text-sm leading-relaxed text-muted-foreground">{s.body}</p>
+        <p className="mt-1.5 text-sm leading-relaxed text-muted-foreground">{t(s.body)}</p>
         <div className="mt-4 flex items-center justify-between gap-2">
           <span className="text-xs text-muted-foreground tabular-nums">
-            {step + 1} of {STEPS.length}
+            {t('{n} of {total}', { n: step + 1, total: STEPS.length })}
           </span>
           <div className="flex gap-2">
             {step > 0 && (
               <Button variant="outline" size="sm" onClick={() => go(step - 1)}>
-                <ArrowLeft /> Back
+                <ArrowLeft className="rtl-flip" /> {t('Back')}
               </Button>
             )}
             <Button size="sm" onClick={() => go(step + 1)} autoFocus>
-              {last ? 'Done' : step === 0 ? 'Start' : 'Next'}
-              {!last && <ArrowRight />}
+              {last ? t('Done') : step === 0 ? t('Start') : t('Next')}
+              {!last && <ArrowRight className="rtl-flip" />}
             </Button>
           </div>
         </div>

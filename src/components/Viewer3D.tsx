@@ -1,3 +1,4 @@
+import { t } from '@/i18n'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { PointerEvent as RPointerEvent } from 'react'
 import * as THREE from 'three'
@@ -112,9 +113,9 @@ function isShut(id: string) {
 /** What Space would do to a door, curtain or blind. */
 function nearLabel(id: string, shut: boolean) {
   const type = currentFloor(useEditor.getState()).symbols.find((s) => s.id === id)?.type
-  if (type === 'curtain') return shut ? 'Open the curtains' : 'Close the curtains'
-  if (type === 'blind') return shut ? 'Raise the blind' : 'Lower the blind'
-  return shut ? 'Open the door' : 'Close the door'
+  if (type === 'curtain') return shut ? t('Open the curtains') : t('Close the curtains')
+  if (type === 'blind') return shut ? t('Raise the blind') : t('Lower the blind')
+  return shut ? t('Open the door') : t('Close the door')
 }
 
 /** Swing or slide these doors open or shut. */
@@ -381,7 +382,7 @@ function LightingPanel({ onInside }: { onInside: () => void }) {
   if (!open) {
     return (
       <Button variant="secondary" size="sm" className="absolute top-3 left-3 z-10 shadow-md" onClick={() => setOpen(true)} data-tour="lights3d">
-        <Lightbulb /> Lights
+        <Lightbulb /> {t('Lights')}
       </Button>
     )
   }
@@ -393,9 +394,9 @@ function LightingPanel({ onInside }: { onInside: () => void }) {
     >
       <div className="flex items-center justify-between border-b px-3 py-2">
         <span className="flex items-center gap-2 text-sm font-semibold">
-          <Lightbulb className="size-4" /> Lighting
+          <Lightbulb className="size-4" /> {t('Lighting')}
         </span>
-        <Button variant="ghost" size="icon-xs" onClick={() => setOpen(false)} aria-label="Hide lighting panel">
+        <Button variant="ghost" size="icon-xs" onClick={() => setOpen(false)} aria-label={t('Hide lighting panel')}>
           <X />
         </Button>
       </div>
@@ -407,23 +408,23 @@ function LightingPanel({ onInside }: { onInside: () => void }) {
         </div>
         <div className="flex flex-wrap gap-1.5">
           <Button variant="outline" size="xs" onClick={() => setSettings({ daylight: 0.03 })}>
-            Evening
+            {t('Evening')}
           </Button>
           <Button variant="outline" size="xs" onClick={() => setSettings({ daylight: 1 })}>
-            Day
+            {t('Day')}
           </Button>
           <Button variant="outline" size="xs" onClick={() => setAllLights(true)}>
-            <Lightbulb /> All on
+            <Lightbulb /> {t('All on')}
           </Button>
           <Button variant="outline" size="xs" onClick={() => setAllLights(false)}>
-            <LightbulbOff /> All off
+            <LightbulbOff /> {t('All off')}
           </Button>
         </div>
       </div>
       <div className="min-h-0 flex-1 space-y-1 overflow-y-auto p-2">
         {switches.length === 0 && other.length === 0 && (
           <p className="px-1 py-2 text-xs text-muted-foreground">
-            No lights on this floor yet. Add spots, pendants or a cove light from the Library, then switches to control them.
+            {t('No lights on this floor yet. Add spots, pendants or a cove light from the Library, then switches to control them.')}
           </p>
         )}
         {switches.map((sw, i) => {
@@ -434,12 +435,12 @@ function LightingPanel({ onInside }: { onInside: () => void }) {
               <div className="flex items-center justify-between gap-2">
                 <span className="flex min-w-0 items-center gap-2 text-sm">
                   <span className="size-2.5 shrink-0 rounded-full" style={{ background: WIRE_COLORS[i % WIRE_COLORS.length] }} />
-                  <span className="truncate font-medium">{sw.label || `Switch ${i + 1}`}</span>
+                  <span className="truncate font-medium">{sw.label || t('Switch {n}', { n: i + 1 })}</span>
                   <span className="shrink-0 text-xs text-muted-foreground">
-                    {ids.length} light{ids.length === 1 ? '' : 's'}
+                    {ids.length === 1 ? t('1 light') : t('{n} lights', { n: ids.length })}
                   </span>
                 </span>
-                <Switch checked={on} onCheckedChange={(v) => setLightState(sw.id, v)} aria-label={`Switch ${sw.label}`} />
+                <Switch checked={on} onCheckedChange={(v) => setLightState(sw.id, v)} aria-label={t('Switch {name}', { name: sw.label ?? '' })} />
               </div>
               {ids.length > 0 && (
                 <div className="mt-1.5 pl-4.5">
@@ -453,13 +454,13 @@ function LightingPanel({ onInside }: { onInside: () => void }) {
           <div className="rounded-lg px-2 py-1.5 hover:bg-muted/60">
             <div className="flex items-center justify-between gap-2">
               <span className="text-sm">
-                <span className="font-medium">Not on a switch</span>{' '}
+                <span className="font-medium">{t('Not on a switch')}</span>{' '}
                 <span className="text-xs text-muted-foreground">{other.length}</span>
               </span>
               <Switch
                 checked={states[OTHER_LIGHTS] ?? true}
                 onCheckedChange={(v) => setLightState(OTHER_LIGHTS, v)}
-                aria-label="Lights without a switch"
+                aria-label={t('Lights without a switch')}
               />
             </div>
             <div className="mt-1.5">
@@ -471,10 +472,10 @@ function LightingPanel({ onInside }: { onInside: () => void }) {
       <div className="flex items-center justify-between gap-2 border-t px-3 py-2">
         <label className="flex items-center gap-2 text-xs">
           <Switch size="sm" checked={showCeilings} onCheckedChange={(v) => setSettings({ showCeilings: v })} />
-          Ceilings
+          {t('Ceilings')}
         </label>
         <Button variant="secondary" size="xs" onClick={onInside}>
-          <DoorOpen /> Walk inside
+          <DoorOpen /> {t('Walk inside')}
         </Button>
       </div>
       <p className="border-t px-3 py-1.5 text-[11px] text-muted-foreground">Tip: click a switch on a wall to flip it, or a door to open or close it.</p>
@@ -869,7 +870,7 @@ export default function Viewer3D() {
       const view = captureView(ctx, floorBase(st.project, floor.id))
       const inRoom =
         view.eye.h < floor.height ? floor.rooms.find((r) => pointInPolygon({ x: view.eye.x, y: view.eye.y }, r.points)) : undefined
-      const stem = inRoom ? `${inRoom.name.trim() || 'Room'} view` : view.eye.h > floor.height ? "Bird's-eye view" : 'Outside view'
+      const stem = inRoom ? t('{room} view', { room: inRoom.name.trim() || t('Room') }) : view.eye.h > floor.height ? t("Bird's-eye view") : t('Outside view')
       const taken = new Set((floor.views ?? []).map((v) => v.name))
       let name = stem
       for (let i = 2; taken.has(name); i++) name = `${stem} ${i}`
@@ -879,7 +880,7 @@ export default function Viewer3D() {
         f.views = [...(f.views ?? []), { id, name, ...view }]
       })
       if (tour) setActive(`saved:${id}`)
-      toast.success(`Saved “${name}”`, { description: tour ? undefined : 'Find it under Viewpoints.' })
+      toast.success(t('Saved “{name}”', { name }), { description: tour ? undefined : t('Find it under Viewpoints.') })
     },
     onRename: (savedId: string, name: string) =>
       useEditor.getState().commit((d) => {
@@ -895,7 +896,7 @@ export default function Viewer3D() {
         const v = draftFloor(d).views?.find((x) => x.id === savedId)
         if (v) Object.assign(v, view)
       })
-      toast.success('View updated')
+      toast.success(t('View updated'))
     },
     onDelete: (savedId: string) => {
       useEditor.getState().commit((d) => {
@@ -1127,15 +1128,15 @@ export default function Viewer3D() {
       <div ref={hostRef} className="absolute inset-0" onPointerDown={onPointerDown} onPointerUp={onPointerUp} />
       {nearDoor && !compiling && (
         <div className="pointer-events-none absolute bottom-20 left-1/2 z-10 flex -translate-x-1/2 items-center gap-2 rounded-full bg-foreground/85 px-3 py-1.5 text-xs text-background shadow">
-          <Kbd className="bg-background/20 text-background">Space</Kbd>
+          <Kbd className="bg-background/20 text-background">{t('Space')}</Kbd>
           {nearLabel(nearDoor, isShut(nearDoor))}
         </div>
       )}
       {compiling && (
         <div className="absolute inset-0 z-20 grid place-items-center bg-background/80 backdrop-blur-sm">
           <div className="flex flex-col items-center gap-3 text-sm text-muted-foreground">
-            <Loader brand className="size-14 text-foreground" label="Preparing the 3D view" />
-            Preparing the 3D view…
+            <Loader brand className="size-14 text-foreground" label={t('Preparing the 3D view')} />
+            {t('Preparing the 3D view…')}
           </div>
         </div>
       )}
@@ -1152,9 +1153,9 @@ export default function Viewer3D() {
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="upToCurrent">Floors up to current</SelectItem>
-            <SelectItem value="current">Current floor only</SelectItem>
-            <SelectItem value="all">All floors</SelectItem>
+            <SelectItem value="upToCurrent">{t('Floors up to current')}</SelectItem>
+            <SelectItem value="current">{t('Current floor only')}</SelectItem>
+            <SelectItem value="all">{t('All floors')}</SelectItem>
           </SelectContent>
         </Select>
         <Tooltip>
@@ -1166,12 +1167,12 @@ export default function Viewer3D() {
                 exitTour()
                 frame('top', true)
               }}
-              aria-label="Top view"
+              aria-label={t('Top view')}
             >
               <SquareDashed />
             </Button>
           </TooltipTrigger>
-          <TooltipContent>Top view</TooltipContent>
+          <TooltipContent>{t('Top view')}</TooltipContent>
         </Tooltip>
         <Tooltip>
           <TooltipTrigger asChild>
@@ -1182,12 +1183,12 @@ export default function Viewer3D() {
                 exitTour()
                 frame('perspective', true)
               }}
-              aria-label="Reset camera"
+              aria-label={t('Reset camera')}
             >
               <RotateCcw />
             </Button>
           </TooltipTrigger>
-          <TooltipContent>Reset camera</TooltipContent>
+          <TooltipContent>{t('Reset camera')}</TooltipContent>
         </Tooltip>
         {doorIds.length > 0 && (
           <Tooltip>
@@ -1196,34 +1197,34 @@ export default function Viewer3D() {
                 variant="ghost"
                 size="icon-sm"
                 onClick={() => moveDoors(doorIds, anyOpen)}
-                aria-label={anyOpen ? 'Close all doors' : 'Open all doors'}
+                aria-label={anyOpen ? t('Close all doors') : t('Open all doors')}
               >
                 {anyOpen ? <DoorClosed /> : <DoorOpen />}
               </Button>
             </TooltipTrigger>
-            <TooltipContent>{anyOpen ? 'Close all doors' : 'Open all doors'} (or click a door)</TooltipContent>
+            <TooltipContent>{anyOpen ? t('Close all doors (or click a door)') : t('Open all doors (or click a door)')}</TooltipContent>
           </Tooltip>
         )}
         <DropdownMenu>
           <Tooltip>
             <TooltipTrigger asChild>
               <DropdownMenuTrigger asChild>
-                <Button variant="ghost" size="sm" className="gap-1.5 px-2" aria-label={`Camera lens: ${LENSES[lens].label}`}>
+                <Button variant="ghost" size="sm" className="gap-1.5 px-2" aria-label={t('Camera lens: {lens}', { lens: t(LENSES[lens].label) })}>
                   <Aperture />
-                  <span className="max-lg:hidden">{LENSES[lens].label}</span>
+                  <span className="max-lg:hidden">{t(LENSES[lens].label)}</span>
                 </Button>
               </DropdownMenuTrigger>
             </TooltipTrigger>
-            <TooltipContent>Camera lens: go wide to see more of a room</TooltipContent>
+            <TooltipContent>{t('Camera lens: go wide to see more of a room')}</TooltipContent>
           </Tooltip>
           <DropdownMenuContent align="end" className="w-56">
-            <DropdownMenuLabel>Camera lens</DropdownMenuLabel>
+            <DropdownMenuLabel>{t('Camera lens')}</DropdownMenuLabel>
             <DropdownMenuRadioGroup value={lens} onValueChange={(v) => setSettings({ lens3d: v as Lens })}>
               {(Object.keys(LENSES) as Lens[]).map((k) => (
                 <DropdownMenuRadioItem key={k} value={k}>
                   <span className="flex flex-col">
-                    <span>{LENSES[k].label}</span>
-                    <span className="text-xs text-muted-foreground">{LENSES[k].hint}</span>
+                    <span>{t(LENSES[k].label)}</span>
+                    <span className="text-xs text-muted-foreground">{t(LENSES[k].hint)}</span>
                   </span>
                 </DropdownMenuRadioItem>
               ))}
@@ -1234,15 +1235,15 @@ export default function Viewer3D() {
           <Tooltip>
             <TooltipTrigger asChild>
               <PopoverTrigger asChild>
-                <Button variant="ghost" size="icon-sm" aria-label="Keyboard controls">
+                <Button variant="ghost" size="icon-sm" aria-label={t('Keyboard controls')}>
                   <Keyboard />
                 </Button>
               </PopoverTrigger>
             </TooltipTrigger>
-            <TooltipContent>Keyboard controls</TooltipContent>
+            <TooltipContent>{t('Keyboard controls')}</TooltipContent>
           </Tooltip>
           <PopoverContent align="end" className="w-72">
-            <div className="mb-2 text-sm font-medium">Walk with the keyboard</div>
+            <div className="mb-2 text-sm font-medium">{t('Walk with the keyboard')}</div>
             <dl className="grid grid-cols-[auto_1fr] items-center gap-x-3 gap-y-1.5 text-sm">
               {KEY_HELP.map(([keys, what]) => (
                 <div key={keys} className="contents">
@@ -1251,7 +1252,7 @@ export default function Viewer3D() {
                       <Kbd key={k}>{k}</Kbd>
                     ))}
                   </dt>
-                  <dd className="text-muted-foreground">{what}</dd>
+                  <dd className="text-muted-foreground">{t(what)}</dd>
                 </div>
               ))}
             </dl>
@@ -1265,17 +1266,14 @@ export default function Viewer3D() {
                 ))}
               </div>
               <p className="text-sm text-muted-foreground">
-                <span className="font-medium text-foreground">Numpad</span> looks in any direction. <Kbd>5</Kbd> looks
-                straight ahead.
+                {t('The numpad looks in any direction; 5 looks straight ahead.')}
               </p>
             </div>
             <p className="mt-3 text-xs text-muted-foreground">
-              Walls stop you when you walk inside; go through doorways. Fly above the walls to move freely. Try{' '}
-              <b>Walk inside</b> in the Lighting panel first.
+              {t('Walls stop you when you walk inside; go through doorways. Fly above the walls to move freely. Try “Walk inside” in the Lighting panel first.')}
             </p>
             <p className="mt-2 text-xs text-muted-foreground">
-              In <b>Viewpoints</b>, the arrow keys and numpad look around, <Kbd>PgUp</Kbd> / <Kbd>PgDn</Kbd> go to the previous /
-              next spot and <Kbd>Esc</Kbd> leaves.
+              {t('In Viewpoints, the arrow keys and numpad look around, PgUp / PgDn go to the previous / next spot and Esc leaves.')}
             </p>
           </PopoverContent>
         </Popover>
@@ -1293,27 +1291,27 @@ export default function Viewer3D() {
             saved={savedActions}
           />
           <div className="pointer-events-none absolute bottom-30 left-1/2 -translate-x-1/2 rounded-full bg-foreground/80 px-3 py-1.5 text-xs whitespace-nowrap text-background max-md:hidden">
-            Drag to look around · tap a marker or a name to go there
+            {t('Drag to look around · tap a marker or a name to go there')}
           </div>
         </>
       ) : (
         <>
           <div className="pointer-events-none absolute bottom-16 left-1/2 flex -translate-x-1/2 items-center gap-1.5 rounded-full bg-foreground/80 px-3 py-1.5 text-xs whitespace-nowrap text-background max-md:hidden">
             <Keyboard className="size-3.5" />
-            WASD / arrows to walk · numpad to look around · Q / E down / up · Shift faster
+            {t('WASD / arrows to walk · numpad to look around · Q / E down / up · Shift faster')}
           </div>
           <div className="absolute right-3 bottom-3 flex items-center gap-2">
             <Tooltip>
               <TooltipTrigger asChild>
-                <Button variant="secondary" size="icon-lg" className="rounded-full shadow-lg" onClick={savedActions.onSave} aria-label="Save this view">
+                <Button variant="secondary" size="icon-lg" className="rounded-full shadow-lg" onClick={savedActions.onSave} aria-label={t('Save this view')}>
                   <BookmarkPlus />
                 </Button>
               </TooltipTrigger>
-              <TooltipContent>Save this view</TooltipContent>
+              <TooltipContent>{t('Save this view')}</TooltipContent>
             </Tooltip>
             {viewpoints.length > 0 && (
               <Button size="lg" className="rounded-full shadow-lg" onClick={startTour} data-tour="viewpoints">
-                <Camera /> Viewpoints
+                <Camera /> {t('Viewpoints')}
               </Button>
             )}
           </div>

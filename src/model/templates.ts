@@ -1,3 +1,4 @@
+import { t } from '@/i18n'
 import { CEILING_STYLES } from './lighting'
 import { personDepth, personSupport } from './people'
 import { newFloor, newProject, newSymbol, OUTDOOR, RAILING_THICKNESS, rectPoints, uid } from './project'
@@ -12,7 +13,7 @@ function builder() {
   const dimensions: Dimension[] = []
   return {
     room(name: string, color: string, x: number, y: number, w: number, h: number) {
-      const r: Room = { id: uid(), name, points: rectPoints(x, y, w, h), wallThickness: WALL, color }
+      const r: Room = { id: uid(), name: t(name), points: rectPoints(x, y, w, h), wallThickness: WALL, color }
       rooms.push(r)
       return r
     },
@@ -42,7 +43,7 @@ function builder() {
     },
     /** A balcony or terrace drawn against the outside of the building. */
     outdoor(name: string, kind: 'balcony' | 'terrace', x: number, y: number, w: number, h: number) {
-      const r: Room = { id: uid(), name, points: rectPoints(x, y, w, h), wallThickness: RAILING_THICKNESS, color: OUTDOOR[kind].color, kind, railing: { ...OUTDOOR[kind].railing } }
+      const r: Room = { id: uid(), name: t(name), points: rectPoints(x, y, w, h), wallThickness: RAILING_THICKNESS, color: OUTDOOR[kind].color, kind, railing: { ...OUTDOOR[kind].railing } }
       rooms.push(r)
       return r
     },
@@ -55,7 +56,7 @@ function builder() {
     dimension(a: { x: number; y: number }, b: { x: number; y: number }, offset: number) {
       dimensions.push({ id: uid(), a, b, offset })
     },
-    floor(name = 'Ground floor'): Floor {
+    floor(name = t('Ground floor')): Floor {
       // People sitting or lying down settle onto what's under them, as they do when placed by hand.
       for (const s of symbols) {
         if (s.type !== 'person') continue
@@ -462,8 +463,8 @@ export const TEMPLATES: Template[] = [
   { id: 'house', name: 'Family house', build: house },
 ]
 
-export function projectFromTemplate(t: Template): Project {
-  const p = newProject(t.name)
-  p.floors = [t.build()]
+export function projectFromTemplate(tpl: Template): Project {
+  const p = newProject(t(tpl.name))
+  p.floors = [tpl.build()]
   return p
 }

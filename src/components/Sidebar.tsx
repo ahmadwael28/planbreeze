@@ -4,6 +4,7 @@ import { Button } from '@/components/ui/button'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { makeOwnCopy } from '@/cloud/sync'
 import { cn } from '@/lib/utils'
+import { t } from '@/i18n'
 import { isViewOnly, useEditor } from '@/store/editor'
 import { useUi } from '@/store/ui'
 import type { SidebarTab } from '@/store/ui'
@@ -16,11 +17,11 @@ function ViewOnlyNote() {
   return (
     <div className="m-3 space-y-2 rounded-lg border bg-muted/50 p-3 text-sm">
       <p className="flex items-center gap-2 font-medium">
-        <Eye className="size-4" /> Shared with you to view
+        <Eye className="size-4" /> {t('Shared with you to view')}
       </p>
-      <p className="text-xs text-muted-foreground">You can look around, measure and walk through it in 3D. To change it, make your own copy.</p>
+      <p className="text-xs text-muted-foreground">{t('You can look around, measure and walk through it in 3D. To change it, make your own copy.')}</p>
       <Button size="sm" variant="outline" onClick={makeOwnCopy}>
-        <Copy /> Make a copy
+        <Copy /> {t('Make a copy')}
       </Button>
     </div>
   )
@@ -42,8 +43,8 @@ export function Sidebar({ open }: { open: boolean }) {
   return (
     <aside
       className={cn(
-        'flex w-80 shrink-0 flex-col border-l bg-background',
-        'max-md:absolute max-md:inset-y-0 max-md:right-0 max-md:z-20 max-md:w-[min(340px,88vw)] max-md:shadow-xl',
+        'flex w-80 shrink-0 flex-col border-s bg-background',
+        'max-md:absolute max-md:inset-y-0 max-md:end-0 max-md:z-20 max-md:w-[min(340px,88vw)] max-md:shadow-xl',
         !open && 'hidden',
       )}
       data-tour="sidebar"
@@ -51,9 +52,9 @@ export function Sidebar({ open }: { open: boolean }) {
       <Tabs value={tab} onValueChange={(v) => setTab(v as SidebarTab)} className="flex min-h-0 flex-1 flex-col gap-0">
         <div className="border-b p-2">
           <TabsList className="w-full">
-            <TabsTrigger value="properties">Properties</TabsTrigger>
-            <TabsTrigger value="library">Library</TabsTrigger>
-            <TabsTrigger value="summary">Summary</TabsTrigger>
+            <TabsTrigger value="properties">{t('Properties')}</TabsTrigger>
+            <TabsTrigger value="library">{t('Library')}</TabsTrigger>
+            <TabsTrigger value="summary">{t('Summary')}</TabsTrigger>
           </TabsList>
         </div>
         <div className="min-h-0 flex-1 overflow-y-auto">

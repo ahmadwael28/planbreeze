@@ -40,6 +40,7 @@ import { ConflictDialog } from '@/components/ConflictDialog'
 import { SignInDialog } from '@/components/SignInDialog'
 import { ShareDialog } from '@/components/ShareDialog'
 import { VisibilityMenu } from '@/components/VisibilityMenu'
+import { t, useLang } from '@/i18n'
 
 // Handy for debugging in the browser console during development.
 if (import.meta.env.DEV) {
@@ -68,21 +69,22 @@ function useHint(tool: Tool): string | undefined {
   const wireName = useEditor((s) => {
     if (!s.wireSwitch) return null
     const sw = currentFloor(s).symbols.find((x) => x.id === s.wireSwitch)
-    return sw ? sw.label || 'this switch' : null
+    return sw ? sw.label || t('this switch') : null
   })
   if (tool === 'wire') {
     return wireName
-      ? `Wiring ${wireName}: click lights to connect or disconnect them · click another switch to wire it · Esc when done`
-      : 'Click a switch, then click the lights it should control'
+      ? t('Wiring {name}: click lights to connect or disconnect them · click another switch to wire it · Esc when done', { name: wireName })
+      : t('Click a switch, then click the lights it should control')
   }
-  return HINTS[tool]
+  const hint = HINTS[tool]
+  return hint && t(hint)
 }
 
 function LayerToggle() {
   const layer = useEditor((s) => s.layer)
   const setLayer = useEditor((s) => s.setLayer)
   return (
-    <div className="absolute top-3 left-3 z-10 flex items-center gap-2">
+    <div className="absolute start-3 top-3 z-10 flex items-center gap-2">
       <ToggleGroup
         type="single"
         size="sm"
@@ -93,10 +95,10 @@ function LayerToggle() {
         data-tour="layers"
       >
         <ToggleGroupItem value="plan" className="px-2.5 data-[state=on]:bg-primary data-[state=on]:text-primary-foreground">
-          <LayoutGrid /> Plan
+          <LayoutGrid /> {t('Plan')}
         </ToggleGroupItem>
         <ToggleGroupItem value="lighting" className="px-2.5 data-[state=on]:bg-primary data-[state=on]:text-primary-foreground">
-          <Lightbulb /> Lighting
+          <Lightbulb /> {t('Lighting')}
         </ToggleGroupItem>
       </ToggleGroup>
       <VisibilityMenu />
@@ -121,7 +123,6 @@ function nudge(dx: number, dy: number) {
   })
 }
 
-const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`
 
 function useKeyboardShortcuts() {
   useEffect(() => {
@@ -152,7 +153,8 @@ function useKeyboardShortcuts() {
         const n = k === 'c' ? copySelection() : cutSelection()
         if (n) {
           e.preventDefault()
-          toast(`${k === 'c' ? 'Copied' : 'Cut'} ${plural(n, 'item')}`, { description: 'Paste with Ctrl+V, on this floor or another.' })
+          const items = n === 1 ? t('1 item') : t('{n} items', { n })
+          toast(k === 'c' ? t('Copied {items}', { items }) : t('Cut {items}', { items }), { description: t('Paste with Ctrl+V, on this floor or another.') })
         }
         return
       }
@@ -227,7 +229,7 @@ function useAutosave() {
         warned = false
       } else if (!warned) {
         warned = true
-        toast.error('Browser storage is full, so changes are not being saved. Remove a background drawing or save the project to a file.', {
+        toast.error(t('Browser storage is full, so changes are not being saved. Remove a background drawing or save the project to a file.'), {
           duration: 10000,
         })
       }
@@ -267,6 +269,8 @@ export default function App() {
   const viewMode = useEditor((s) => s.viewMode)
   const seen3d = useEditor((s) => s.seen3d)
   const hint = useHint(tool)
+  // A new language: everything on screen again in it (the app itself carries on).
+  const lang = useLang()
 
   useEffect(loadInitialProject, [])
   useEffect(() => void initCloud(), [])
@@ -274,7 +278,7 @@ export default function App() {
   useAutosave()
 
   return (
-    <div className="flex h-dvh flex-col overflow-hidden bg-background text-foreground">
+    <div key={lang} className="flex h-dvh flex-col overflow-hidden bg-background text-foreground">
       <TopBar onToggleSidebar={() => setSidebarOpen(!sidebarOpen)} sidebarOpen={sidebarOpen} />
       <div className="relative flex min-h-0 flex-1">
         {viewMode === '2d' && <Toolbar />}
@@ -297,8 +301,8 @@ export default function App() {
               <Suspense
                 fallback={
                   <div className="grid h-full place-content-center justify-items-center gap-3 text-sm text-muted-foreground">
-                    <Loader brand className="size-14 text-foreground" label="Opening the 3D view" />
-                    Opening the 3D view…
+                    <Loader brand className="size-14 text-foreground" label={t('Opening the 3D view')} />
+                    {t('Opening the 3D view…')}
                   </div>
                 }
               >

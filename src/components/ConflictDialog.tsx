@@ -1,3 +1,4 @@
+import { t } from '@/i18n'
 import {
   AlertDialog,
   AlertDialogContent,
@@ -15,7 +16,12 @@ import { useEditor } from '@/store/editor'
 function summary(p: Project) {
   const rooms = p.floors.reduce((n, f) => n + f.rooms.length, 0)
   const items = p.floors.reduce((n, f) => n + f.symbols.length, 0)
-  return `${p.floors.length} floor${p.floors.length === 1 ? '' : 's'} · ${rooms} rooms · ${items} items · edited ${new Date(p.updatedAt).toLocaleString()}`
+  return t('{floors} · {rooms} rooms · {items} items · edited {when}', {
+    floors: p.floors.length === 1 ? t('1 floor') : t('{n} floors', { n: p.floors.length }),
+    rooms,
+    items,
+    when: new Date(p.updatedAt).toLocaleString(),
+  })
 }
 
 /** Shown when the open plan was changed both here and on another device. */
@@ -27,25 +33,24 @@ export function ConflictDialog() {
     <AlertDialog open>
       <AlertDialogContent>
         <AlertDialogHeader>
-          <AlertDialogTitle>This plan was changed on another device</AlertDialogTitle>
+          <AlertDialogTitle>{t('This plan was changed on another device')}</AlertDialogTitle>
           <AlertDialogDescription>
-            “{mine.name}” has changes here that aren't in your account, and your account has a newer version from another device.
-            Which one do you want to keep?
+            {t("“{name}” has changes here that aren't in your account, and your account has a newer version from another device. Which one do you want to keep?", { name: mine.name })}
           </AlertDialogDescription>
         </AlertDialogHeader>
         <div className="space-y-2 text-sm">
           <div className="rounded-lg border p-3">
-            <div className="font-medium">This device</div>
+            <div className="font-medium">{t('This device')}</div>
             <div className="text-xs text-muted-foreground">{summary(mine)}</div>
           </div>
           <div className="rounded-lg border p-3">
-            <div className="font-medium">Your account</div>
+            <div className="font-medium">{t('Your account')}</div>
             <div className="text-xs text-muted-foreground">{summary(conflict.remote.data)}</div>
           </div>
         </div>
         <AlertDialogFooter>
           <Button variant="outline" onClick={() => void resolveConflict('theirs')}>
-            Use the version from my account
+            {t('Use the version from my account')}
           </Button>
           <Button onClick={() => void resolveConflict('mine')}>Keep this device's version</Button>
         </AlertDialogFooter>

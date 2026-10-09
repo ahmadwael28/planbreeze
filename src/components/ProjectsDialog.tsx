@@ -1,3 +1,4 @@
+import { t } from '@/i18n'
 import { useState } from 'react'
 import { Check, Cloud, CloudUpload, Eye, FilePlus2, HardDrive, Pencil, Trash2, UserMinus, Users } from 'lucide-react'
 import { Loader } from '@/components/ui/loader'
@@ -89,7 +90,7 @@ export function ProjectsDialog() {
       setEntries(merge(listProjects(), mine))
       setShared(mergeShared(listProjects(), theirs))
     } catch (e) {
-      toast.error(`Couldn't load your cloud plans: ${(e as Error).message}`)
+      toast.error(t("Couldn't load your cloud plans: {error}", { error: (e as Error).message }))
     } finally {
       setLoadingCloud(false)
     }
@@ -125,7 +126,7 @@ export function ProjectsDialog() {
       const local = loadProject(e.id)
       if (user) await openSharedProject(e.owner, e.id, e.key)
       else if (local) useEditor.getState().loadProject(local)
-      else throw new Error('Sign in to open this plan.')
+      else throw new Error(t('Sign in to open this plan.'))
       close()
     } catch (err) {
       toast.error((err as Error).message)
@@ -143,7 +144,7 @@ export function ProjectsDialog() {
         useEditor.getState().loadProject(p)
       }
     } catch (err) {
-      toast.error(`Couldn't remove it: ${(err as Error).message}`)
+      toast.error(t("Couldn't remove it: {error}", { error: (err as Error).message }))
     }
     await refresh()
   }
@@ -162,7 +163,7 @@ export function ProjectsDialog() {
         useEditor.getState().loadProject(p)
       }
     } catch (err) {
-      toast.error(`Couldn't delete: ${(err as Error).message}`)
+      toast.error(t("Couldn't delete: {error}", { error: (err as Error).message }))
     }
     await refresh()
   }
@@ -181,7 +182,7 @@ export function ProjectsDialog() {
         if (p) saveProject({ ...p, name, updatedAt: Date.now() })
       }
     } catch (err) {
-      toast.error(`Couldn't rename: ${(err as Error).message}`)
+      toast.error(t("Couldn't rename: {error}", { error: (err as Error).message }))
     }
     await refresh()
   }
@@ -201,32 +202,32 @@ export function ProjectsDialog() {
       <Dialog open={open} onOpenChange={onOpenChange}>
         <DialogContent className="sm:max-w-lg">
           <DialogHeader>
-            <DialogTitle>Projects</DialogTitle>
+            <DialogTitle>{t('Projects')}</DialogTitle>
             <DialogDescription>
               {user
-                ? 'Your plans save to your account automatically, and a copy stays in this browser for offline use.'
-                : 'Plans save automatically in this browser. Sign in to keep them in the cloud and open them on any device.'}
+                ? t('Your plans save to your account automatically, and a copy stays in this browser for offline use.')
+                : t('Plans save automatically in this browser. Sign in to keep them in the cloud and open them on any device.')}
             </DialogDescription>
           </DialogHeader>
           <div className="flex flex-wrap gap-2">
             <Button onClick={create}>
-              <FilePlus2 /> New project
+              <FilePlus2 /> {t('New project')}
             </Button>
             {user && localOnly.length > 0 && (
               <Button variant="outline" onClick={uploadAll} disabled={uploading}>
-                {uploading ? <Loader label="Uploading" /> : <CloudUpload />}
-                Upload {localOnly.length} plan{localOnly.length === 1 ? '' : 's'} from this device
+                {uploading ? <Loader label={t('Uploading')} /> : <CloudUpload />}
+                {localOnly.length === 1 ? t('Upload 1 plan from this device') : t('Upload {n} plans from this device', { n: localOnly.length })}
               </Button>
             )}
             {!user && useCloud.getState().configured && (
               <Button variant="outline" onClick={() => useCloud.getState().openSignIn(true)}>
-                <Cloud /> Sign in to save to the cloud
+                <Cloud /> {t('Sign in to save to the cloud')}
               </Button>
             )}
           </div>
           <ul className={cn('max-h-80 divide-y overflow-y-auto rounded-lg border', !entries.length && !loadingCloud && 'hidden')}>
             {entries.map((p) => (
-              <li key={p.id} className={cn('flex items-center pr-2', p.id === current.id && 'bg-primary/10')}>
+              <li key={p.id} className={cn('flex items-center pe-2', p.id === current.id && 'bg-primary/10')}>
                 {renaming?.id === p.id ? (
                   <form
                     className="flex min-w-0 flex-1 items-center gap-1.5 px-3 py-2"
@@ -237,7 +238,7 @@ export function ProjectsDialog() {
                   >
                     <Input
                       autoFocus
-                      aria-label="Project name"
+                      aria-label={t('Project name')}
                       value={renaming.name}
                       onChange={(ev) => setRenaming({ id: p.id, name: ev.target.value })}
                       onFocus={(ev) => ev.currentTarget.select()}
@@ -250,73 +251,73 @@ export function ProjectsDialog() {
                       onBlur={() => void rename(p, renaming.name)}
                       className="h-8"
                     />
-                    <Button type="submit" size="icon-sm" aria-label="Save name">
+                    <Button type="submit" size="icon-sm" aria-label={t('Save name')}>
                       <Check />
                     </Button>
                   </form>
                 ) : (
                 <button
-                  className="flex min-w-0 flex-1 flex-col items-start gap-0.5 px-3 py-2.5 text-left outline-none focus-visible:bg-muted"
+                  className="flex min-w-0 flex-1 flex-col items-start gap-0.5 px-3 py-2.5 text-start outline-none focus-visible:bg-muted"
                   onClick={() => void openEntry(p)}
                   disabled={busyId !== null}
                 >
                   <span className="flex w-full min-w-0 items-center gap-2">
                     <span className="truncate text-sm font-medium">{p.name}</span>
-                    {busyId === p.id && <Loader className="size-4" label="Opening" />}
+                    {busyId === p.id && <Loader className="size-4" label={t('Opening')} />}
                   </span>
                   <span className="flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
-                    {p.id === current.id ? 'Open now · ' : ''}
+                    {p.id === current.id ? `${t('Open now')} · ` : ''}
                     {new Date(p.updatedAt).toLocaleString()}
                     {user && (
                       <Badge variant="secondary" className="h-4.5 gap-1 px-1.5 text-[10px]">
                         {p.cloud ? <Cloud className="size-3" /> : <HardDrive className="size-3" />}
-                        {p.cloud ? (p.local ? 'Account' : 'Account only') : 'This device'}
+                        {p.cloud ? (p.local ? t('Account') : t('Account only')) : t('This device')}
                       </Badge>
                     )}
                   </span>
                 </button>
                 )}
                 {renaming?.id !== p.id && (
-                  <Button variant="ghost" size="icon-sm" aria-label={`Rename ${p.name}`} onClick={() => setRenaming({ id: p.id, name: p.name })}>
+                  <Button variant="ghost" size="icon-sm" aria-label={t('Rename {name}', { name: p.name })} onClick={() => setRenaming({ id: p.id, name: p.name })}>
                     <Pencil />
                   </Button>
                 )}
-                <Button variant="ghost" size="icon-sm" aria-label={`Delete ${p.name}`} onClick={() => setToDelete(p)}>
+                <Button variant="ghost" size="icon-sm" aria-label={t('Delete {name}', { name: p.name })} onClick={() => setToDelete(p)}>
                   <Trash2 />
                 </Button>
               </li>
             ))}
             {loadingCloud && (
               <li className="flex items-center gap-2 px-3 py-2.5 text-xs text-muted-foreground">
-                <Loader className="size-4" label="Loading plans" /> Loading plans from your account…
+                <Loader className="size-4" label={t('Loading plans')} /> {t('Loading plans from your account…')}
               </li>
             )}
           </ul>
           {shared.length > 0 && (
             <section className="space-y-2">
-              <h4 className="text-sm font-medium">Shared with you</h4>
+              <h4 className="text-sm font-medium">{t('Shared with you')}</h4>
               <ul className="max-h-56 divide-y overflow-y-auto rounded-lg border">
                 {shared.map((p) => (
-                  <li key={p.id} className={cn('flex items-center pr-2', p.id === current.id && 'bg-primary/10')}>
+                  <li key={p.id} className={cn('flex items-center pe-2', p.id === current.id && 'bg-primary/10')}>
                     <button
-                      className="flex min-w-0 flex-1 flex-col items-start gap-0.5 px-3 py-2.5 text-left outline-none focus-visible:bg-muted"
+                      className="flex min-w-0 flex-1 flex-col items-start gap-0.5 px-3 py-2.5 text-start outline-none focus-visible:bg-muted"
                       onClick={() => void openShared(p)}
                       disabled={busyId !== null}
                     >
                       <span className="flex w-full min-w-0 items-center gap-2">
                         <span className="truncate text-sm font-medium">{p.name}</span>
-                        {busyId === p.id && <Loader className="size-4" label="Opening" />}
+                        {busyId === p.id && <Loader className="size-4" label={t('Opening')} />}
                       </span>
                       <span className="flex min-w-0 flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
-                        {p.id === current.id ? 'Open now · ' : ''}
-                        <span className="truncate">{p.ownerEmail ? `From ${p.ownerEmail}` : 'Shared with a link'}</span>
+                        {p.id === current.id ? `${t('Open now')} · ` : ''}
+                        <span className="truncate">{p.ownerEmail ? t('From {email}', { email: p.ownerEmail }) : t('Shared with a link')}</span>
                         <Badge variant="secondary" className="h-4.5 gap-1 px-1.5 text-[10px]">
                           {p.role === 'editor' ? <Users className="size-3" /> : <Eye className="size-3" />}
-                          {p.role === 'editor' ? 'Can edit' : 'Can view'}
+                          {p.role === 'editor' ? t('Can edit') : t('Can view')}
                         </Badge>
                       </span>
                     </button>
-                    <Button variant="ghost" size="icon-sm" aria-label={`Remove ${p.name} from your plans`} onClick={() => setToLeave(p)}>
+                    <Button variant="ghost" size="icon-sm" aria-label={t('Remove {name} from your plans', { name: p.name })} onClick={() => setToLeave(p)}>
                       <UserMinus />
                     </Button>
                   </li>
@@ -329,19 +330,23 @@ export function ProjectsDialog() {
       <ConfirmDialog
         open={!!toDelete}
         onOpenChange={(o) => !o && setToDelete(null)}
-        title={`Delete “${toDelete?.name}”?`}
+        title={t('Delete “{name}”?', { name: toDelete?.name ?? '' })}
         description={
           toDelete?.cloud
-            ? 'This permanently removes the plan from your account and from this browser. It cannot be undone.'
-            : 'This permanently removes the project from this browser. It cannot be undone.'
+            ? t('This permanently removes the plan from your account and from this browser. It cannot be undone.')
+            : t('This permanently removes the project from this browser. It cannot be undone.')
         }
         onConfirm={() => toDelete && void remove(toDelete)}
       />
       <ConfirmDialog
         open={!!toLeave}
         onOpenChange={(o) => !o && setToLeave(null)}
-        title={`Remove “${toLeave?.name}” from your plans?`}
-        description={`You'll stop seeing it here${toLeave?.ownerEmail ? `, and ${toLeave.ownerEmail} would have to share it again` : ''}. Their plan isn't changed or deleted.`}
+        title={t('Remove “{name}” from your plans?', { name: toLeave?.name ?? '' })}
+        description={
+          toLeave?.ownerEmail
+            ? t("You'll stop seeing it here, and {email} would have to share it again. Their plan isn't changed or deleted.", { email: toLeave.ownerEmail })
+            : t("You'll stop seeing it here. Their plan isn't changed or deleted.")
+        }
         onConfirm={() => toLeave && void leave(toLeave)}
       />
     </>

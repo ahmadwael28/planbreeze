@@ -42,7 +42,7 @@ const NAMES: [RegExp, RoomUse][] = [
   [/reception|ريسبشن|استقبال/i, 'reception'],
   [/living|lounge|salon|family|sitting|صالة|صالون|معيشة/i, 'living'],
   [/office|study|work|مكتب/i, 'office'],
-  [/dress|closet|wardrobe|walk.?in|دريسنج|دولاب/i, 'dressing'],
+  [/dress|closet|wardrobe|walk.?in|دريسنج|دولاب|ملابس/i, 'dressing'],
   [/laundry|utility|storage|store|pantry|غسيل|مخزن/i, 'laundry'],
   [/hall|corridor|entr|lobby|foyer|passage|ممر|طرقة|مدخل/i, 'hall'],
   [/balcon|terrace|patio|بلكون|شرفة|تراس/i, 'balcony'],

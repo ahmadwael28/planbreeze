@@ -1,3 +1,4 @@
+import { t } from '@/i18n'
 import { useEffect, useState } from 'react'
 import { CloudAlert, CloudCheck, CloudOff, HardDrive, LogIn, LogOut, RefreshCw, TriangleAlert } from 'lucide-react'
 import type { ComponentType } from 'react'
@@ -18,18 +19,18 @@ import type { SaveState } from '@/cloud/store'
 import { reconcile, saveNow, signOut } from '@/cloud/sync'
 import { useEditor } from '@/store/editor'
 
-function ago(t: number | null, now: number) {
-  if (!t) return ''
-  const s = Math.round((now - t) / 1000)
-  if (s < 10) return 'just now'
-  if (s < 60) return `${s}s ago`
+function ago(at: number | null, now: number) {
+  if (!at) return ''
+  const s = Math.round((now - at) / 1000)
+  if (s < 10) return t('just now')
+  if (s < 60) return t('{s}s ago', { s })
   const m = Math.round(s / 60)
-  return m < 60 ? `${m} min ago` : new Date(t).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+  return m < 60 ? t('{m} min ago', { m }) : new Date(at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
 }
 
 const STATES: Record<SaveState, { icon: ComponentType<{ className?: string }>; label: string; className?: string }> = {
   local: { icon: HardDrive, label: 'Saved on this device' },
-  saving: { icon: (p) => <Loader label="Saving" {...p} />, label: 'Saving…' },
+  saving: { icon: (p) => <Loader label={t('Saving')} {...p} />, label: 'Saving…' },
   saved: { icon: CloudCheck, label: 'Saved' },
   offline: { icon: CloudOff, label: 'Offline', className: 'text-amber-600 dark:text-amber-400' },
   error: { icon: CloudAlert, label: 'Not saved', className: 'text-destructive' },
@@ -49,14 +50,17 @@ export function SaveStatus() {
     return () => clearInterval(id)
   }, [])
 
-  const { icon: Icon, label, className } = STATES[state]
+  const { icon: Icon, className } = STATES[state]
+  const label = t(STATES[state].label)
   const detail = {
-    local: 'Every change is saved in this browser automatically. Sign in to also save to the cloud.',
-    saving: 'Saving your latest changes to your account…',
-    saved: `All changes saved to your account ${ago(lastSaved, now)}.`,
-    offline: "You're offline. Changes are saved on this device and will upload when you're back online.",
-    error: `Couldn't save to your account${error ? `: ${error}` : ''}. Changes are still saved on this device. Click to retry.`,
-    conflict: 'This plan was also changed on another device. Choose which version to keep.',
+    local: t('Every change is saved in this browser automatically. Sign in to also save to the cloud.'),
+    saving: t('Saving your latest changes to your account…'),
+    saved: t('All changes saved to your account {when}.', { when: ago(lastSaved, now) }),
+    offline: t("You're offline. Changes are saved on this device and will upload when you're back online."),
+    error: error
+      ? t("Couldn't save to your account: {error}. Changes are still saved on this device. Click to retry.", { error })
+      : t("Couldn't save to your account. Changes are still saved on this device. Click to retry."),
+    conflict: t('This plan was also changed on another device. Choose which version to keep.'),
   }[state]
 
   const retry = () => {
@@ -108,15 +112,15 @@ export function AccountButton() {
   if (!user) {
     return (
       <Button variant="outline" size="sm" disabled={!ready} onClick={() => openSignIn(true)} className="shrink-0">
-        <LogIn /> <span className="max-sm:hidden">Sign in</span>
+        <LogIn /> <span className="max-sm:hidden">{t('Sign in')}</span>
       </Button>
     )
   }
-  const name = user.name || user.email || 'Account'
+  const name = user.name || user.email || t('Account')
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <Button variant="ghost" size="icon" className="shrink-0 rounded-full" aria-label="Account">
+        <Button variant="ghost" size="icon" className="shrink-0 rounded-full" aria-label={t('Account')}>
           <Avatar name={name} src={user.avatar} />
         </Button>
       </DropdownMenuTrigger>
@@ -126,20 +130,20 @@ export function AccountButton() {
           {user.email && user.email !== name && <div className="truncate text-xs text-muted-foreground">{user.email}</div>}
           {user.provider && (
             <div className="text-xs text-muted-foreground">
-              Signed in with {({ github: 'GitHub', google: 'Google', email: 'an email link' } as Record<string, string>)[user.provider] ?? user.provider}
+              {t('Signed in with {how}', { how: ({ github: 'GitHub', google: 'Google', email: t('an email link') } as Record<string, string>)[user.provider] ?? user.provider })}
             </div>
           )}
         </DropdownMenuLabel>
         <DropdownMenuSeparator />
         <DropdownMenuItem onSelect={() => void reconcile()}>
-          <RefreshCw /> Sync now
+          <RefreshCw /> {t('Sync now')}
         </DropdownMenuItem>
         <DropdownMenuSeparator />
         <DropdownMenuItem onSelect={() => void signOut(false)}>
-          <LogOut /> Sign out
+          <LogOut /> {t('Sign out')}
         </DropdownMenuItem>
         <DropdownMenuItem variant="destructive" onSelect={() => void signOut(true)}>
-          <LogOut /> Sign out and remove plans from this device
+          <LogOut /> {t('Sign out and remove plans from this device')}
         </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>

@@ -7,6 +7,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import { cn } from '@/lib/utils'
 import { addFloor, deleteFloor, duplicateFloor, isViewOnly, useEditor } from '@/store/editor'
 import { ConfirmDialog } from './ConfirmDialog'
+import { t } from '@/i18n'
 
 export function FloorBar() {
   const floors = useEditor((s) => s.project.floors)
@@ -29,7 +30,7 @@ export function FloorBar() {
 
   return (
     <div
-      className="absolute bottom-3 left-3 flex max-w-[calc(100%-1.5rem)] items-center gap-1 overflow-x-auto rounded-full border bg-background/95 py-1 pr-1.5 pl-3 shadow-md backdrop-blur"
+      className="absolute start-3 bottom-3 flex max-w-[calc(100%-1.5rem)] items-center gap-1 overflow-x-auto rounded-full border bg-background/95 py-1 ps-3 pe-1.5 shadow-md backdrop-blur"
       data-tour="floors"
     >
       <Layers className="size-4 shrink-0 text-muted-foreground" />
@@ -47,16 +48,16 @@ export function FloorBar() {
       {!viewOnly && (
         <>
           <Separator orientation="vertical" className="mx-0.5 h-4!" />
-          {action('Add floor above', addFloor, <Plus />)}
-          {action('Duplicate this floor', () => duplicateFloor(floorId), <Copy />)}
-          {action('Delete this floor', () => setConfirmDelete(true), <Trash2 />, floors.length <= 1)}
+          {action(t('Add floor above'), addFloor, <Plus />)}
+          {action(t('Duplicate this floor'), () => duplicateFloor(floorId), <Copy />)}
+          {action(t('Delete this floor'), () => setConfirmDelete(true), <Trash2 />, floors.length <= 1)}
         </>
       )}
       <ConfirmDialog
         open={confirmDelete}
         onOpenChange={setConfirmDelete}
-        title={`Delete “${current?.name}”?`}
-        description="All rooms and symbols on this floor will be removed. You can undo this with Ctrl+Z."
+        title={t('Delete “{name}”?', { name: current?.name ?? '' })}
+        description={t('All rooms and symbols on this floor will be removed. You can undo this with Ctrl+Z.')}
         onConfirm={() => deleteFloor(floorId)}
       />
     </div>

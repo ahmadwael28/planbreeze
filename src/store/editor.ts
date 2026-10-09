@@ -1,4 +1,5 @@
 import { produce } from 'immer'
+import { t } from '@/i18n'
 import { create } from 'zustand'
 import {
   newOutdoor,
@@ -979,7 +980,7 @@ export function duplicateSelection() {
 
 export function addFloor() {
   const st = useEditor.getState()
-  const floor = newFloor(`Floor ${st.project.floors.length}`)
+  const floor = newFloor(t('Floor {n}', { n: st.project.floors.length }))
   st.commit((d) => {
     d.floors.push(floor)
   })
@@ -995,7 +996,7 @@ export function duplicateFloor(id: string) {
   const copy: Floor = {
     ...src,
     id: uid(),
-    name: `${src.name} copy`,
+    name: t('{name} copy', { name: src.name }),
     rooms: src.rooms.map((r) => ({ ...r, id: roomIds.get(r.id)! })),
     symbols: src.symbols.map((s) => ({
       ...s,

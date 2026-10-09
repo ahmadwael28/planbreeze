@@ -1,3 +1,4 @@
+import { t } from '@/i18n'
 /**
  * "Design my home": say what each room is for and pick a style, see the suggested design on the plan (furniture laid
  * out around the doors and windows, finishes, ceilings, lights and switches), ask any room for another idea, and
@@ -95,7 +96,7 @@ function Wizard() {
     // The next idea that really is different from this one.
     const next = nextIdea(floor, room, rooms[id].use, uses, opts, current.variant, ideaOf(current))
     if (!next) {
-      toast('No other layout fits this room', { description: 'Move or remove something to make room for more ideas.' })
+      toast(t('No other layout fits this room'), { description: t('Move or remove something to make room for more ideas.') })
       return
     }
     useDesign.setState({ variants: { ...variants, [id]: next.variant } })
@@ -110,7 +111,9 @@ function Wizard() {
       shown: Object.fromEntries(designs.map((d) => [d.roomId, ideaOf(d)])),
     })
     useDesign.getState().close()
-    toast.success(`Designed ${designs.length} room${designs.length === 1 ? '' : 's'}`, { description: 'Change anything you like, or undo it with Ctrl+Z.' })
+    toast.success(designs.length === 1 ? t('Designed 1 room') : t('Designed {n} rooms', { n: designs.length }), {
+      description: t('Change anything you like, or undo it with Ctrl+Z.'),
+    })
   }
 
   if (designs) {
@@ -118,16 +121,15 @@ function Wizard() {
       <>
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2 text-xl">
-            <Sparkles className="size-5 text-primary" /> Your design
+            <Sparkles className="size-5 text-primary" /> {t('Your design')}
           </DialogTitle>
           <DialogDescription>
-            Nothing on your plan has changed yet. Scroll to zoom and drag to look around; pick a room to zoom to it, ask it for
-            another idea, then apply.
+            {t('Nothing on your plan has changed yet. Scroll to zoom and drag to look around; pick a room to zoom to it, ask it for another idea, then apply.')}
           </DialogDescription>
         </DialogHeader>
         <div className="grid min-h-0 flex-1 gap-4 max-md:grid-rows-[minmax(300px,1fr)_auto] md:grid-cols-[1fr_280px]">
           <Preview designs={designs} focus={focus} onFocus={setFocus} />
-          <div className="min-h-0 space-y-1.5 overflow-y-auto pr-1 max-md:max-h-48">
+          <div className="min-h-0 space-y-1.5 overflow-y-auto pe-1 max-md:max-h-48">
             {designs.map((d) => {
               const room = floor.rooms.find((r) => r.id === d.roomId)!
               const pieces = d.add.filter((s) => !s.room && !['spot', 'switch', 'wall-light', 'curtain', 'blind', 'shower-niche'].includes(s.type)).length
@@ -146,8 +148,8 @@ function Wizard() {
                   <div className="min-w-0">
                     <div className="truncate text-sm font-medium">{room.name}</div>
                     <div className="text-xs text-muted-foreground">
-                      {USE_NAMES[d.use]} · {pieces} item{pieces === 1 ? '' : 's'}
-                      {d.variant ? ` · idea ${d.variant + 1}` : ''}
+                      {t(USE_NAMES[d.use])} · {pieces === 1 ? t('1 item') : t('{n} items', { n: pieces })}
+                      {d.variant ? ` · ${t('idea {n}', { n: d.variant + 1 })}` : ''}
                     </div>
                   </div>
                   <Button
@@ -159,7 +161,7 @@ function Wizard() {
                     }}
                     className="shrink-0"
                   >
-                    <RefreshCw /> Another idea
+                    <RefreshCw /> {t('Another idea')}
                   </Button>
                 </div>
               )
@@ -174,10 +176,10 @@ function Wizard() {
               setFocus(null)
             }}
           >
-            <ArrowLeft /> Back
+            <ArrowLeft className="rtl-flip" /> {t('Back')}
           </Button>
           <Button onClick={apply}>
-            <Check /> Apply to my plan
+            <Check /> {t('Apply to my plan')}
           </Button>
         </DialogFooter>
       </>
@@ -188,16 +190,15 @@ function Wizard() {
     <>
       <DialogHeader>
         <DialogTitle className="flex items-center gap-2 text-xl">
-          <Sparkles className="size-5 text-primary" /> Design my home
+          <Sparkles className="size-5 text-primary" /> {t('Design my home')}
         </DialogTitle>
         <DialogDescription>
-          Say what each room is for and pick a style. Furniture is laid out around your doors and windows, with room to walk and
-          to open things.
+          {t('Say what each room is for and pick a style. Furniture is laid out around your doors and windows, with room to walk and to open things.')}
         </DialogDescription>
       </DialogHeader>
       <div className="grid min-h-0 flex-1 gap-5 overflow-x-hidden overflow-y-auto md:grid-cols-[1fr_300px]">
         <section className="min-w-0 space-y-2">
-          <h3 className="text-sm font-medium">Rooms</h3>
+          <h3 className="text-sm font-medium">{t('Rooms')}</h3>
           <div className="space-y-1.5">
             {floor.rooms
               .filter((r) => rooms[r.id])
@@ -206,23 +207,23 @@ function Wizard() {
                 const furnished = isFurnished(floor, r)
                 return (
                   <div key={r.id} className={cn('flex items-center gap-3 rounded-lg border px-3 py-2', !c.on && 'opacity-60')}>
-                    <Switch size="sm" checked={c.on} onCheckedChange={(on) => useDesign.getState().setRoom(r.id, { on })} aria-label={`Design ${r.name}`} />
+                    <Switch size="sm" checked={c.on} onCheckedChange={(on) => useDesign.getState().setRoom(r.id, { on })} aria-label={t('Design {room}', { room: r.name })} />
                     <div className="min-w-0 flex-1">
                       <div className="truncate text-sm font-medium">{r.name}</div>
                       <div className="text-xs text-muted-foreground">
                         {formatArea(area(r.points), units)}
-                        {furnished && c.on && opts.furniture === 'replace' ? ' · its furniture is replaced' : ''}
-                        {furnished && c.on && opts.furniture === 'add' ? ' · designed round its furniture' : ''}
+                        {furnished && c.on && opts.furniture === 'replace' ? ` · ${t('its furniture is replaced')}` : ''}
+                        {furnished && c.on && opts.furniture === 'add' ? ` · ${t('designed round its furniture')}` : ''}
                       </div>
                     </div>
                     <Select value={c.use} onValueChange={(v) => useDesign.getState().setRoom(r.id, { use: v as RoomUse })}>
-                      <SelectTrigger size="sm" className="w-40" aria-label={`What ${r.name} is for`}>
+                      <SelectTrigger size="sm" className="w-40" aria-label={t('What {room} is for', { room: r.name })}>
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
                         {ROOM_USES.map((u) => (
                           <SelectItem key={u.id} value={u.id}>
-                            {u.name}
+                            {t(u.name)}
                           </SelectItem>
                         ))}
                       </SelectContent>
@@ -234,14 +235,14 @@ function Wizard() {
         </section>
         <section className="min-w-0 space-y-4">
           <div className="space-y-2">
-            <h3 className="text-sm font-medium">Style</h3>
+            <h3 className="text-sm font-medium">{t('Style')}</h3>
             <div className="grid gap-1.5">
               {DESIGN_STYLES.map((s) => (
                 <button
                   key={s.id}
                   onClick={() => useDesign.getState().setOpts({ style: s.id })}
                   className={cn(
-                    'flex items-center gap-3 rounded-lg border px-3 py-2 text-left transition-colors hover:border-foreground/30',
+                    'flex items-center gap-3 rounded-lg border px-3 py-2 text-start transition-colors hover:border-foreground/30',
                     opts.style === s.id && 'border-primary bg-primary/5 ring-1 ring-primary',
                   )}
                 >
@@ -251,17 +252,17 @@ function Wizard() {
                     ))}
                   </span>
                   <span className="min-w-0">
-                    <span className="block text-sm font-medium">{s.name}</span>
-                    <span className="block text-xs leading-snug text-muted-foreground">{s.hint}</span>
+                    <span className="block text-sm font-medium">{t(s.name)}</span>
+                    <span className="block text-xs leading-snug text-muted-foreground">{t(s.hint)}</span>
                   </span>
                 </button>
               ))}
             </div>
           </div>
           <div className="space-y-2">
-            <h3 className="text-sm font-medium">What to design</h3>
+            <h3 className="text-sm font-medium">{t('What to design')}</h3>
             <label className="flex items-center justify-between gap-3">
-              <span className="text-sm">Furniture</span>
+              <span className="text-sm">{t('Furniture')}</span>
               <Select value={opts.furniture} onValueChange={(v) => useDesign.getState().setOpts({ furniture: v as DesignOptions['furniture'] })}>
                 <SelectTrigger size="sm" className="w-48">
                   <SelectValue />
@@ -269,7 +270,7 @@ function Wizard() {
                 <SelectContent>
                   {FURNITURE.map((f) => (
                     <SelectItem key={f.value} value={f.value}>
-                      {f.label}
+                      {t(f.label)}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -278,26 +279,25 @@ function Wizard() {
             {INCLUDE.map((i) => (
               <label key={i.key} className="flex items-center justify-between gap-3">
                 <span>
-                  <span className="block text-sm">{i.label}</span>
-                  <span className="block text-xs text-muted-foreground">{i.hint}</span>
+                  <span className="block text-sm">{t(i.label)}</span>
+                  <span className="block text-xs text-muted-foreground">{t(i.hint)}</span>
                 </span>
                 <Switch size="sm" checked={opts[i.key]} onCheckedChange={(v) => useDesign.getState().setOpts({ [i.key]: v })} />
               </label>
             ))}
             <p className="pt-1 text-xs leading-relaxed text-muted-foreground">
-              Doors and windows are never changed. To keep a particular light, piece of furniture or curtain, select it and turn on{' '}
-              <b className="font-medium text-foreground">Keep when designing</b>.
+              {t('Doors and windows are never changed. To keep a particular light, piece of furniture or curtain, select it and turn on “Keep when designing”.')}
             </p>
           </div>
         </section>
       </div>
       <DialogFooter className="gap-2">
         <Button variant="ghost" onClick={() => useDesign.getState().close()}>
-          Cancel
+          {t('Cancel')}
         </Button>
         <Button onClick={suggest} disabled={!chosen.length || busy || !(opts.furniture !== 'none' || INCLUDE.some((i) => opts[i.key]))}>
           {busy ? <Loader className="size-4" /> : <Sparkles />}
-          Suggest a design
+          {t('Suggest a design')}
         </Button>
       </DialogFooter>
     </>
@@ -421,24 +421,24 @@ function Preview({ designs, focus, onFocus }: { designs: RoomDesign[]; focus: st
         onPointerDown={down}
         onPointerMove={move}
         onPointerUp={up}
-        aria-label={now ? 'The plan as it is now' : 'The plan with the design'}
+        aria-label={now ? t('The plan as it is now') : t('The plan with the design')}
       >
         <PlanLayers floor={shown} units={units} theme={theme} scale={v.z} showWallLengths={false} showDimensions={false} images={images} />
         {focusPts && <path d={polygonPath(focusPts)} fill="none" stroke="var(--primary)" strokeWidth={3 / v.z} strokeDasharray={`${10 / v.z} ${6 / v.z}`} pointerEvents="none" />}
       </svg>
-      <div className="absolute top-2 left-2 flex items-center gap-1 rounded-lg border bg-background/90 p-1 shadow-sm backdrop-blur">
+      <div className="absolute start-2 top-2 flex items-center gap-1 rounded-lg border bg-background/90 p-1 shadow-sm backdrop-blur">
         <Button variant={now ? 'ghost' : 'secondary'} size="xs" onClick={() => setNow(false)}>
-          <Sparkles /> Design
+          <Sparkles /> {t('Design')}
         </Button>
         <Button variant={now ? 'secondary' : 'ghost'} size="xs" onClick={() => setNow(true)}>
-          <Eye /> Now
+          <Eye /> {t('Now')}
         </Button>
       </div>
-      <div className="absolute right-2 bottom-2 flex flex-col gap-1 rounded-lg border bg-background/90 p-1 shadow-sm backdrop-blur">
-        <Button variant="ghost" size="icon-sm" onClick={() => zoomAt(size.w / 2, size.h / 2, 1.3)} aria-label="Zoom in">
+      <div className="absolute end-2 bottom-2 flex flex-col gap-1 rounded-lg border bg-background/90 p-1 shadow-sm backdrop-blur">
+        <Button variant="ghost" size="icon-sm" onClick={() => zoomAt(size.w / 2, size.h / 2, 1.3)} aria-label={t('Zoom in')}>
           <ZoomIn />
         </Button>
-        <Button variant="ghost" size="icon-sm" onClick={() => zoomAt(size.w / 2, size.h / 2, 1 / 1.3)} aria-label="Zoom out">
+        <Button variant="ghost" size="icon-sm" onClick={() => zoomAt(size.w / 2, size.h / 2, 1 / 1.3)} aria-label={t('Zoom out')}>
           <ZoomOut />
         </Button>
         <Button
@@ -448,7 +448,7 @@ function Preview({ designs, focus, onFocus }: { designs: RoomDesign[]; focus: st
             onFocus(null)
             setView(fitted(null))
           }}
-          aria-label="Show the whole plan"
+          aria-label={t('Show the whole plan')}
         >
           <Maximize />
         </Button>

@@ -1,3 +1,4 @@
+import { t } from '@/i18n'
 import { useState } from 'react'
 import type { FormEvent } from 'react'
 import { Mail, MailCheck } from 'lucide-react'
@@ -35,7 +36,7 @@ export function SignInDialog() {
     e.preventDefault()
     const address = email.trim()
     if (!/^\S+@\S+\.\S+$/.test(address)) {
-      setError('Enter a valid email address.')
+      setError(t('Enter a valid email address.'))
       return
     }
     setBusy('email')
@@ -64,54 +65,53 @@ export function SignInDialog() {
     <Dialog open={open} onOpenChange={close}>
       <DialogContent className="sm:max-w-sm">
         <DialogHeader>
-          <DialogTitle>{note ? 'Sign in' : 'Save your plans to the cloud'}</DialogTitle>
+          <DialogTitle>{note ? t('Sign in') : t('Save your plans to the cloud')}</DialogTitle>
           <DialogDescription>
-            {note ??
-              "Sign in to keep your plans safe and open them on any device. Without an account, they're saved in this browser only."}
+            {note ?? t("Sign in to keep your plans safe and open them on any device. Without an account, they're saved in this browser only.")}
           </DialogDescription>
         </DialogHeader>
 
         {!configured ? (
           <p className="rounded-md bg-muted px-3 py-2 text-sm text-muted-foreground">
-            Cloud sign-in isn't set up for this copy of the app yet.
+            {t("Cloud sign-in isn't set up for this copy of the app yet.")}
           </p>
         ) : sentTo ? (
           <div className="flex flex-col items-center gap-2 py-2 text-center">
             <MailCheck className="size-9 text-primary" />
-            <p className="font-medium">Check your inbox</p>
+            <p className="font-medium">{t('Check your inbox')}</p>
             <p className="text-sm text-muted-foreground">
               We sent a sign-in link to <b className="text-foreground">{sentTo}</b>. Open it in this browser to finish signing in.
             </p>
             <Button variant="ghost" size="sm" onClick={() => setSentTo(null)}>
-              Use a different email
+              {t('Use a different email')}
             </Button>
           </div>
         ) : (
           <div className="space-y-3">
             <Button variant="outline" className="h-10 w-full" disabled={!!busy} onClick={() => withProvider('google')}>
-              {busy === 'google' ? <Loader label="Signing in" /> : <GoogleIcon className="size-4" />}
+              {busy === 'google' ? <Loader label={t('Signing in')} /> : <GoogleIcon className="size-4" />}
               Continue with Google
             </Button>
             <Button variant="outline" className="h-10 w-full" disabled={!!busy} onClick={() => withProvider('github')}>
-              {busy === 'github' ? <Loader label="Signing in" /> : <GitHubIcon className="size-4" />}
+              {busy === 'github' ? <Loader label={t('Signing in')} /> : <GitHubIcon className="size-4" />}
               Continue with GitHub
             </Button>
             <div className="flex items-center gap-3 text-xs text-muted-foreground">
               <span className="h-px flex-1 bg-border" />
-              or
+              {t('or')}
               <span className="h-px flex-1 bg-border" />
             </div>
             <form onSubmit={withEmail} className="space-y-2">
               <Input
                 type="email"
                 autoComplete="email"
-                placeholder="you@example.com"
+                placeholder={t('you@example.com')}
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                aria-label="Email address"
+                aria-label={t('Email address')}
               />
               <Button type="submit" className="h-10 w-full" disabled={!!busy}>
-                {busy === 'email' ? <Loader label="Sending" /> : <Mail />}
+                {busy === 'email' ? <Loader label={t('Sending')} /> : <Mail />}
                 Email me a sign-in link
               </Button>
             </form>
@@ -119,13 +119,13 @@ export function SignInDialog() {
           </div>
         )}
         <p className="text-center text-xs text-muted-foreground">
-          By signing in you agree to the{' '}
+          {t('By signing in you agree to the')}{' '}
           <a href="terms.html" target="_blank" rel="noreferrer" className="underline underline-offset-2 hover:text-foreground">
-            Terms
+            {t('Terms')}
           </a>{' '}
-          and{' '}
+          {t('and')}{' '}
           <a href="privacy.html" target="_blank" rel="noreferrer" className="underline underline-offset-2 hover:text-foreground">
-            Privacy Policy
+            {t('Privacy Policy')}
           </a>
           .
         </p>

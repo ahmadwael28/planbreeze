@@ -6,6 +6,7 @@ import * as THREE from 'three'
 import { bbox, labelPoint, pointInPolygon } from '@/model/geometry'
 import type { Point, Project } from '@/model/types'
 import { SLAB } from '@/three/buildScene'
+import { t } from '@/i18n'
 
 /** Plan units (cm) to 3D world units (m). */
 const M = 0.01
@@ -49,10 +50,10 @@ function roomSpot(pts: Point[]): { eye: Point; look: Point } {
 }
 
 const CORNERS = [
-  { sx: 1, sz: 1, arrow: '↘', name: 'bottom-right' },
-  { sx: -1, sz: 1, arrow: '↙', name: 'bottom-left' },
-  { sx: -1, sz: -1, arrow: '↖', name: 'top-left' },
-  { sx: 1, sz: -1, arrow: '↗', name: 'top-right' },
+  { sx: 1, sz: 1, arrow: '↘', name: 'bottom-right', label: 'Outside, bottom-right' },
+  { sx: -1, sz: 1, arrow: '↙', name: 'bottom-left', label: 'Outside, bottom-left' },
+  { sx: -1, sz: -1, arrow: '↖', name: 'top-left', label: 'Outside, top-left' },
+  { sx: 1, sz: -1, arrow: '↗', name: 'top-right', label: 'Outside, top-right' },
 ] as const
 
 /** Height of a floor's level above the ground floor (cm). */
@@ -74,7 +75,7 @@ export function computeViewpoints(project: Project, floorId: string): Viewpoint[
     const { eye, look } = roomSpot(room.points)
     return {
       id: `room:${room.id}`,
-      label: room.name.trim() || `Room ${i + 1}`,
+      label: room.name.trim() || t('Room {n}', { n: i + 1 }),
       kind: 'room',
       eye: new THREE.Vector3(eye.x * M, (base + EYE) * M, eye.y * M),
       look: new THREE.Vector3(look.x * M, (base + 125) * M, look.y * M),
@@ -109,7 +110,7 @@ export function computeViewpoints(project: Project, floorId: string): Viewpoint[
       (base + floor.height + r * 0.75) * M,
       (cz + c.sz * (d / 2 + r * 0.6)) * M,
     )
-    out.push({ id: `out:${floor.id}:${c.name}`, label: `Outside, ${c.name}`, kind: 'outside', arrow: c.arrow, eye, look: look.clone(), marker: eye })
+    out.push({ id: `out:${floor.id}:${c.name}`, label: t(c.label), kind: 'outside', arrow: c.arrow, eye, look: look.clone(), marker: eye })
   }
   return out
 }

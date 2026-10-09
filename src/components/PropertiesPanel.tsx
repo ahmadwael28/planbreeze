@@ -1,3 +1,4 @@
+import { t, tc } from '@/i18n'
 import { useId } from 'react'
 import type { ReactNode } from 'react'
 import {
@@ -113,25 +114,21 @@ function Stats({ rows }: { rows: [string, string][] }) {
       {rows.map(([k, v]) => (
         <div key={k} className="contents">
           <dt className="text-muted-foreground">{k}</dt>
-          <dd className="text-right font-medium tabular-nums">{v}</dd>
+          <dd className="text-end font-medium tabular-nums">{v}</dd>
         </div>
       ))}
     </dl>
   )
 }
 
-function Kbd({ children }: { children: ReactNode }) {
-  return <kbd className="rounded border bg-muted px-1 font-mono text-[0.7rem] text-foreground">{children}</kbd>
-}
-
 function Actions() {
   return (
     <div className="flex gap-2">
       <Button variant="outline" size="sm" onClick={duplicateSelection}>
-        <Copy /> Duplicate
+        <Copy /> {t('Duplicate')}
       </Button>
       <Button variant="destructive" size="sm" onClick={deleteSelection}>
-        <Trash2 /> Delete
+        <Trash2 /> {t('Delete')}
       </Button>
     </div>
   )
@@ -167,15 +164,15 @@ function WorktopPicker({ sym }: { sym: PlanSymbol }) {
   const ring = 'ring-2 ring-primary ring-offset-2 ring-offset-background'
   return (
     <>
-      <Field label="Worktop">
+      <Field label={t('Worktop')}>
         {(id) => (
           <div id={id} className="flex flex-wrap items-center gap-1.5 py-1">
             {WORKTOPS.map((w) => (
               <button
                 key={w.id}
                 type="button"
-                title={w.name}
-                aria-label={w.name}
+                title={t(w.name)}
+                aria-label={t(w.name)}
                 aria-pressed={w.id === current.id}
                 onClick={() => updateSymbol(sym.id, (s) => void (s.top = w.id))}
                 className={cn('size-6 rounded-md border shadow-sm outline-none focus-visible:ring-2 focus-visible:ring-ring', w.id === current.id && ring)}
@@ -185,8 +182,8 @@ function WorktopPicker({ sym }: { sym: PlanSymbol }) {
           </div>
         )}
       </Field>
-      <div className="flex flex-wrap items-center gap-x-2 pl-[112px] text-xs text-muted-foreground">
-        {current.name}
+      <div className="flex flex-wrap items-center gap-x-2 ps-[112px] text-xs text-muted-foreground">
+        {t(current.name)}
         {room && others.length > 0 && (
           <Button
             variant="link"
@@ -199,7 +196,7 @@ function WorktopPicker({ sym }: { sym: PlanSymbol }) {
               })
             }
           >
-            Use it for every worktop in {room.name}
+            {t('Use it for every worktop in {room}', { room: room.name })}
           </Button>
         )}
       </div>
@@ -214,13 +211,13 @@ function TvSize({ sym }: { sym: PlanSymbol }) {
   const inches = tvInches(sym.width)
   const set = (v: number) => {
     const n = Math.min(110, Math.max(22, Math.round(v)))
-    if (n !== Math.round(v)) toast('TVs here go from 22″ to 110″')
+    if (n !== Math.round(v)) toast(t('TVs here go from 22″ to 110″'))
     updateSymbol(sym.id, (s) => void Object.assign(s, tvSize(n)))
   }
   return (
     <>
-      <Field label="Screen size">{(id) => <NumberInput id={id} value={inches} step={1} suffix="″" onChange={set} />}</Field>
-      <div className="flex flex-wrap gap-1 pl-[112px]">
+      <Field label={t('Screen size')}>{(id) => <NumberInput id={id} value={inches} step={1} suffix="″" onChange={set} />}</Field>
+      <div className="flex flex-wrap gap-1 ps-[112px]">
         {TV_SIZES.map((n) => (
           <Button key={n} variant={n === inches ? 'secondary' : 'outline'} size="xs" className="tabular-nums" onClick={() => set(n)}>
             {n}″
@@ -236,7 +233,7 @@ function KeepSwitch({ checked, onChange }: { checked: boolean; onChange: (on: bo
   return (
     <label className="flex items-center justify-between gap-2 text-sm">
       <span className="flex items-center gap-1.5">
-        <Lock className="size-3.5 text-muted-foreground" /> Keep when designing
+        <Lock className="size-3.5 text-muted-foreground" /> {t('Keep when designing')}
       </span>
       <Switch size="sm" checked={checked} onCheckedChange={onChange} />
     </label>
@@ -248,17 +245,17 @@ function RoomUseControls({ room }: { room: Room }) {
   const tried = useDesign((s) => room.id in s.variants)
   return (
     <>
-      <Field label="Used as">
+      <Field label={t('Used as')}>
         {(id) => (
           <Select value={room.use ?? 'none'} onValueChange={(v) => updateRoom(room.id, (r) => void (v === 'none' ? delete r.use : (r.use = v as RoomUse)))}>
             <SelectTrigger id={id} size="sm" className="w-full">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="none">Not set</SelectItem>
+              <SelectItem value="none">{t('Not set')}</SelectItem>
               {ROOM_USES.filter((u) => u.id !== 'balcony').map((u) => (
                 <SelectItem key={u.id} value={u.id}>
-                  {u.name}
+                  {t(u.name)}
                 </SelectItem>
               ))}
             </SelectContent>
@@ -266,7 +263,7 @@ function RoomUseControls({ room }: { room: Room }) {
         )}
       </Field>
       <Button variant="outline" size="sm" className="w-full" onClick={() => redesignRoom(room.id)}>
-        <Sparkles className="text-primary" /> {tried ? 'Another idea' : 'Suggest a design'}
+        <Sparkles className="text-primary" /> {tried ? t('Another idea') : t('Suggest a design')}
       </Button>
     </>
   )
@@ -276,12 +273,12 @@ function RoomUseControls({ room }: { room: Room }) {
 function OpenSpaceControls({ room }: { room: Room }) {
   const floor = useFloor()
   const across = roomsAcross(room, floor.rooms)
-  const names = across.map((r) => r.name).join(' and ')
+  const names = across.map((r) => r.name).join(t(' and '))
   return (
     <div className="space-y-2">
       {across.length > 0 && (
         <p className="text-xs leading-relaxed text-muted-foreground">
-          Open to {names}, with no wall between: one space, but each has its own floor, ceiling and lights.
+          {t('Open to {names}, with no wall between: one space, but each has its own floor, ceiling and lights.', { names })}
         </p>
       )}
       {across.map((r) => {
@@ -290,18 +287,18 @@ function OpenSpaceControls({ room }: { room: Room }) {
           <div key={r.id} className="space-y-2">
             <label className="flex items-start justify-between gap-3 text-sm">
               <span className="min-w-0">
-                <span className="block">One ceiling with {r.name}</span>
+                <span className="block">{t('One ceiling with {room}', { room: r.name })}</span>
                 <span className="block text-xs leading-relaxed text-muted-foreground">
                   {joined
-                    ? 'The gypsum runs on across the line where the two are level (a step where they’re not).'
-                    : 'Each room’s gypsum stops at the line, with its own band along it.'}
+                    ? t('The gypsum runs on across the line where the two are level (a step where they’re not).')
+                    : t('Each room’s gypsum stops at the line, with its own band along it.')}
                 </span>
               </span>
               <Switch size="sm" checked={joined} onCheckedChange={(on) => setCeilingJoined(room.id, r.id, on)} />
             </label>
             {!beamAlong(floor, room, r) && (
               <Button variant="outline" size="sm" className="w-full" onClick={() => addBeamAlong(room.id, r.id)}>
-                <MoveHorizontal /> A beam along the line
+                <MoveHorizontal /> {t('A beam along the line')}
               </Button>
             )}
             <Button
@@ -309,10 +306,10 @@ function OpenSpaceControls({ room }: { room: Room }) {
               size="sm"
               className="w-full"
               onClick={() => {
-                if (!joinRooms(room.id, r.id)) toast("These two can't be joined into one room", { description: 'They need to make one piece together.' })
+                if (!joinRooms(room.id, r.id)) toast(t("These two can't be joined into one room"), { description: t('They need to make one piece together.') })
               }}
             >
-              <Merge /> Join with {r.name}
+              <Merge /> {t('Join with {room}', { room: r.name })}
             </Button>
           </div>
         )
@@ -323,10 +320,10 @@ function OpenSpaceControls({ room }: { room: Room }) {
         className="w-full"
         onClick={() => {
           useEditor.getState().setTool('divide')
-          toast('Click a wall where the line between the two rooms starts', { description: 'Then across the room, where it ends.' })
+          toast(t('Click a wall where the line between the two rooms starts'), { description: t('Then across the room, where it ends.') })
         }}
       >
-        <Scissors /> Divide into two rooms
+        <Scissors /> {t('Divide into two rooms')}
       </Button>
     </div>
   )
@@ -362,7 +359,7 @@ function RoomProps({ room, units }: { room: Room; units: Units }) {
   return (
     <>
       <Section
-        title={room.kind ? OUTDOOR[room.kind].name : 'Room'}
+        title={room.kind ? t(OUTDOOR[room.kind].name) : t('Room')}
         action={
           <Button
             variant="outline"
@@ -374,28 +371,28 @@ function RoomProps({ room, units }: { room: Room; units: Units }) {
               useEditor.getState().setViewMode('3d')
             }}
           >
-            <Box /> View in 3D
+            <Box /> {t('View in 3D')}
           </Button>
         }
       >
-        <Field label="Name">
+        <Field label={t('Name')}>
           {(id) => <TextInput id={id} value={room.name} onChange={(v) => updateRoom(room.id, (r) => void (r.name = v))} />}
         </Field>
         <Choice
-          label="Type"
+          label={t('Type')}
           value={room.kind ?? 'room'}
           onChange={(v) => setKind(v === 'room' ? null : v)}
           options={[
-            { value: 'room', label: 'Room' },
-            { value: 'balcony', label: 'Balcony' },
-            { value: 'terrace', label: 'Terrace' },
+            { value: 'room', label: t('Room') },
+            { value: 'balcony', label: t('Balcony') },
+            { value: 'terrace', label: t('Terrace') },
           ]}
         />
         {!balcony && <RoomUseControls room={room} />}
         {!balcony && <OpenSpaceControls room={room} />}
         {balcony && (
           <>
-            <Field label="Railing">
+            <Field label={t('Railing')}>
               {() => (
                 <Select
                   value={room.railing?.style ?? DEFAULT_RAILING.style}
@@ -412,16 +409,16 @@ function RoomProps({ room, units }: { room: Room; units: Units }) {
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="glass">Glass panels</SelectItem>
-                    <SelectItem value="metal">Metal balusters</SelectItem>
-                    <SelectItem value="solid">Solid wall (parapet)</SelectItem>
-                    <SelectItem value="none">No railing</SelectItem>
+                    <SelectItem value="glass">{t('Glass panels')}</SelectItem>
+                    <SelectItem value="metal">{t('Metal balusters')}</SelectItem>
+                    <SelectItem value="solid">{t('Solid wall (parapet)')}</SelectItem>
+                    <SelectItem value="none">{t('No railing')}</SelectItem>
                   </SelectContent>
                 </Select>
               )}
             </Field>
             {room.railing?.style !== 'none' && (
-            <Field label="Railing height">
+            <Field label={t('Railing height')}>
               {(id) => (
                 <LengthInput
                   id={id}
@@ -434,12 +431,12 @@ function RoomProps({ room, units }: { room: Room; units: Units }) {
             </Field>
             )}
             <p className="text-xs text-muted-foreground">
-              There's no railing where it meets the house. Put a door in the house wall to step out onto it.
+              {t("There's no railing where it meets the house. Put a door in the house wall to step out onto it.")}
             </p>
           </>
         )}
         <FloorSection room={room} units={units} />
-        <Field label={room.floor ? 'Plan color' : 'Floor color'}>
+        <Field label={room.floor ? t('Plan color') : t('Floor color')}>
           {() => (
             <div className="flex flex-wrap gap-1.5">
               {ROOM_COLORS.map((c) => (
@@ -451,13 +448,13 @@ function RoomProps({ room, units }: { room: Room; units: Units }) {
                   )}
                   style={{ background: theme.tint(c) }}
                   onClick={() => updateRoom(room.id, (r) => void (r.color = c))}
-                  aria-label={`Color ${c}`}
+                  aria-label={t('Color {c}', { c })}
                 />
               ))}
             </div>
           )}
         </Field>
-        <Field label={balcony ? 'Railing thickness' : 'Wall thickness'}>
+        <Field label={balcony ? t('Railing thickness') : t('Wall thickness')}>
           {(id) => (
             <LengthInput
               id={id}
@@ -470,16 +467,16 @@ function RoomProps({ room, units }: { room: Room; units: Units }) {
         </Field>
         <Stats
           rows={[
-            ['Area', formatArea(a, units)],
-            ['Perimeter', formatLength(perimeter(room.points), units)],
-            ...(balcony ? [] : [['Wall area', formatArea(area(roomOuter(room)) - a, units)] as [string, string]]),
+            [t('Area'), formatArea(a, units)],
+            [t('Perimeter'), formatLength(perimeter(room.points), units)],
+            ...(balcony ? [] : [[t('Wall area'), formatArea(area(roomOuter(room)) - a, units)] as [string, string]]),
           ]}
         />
       </Section>
       <Separator />
       {!balcony && (
         <>
-          <Section title="Gypsum ceiling">
+          <Section title={t('Gypsum ceiling')}>
             <CeilingSection room={room} units={units} />
           </Section>
           <Separator />
@@ -487,13 +484,13 @@ function RoomProps({ room, units }: { room: Room; units: Units }) {
       )}
       {!balcony && (
         <>
-          <Section title="Wall finishes">
+          <Section title={t('Wall finishes')}>
             <WallsSection room={room} units={units} />
           </Section>
           <Separator />
         </>
       )}
-      <Section title="Walls">
+      <Section title={t('Walls')}>
         <ol className="space-y-1">
           {room.points.map((p, i) => {
             const q = room.points[(i + 1) % room.points.length]
@@ -508,8 +505,8 @@ function RoomProps({ room, units }: { room: Room; units: Units }) {
                   vertex === i && 'bg-primary/10',
                 )}
               >
-                <span className={cn('text-sm text-muted-foreground', open && 'italic')} title={open ? 'No wall: open to the next room' : undefined}>
-                  {open ? 'Open' : `Wall ${i + 1}`}
+                <span className={cn('text-sm text-muted-foreground', open && 'italic')} title={open ? t('No wall: open to the next room') : undefined}>
+                  {open ? t('Open') : t('Wall {n}', { n: i + 1 })}
                 </span>
                 <LengthInput
                   value={dist(p, q)}
@@ -520,11 +517,11 @@ function RoomProps({ room, units }: { room: Room; units: Units }) {
                   {open && (
                     <Tooltip>
                       <TooltipTrigger asChild>
-                        <Button variant="ghost" size="icon-sm" onClick={() => closeWall(room.id, i)} aria-label="Build a wall here">
+                        <Button variant="ghost" size="icon-sm" onClick={() => closeWall(room.id, i)} aria-label={t('Build a wall here')}>
                           <BrickWall />
                         </Button>
                       </TooltipTrigger>
-                      <TooltipContent side="left">Open to the next room: build a wall here instead</TooltipContent>
+                      <TooltipContent side="left">{t('Open to the next room: build a wall here instead')}</TooltipContent>
                     </Tooltip>
                   )}
                   {next && (
@@ -533,26 +530,30 @@ function RoomProps({ room, units }: { room: Room; units: Units }) {
                         <Button
                           variant="ghost"
                           size="icon-sm"
-                          aria-label={`Open up to ${next.room.name}`}
+                          aria-label={t('Open up to {room}', { room: next.room.name })}
                           onClick={() => {
                             const gone = openWall(room.id, i)
-                            if (gone > 0) toast(`Opened up to ${next.room.name}`, { description: `The ${gone === 1 ? 'door' : `${gone} doors and windows`} in that wall went with it.` })
-                            else if (gone === 0) toast(`Opened up to ${next.room.name}`, { description: 'No wall between them now: each keeps its own floor, ceiling and lights.' })
+                            const opened = t('Opened up to {room}', { room: next.room.name })
+                            if (gone > 0)
+                              toast(opened, {
+                                description: gone === 1 ? t('The door in that wall went with it.') : t('The {n} doors and windows in that wall went with it.', { n: gone }),
+                              })
+                            else if (gone === 0) toast(opened, { description: t('No wall between them now: each keeps its own floor, ceiling and lights.') })
                           }}
                         >
                           <DoorOpen />
                         </Button>
                       </TooltipTrigger>
-                      <TooltipContent side="left">Take this wall away: open up to {next.room.name}</TooltipContent>
+                      <TooltipContent side="left">{t('Take this wall away: open up to {room}', { room: next.room.name })}</TooltipContent>
                     </Tooltip>
                   )}
                   <Tooltip>
                     <TooltipTrigger asChild>
-                      <Button variant="ghost" size="icon-sm" onClick={() => splitWall(room.id, i)} aria-label="Split wall">
+                      <Button variant="ghost" size="icon-sm" onClick={() => splitWall(room.id, i)} aria-label={t('Split wall')}>
                         <SplitSquareHorizontal />
                       </Button>
                     </TooltipTrigger>
-                    <TooltipContent side="left">Split wall (add a corner)</TooltipContent>
+                    <TooltipContent side="left">{t('Split wall (add a corner)')}</TooltipContent>
                   </Tooltip>
                 </span>
               </li>
@@ -566,11 +567,11 @@ function RoomProps({ room, units }: { room: Room; units: Units }) {
             disabled={room.points.length <= 3}
             onClick={() => removeVertex(room.id, vertex)}
           >
-            Remove corner {vertex + 1}
+            {t('Remove corner {n}', { n: vertex + 1 })}
           </Button>
         )}
         <p className="text-xs leading-relaxed text-muted-foreground">
-          Drag corners to reshape, drag the wall handles to move walls, double-click a wall handle to add a corner.
+          {t('Drag corners to reshape, drag the wall handles to move walls, double-click a wall handle to add a corner.')}
         </p>
       </Section>
       <Separator />
@@ -595,11 +596,15 @@ function CoveProps({ sym, units }: { sym: PlanSymbol; units: Units }) {
     const gap = sym.type === 'gap-light'
     return (
       <>
-        <Section title={gap ? 'Shadow gap light' : 'Curtain pocket light'}>
+        <Section title={gap ? t('Shadow gap light') : t('Curtain pocket light')}>
           <p className="text-sm text-muted-foreground">
-            An LED strip in the {gap ? 'shadow gap' : 'curtain pocket'} of <b className="text-foreground">{room?.name ?? 'the room'}</b>,{' '}
-            {gap ? 'washing the walls below' : 'lighting the curtains'}. The room's ceiling settings choose the walls with a{' '}
-            {gap ? 'gap' : 'pocket'}; here, which of them have light.
+            {gap
+              ? t("An LED strip in the shadow gap of {room}, washing the walls below. The room's ceiling settings choose the walls with a gap; here, which of them have light.", {
+                  room: room?.name ?? t('the room'),
+                })
+              : t("An LED strip in the curtain pocket of {room}, lighting the curtains. The room's ceiling settings choose the walls with a pocket; here, which of them have light.", {
+                  room: room?.name ?? t('the room'),
+                })}
           </p>
           {room && <GrooveLightWalls room={room} sym={sym} units={units} />}
           <LightSection sym={sym} units={units} />
@@ -607,7 +612,7 @@ function CoveProps({ sym, units }: { sym: PlanSymbol; units: Units }) {
         <Separator />
         <Section>
           <Button variant="destructive" size="sm" onClick={deleteSelection}>
-            <Trash2 /> Delete
+            <Trash2 /> {t('Delete')}
           </Button>
         </Section>
       </>
@@ -615,16 +620,18 @@ function CoveProps({ sym, units }: { sym: PlanSymbol; units: Units }) {
   }
   return (
     <>
-      <Section title="Cove / hidden light">
+      <Section title={t('Cove / hidden light')}>
         <p className="text-sm text-muted-foreground">
-          An LED strip hidden around the ceiling of <b className="text-foreground">{room?.name ?? 'the room'}</b>
-          {room?.ceiling?.style === 'cove'
-            ? ', inside the cove, washing the ceiling with light.'
-            : room?.ceiling?.style === 'floating'
-              ? ', on top of the floating panel, lighting the ceiling around it.'
-              : sym.cove?.at === 'inner' && room && (room.ceiling?.style === 'tray' || room.ceiling?.style === 'stepped')
-                ? ', inside the tray, lighting its raised middle.'
-                : ', along the walls just below the ceiling.'}
+          {t(
+            room?.ceiling?.style === 'cove'
+              ? 'An LED strip hidden around the ceiling of {room}, inside the cove, washing the ceiling with light.'
+              : room?.ceiling?.style === 'floating'
+                ? 'An LED strip hidden around the ceiling of {room}, on top of the floating panel, lighting the ceiling around it.'
+                : sym.cove?.at === 'inner' && room && (room.ceiling?.style === 'tray' || room.ceiling?.style === 'stepped')
+                  ? 'An LED strip hidden around the ceiling of {room}, inside the tray, lighting its raised middle.'
+                  : 'An LED strip hidden around the ceiling of {room}, along the walls just below the ceiling.',
+            { room: room?.name ?? t('the room') },
+          )}
         </p>
         {room && <HiddenLightControls room={room} sym={sym} units={units} />}
         <LightSection sym={sym} units={units} />
@@ -632,7 +639,7 @@ function CoveProps({ sym, units }: { sym: PlanSymbol; units: Units }) {
       <Separator />
       <Section>
         <Button variant="destructive" size="sm" onClick={deleteSelection}>
-          <Trash2 /> Delete
+          <Trash2 /> {t('Delete')}
         </Button>
       </Section>
     </>
@@ -642,9 +649,9 @@ function CoveProps({ sym, units }: { sym: PlanSymbol; units: Units }) {
 function DimensionProps({ dim, units }: { dim: Dimension; units: Units }) {
   return (
     <>
-      <Section title="Dimension">
-        <Stats rows={[['Length', formatLength(dist(dim.a, dim.b), units)]]} />
-        <Field label="Distance out">
+      <Section title={t('Dimension')}>
+        <Stats rows={[[t('Length'), formatLength(dist(dim.a, dim.b), units)]]} />
+        <Field label={t('Distance out')}>
           {(id) => (
             <LengthInput
               id={id}
@@ -660,12 +667,12 @@ function DimensionProps({ dim, units }: { dim: Dimension; units: Units }) {
             />
           )}
         </Field>
-        <p className="text-xs text-muted-foreground">Drag the line to move it, or drag its end points onto other corners.</p>
+        <p className="text-xs text-muted-foreground">{t('Drag the line to move it, or drag its end points onto other corners.')}</p>
       </Section>
       <Separator />
       <Section>
         <Button variant="destructive" size="sm" onClick={deleteSelection}>
-          <Trash2 /> Delete
+          <Trash2 /> {t('Delete')}
         </Button>
       </Section>
     </>
@@ -682,18 +689,18 @@ function FabricControls({ sym }: { sym: PlanSymbol }) {
     <>
       {isBlind ? (
         <Choice
-          label="Fabric"
+          label={t('Fabric')}
           value={fabric}
           onChange={(v) => updateSymbol(sym.id, (s) => void (s.fabric = v))}
           options={[
-            { value: 'screen', label: 'Screen' },
-            { value: 'blackout', label: 'Blackout' },
+            { value: 'screen', label: t('Screen') },
+            { value: 'blackout', label: t('Blackout') },
           ]}
         />
       ) : (
         <Choice
           multiple
-          label="Layers"
+          label={t('Layers')}
           value={curtainLayers(sym)}
           // At least one layer: emptying it does nothing.
           onChange={(v) =>
@@ -705,27 +712,27 @@ function FabricControls({ sym }: { sym: PlanSymbol }) {
             })
           }
           options={[
-            { value: 'sheer', label: 'Sheer' },
-            { value: 'curtain', label: 'Curtain' },
-            { value: 'blackout', label: 'Blackout' },
+            { value: 'sheer', label: t('Sheer') },
+            { value: 'curtain', label: t('Curtain') },
+            { value: 'blackout', label: t('Blackout') },
           ]}
         >
-          <p className="text-xs text-muted-foreground">Any of them together, from the window out: sheer, blackout, curtain.</p>
+          <p className="text-xs text-muted-foreground">{t('Any of them together, from the window out: sheer, blackout, curtain.')}</p>
         </Choice>
       )}
       {!isBlind && (
         <Choice
-          label="Opens to"
+          label={t('Opens to')}
           value={sym.openSide ?? 'both'}
           onChange={(v) => updateSymbol(sym.id, (s) => void (s.openSide = v === 'both' ? undefined : v))}
           options={[
-            { value: 'left', label: 'Left' },
-            { value: 'both', label: 'Both sides' },
-            { value: 'right', label: 'Right' },
+            { value: 'left', label: t('Left') },
+            { value: 'both', label: t('Both sides') },
+            { value: 'right', label: t('Right') },
           ]}
         />
       )}
-      <Field label={isBlind ? 'Rolled up' : 'Open'}>
+      <Field label={isBlind ? t('Rolled up') : t('Open')}>
         {() => (
           <div className="flex items-center gap-3">
             <Slider
@@ -765,24 +772,24 @@ function ShowerGlass({ sym }: { sym: PlanSymbol }) {
   return (
     <Choice
       multiple
-      label="Glass on"
+      label={t('Glass on')}
       value={sides}
       onChange={(v) => updateSymbol(sym.id, (s) => void (s.screens = v))}
       options={[
-        { value: 'front', label: 'Front' },
-        { value: 'left', label: 'Left' },
-        { value: 'right', label: 'Right' },
-        { value: 'back', label: 'Back' },
+        { value: 'front', label: tc('side', 'Front') },
+        { value: 'left', label: tc('side', 'Left') },
+        { value: 'right', label: tc('side', 'Right') },
+        { value: 'back', label: tc('side', 'Back') },
       ]}
     >
       <p className="text-xs text-muted-foreground">
         {auto ? (
-          'Glass where there is no wall.'
+          t('Glass where there is no wall.')
         ) : (
           <>
-            Chosen by hand.{' '}
+            {t('Chosen by hand.')}{' '}
             <button className="underline underline-offset-2 hover:text-foreground" onClick={() => updateSymbol(sym.id, (s) => void delete s.screens)}>
-              Follow the walls
+              {t('Follow the walls')}
             </button>
           </>
         )}
@@ -792,14 +799,14 @@ function ShowerGlass({ sym }: { sym: PlanSymbol }) {
 }
 
 /** Swatches for the frame finishes an item comes in, plus any custom color. */
-function FramePicker({ sym, frames, label = 'Frame' }: { sym: PlanSymbol; frames: FrameColor[]; label?: string }) {
+function FramePicker({ sym, frames, label }: { sym: PlanSymbol; frames: FrameColor[]; label?: string }) {
   const current = frameOf(sym) ?? frames[0]
   const custom = !frames.some((f) => f.hex === current.hex)
   const set = (hex: string) => updateSymbol(sym.id, (s) => void (s.frame = hex))
   const swatch = (f: FrameColor) => (f.metal ? `linear-gradient(135deg, ${f.hex} 20%, #ffffff 50%, ${f.hex} 80%)` : f.hex)
   const ring = 'ring-2 ring-primary ring-offset-2 ring-offset-background'
   return (
-    <Field label={label}>
+    <Field label={label ?? t('Frame')}>
       {(id) => (
         <div id={id} className="flex flex-wrap items-center gap-2 py-1">
           {frames.map((f) => (
@@ -815,13 +822,13 @@ function FramePicker({ sym, frames, label = 'Frame' }: { sym: PlanSymbol; frames
             />
           ))}
           <label
-            title="Custom color"
+            title={t('Custom color')}
             className={cn('relative size-6 cursor-pointer overflow-hidden rounded-full border shadow-sm', custom && ring)}
             style={{ background: custom ? current.hex : 'conic-gradient(#ef4444, #eab308, #22c55e, #06b6d4, #3b82f6, #a855f7, #ef4444)' }}
           >
             <input
               type="color"
-              aria-label="Custom frame color"
+              aria-label={t('Custom frame color')}
               className="absolute inset-0 cursor-pointer opacity-0"
               value={current.hex}
               // One undo step for the whole pick, updated live while choosing.
@@ -849,16 +856,20 @@ function ArrangeBlock({ syms }: { syms: Unit[] }) {
   const layout = layoutOf(syms)
   const { dir, rows } = layout
   const sideways = Math.abs(dir.x) >= Math.abs(dir.y)
-  const way = dir.y === 0 ? 'left to right' : dir.x === 0 ? 'top to bottom' : 'at an angle'
+  const way = dir.y === 0 ? t('left to right') : dir.x === 0 ? t('top to bottom') : t('at an angle')
   const counts = rows.map((r) => r.length)
   const groups = syms.some((u) => u.group)
-  const of = syms.every((u) => u.group) ? ' groups' : ''
+  const ofGroups = syms.every((u) => u.group)
   const rowsText =
     counts.length === 1
-      ? `1 row of ${counts[0]}${of}`
+      ? ofGroups
+        ? t('1 row of {n} groups', { n: counts[0] })
+        : t('1 row of {n}', { n: counts[0] })
       : counts.every((c) => c === counts[0])
-        ? `${counts.length} rows of ${counts[0]}${of}`
-        : `${counts.length} rows (${counts.join(' + ')})`
+        ? ofGroups
+          ? t('{rows} rows of {n} groups', { rows: counts.length, n: counts[0] })
+          : t('{rows} rows of {n}', { rows: counts.length, n: counts[0] })
+        : t('{rows} rows ({counts})', { rows: counts.length, counts: counts.join(' + ') })
   const spacing = spacingOf(layout)
   const uneven = spacing && spacing.max - spacing.min > 0.5
   const canLine = wouldMove(syms, floor.rooms, 'line')
@@ -871,17 +882,17 @@ function ArrangeBlock({ syms }: { syms: Unit[] }) {
   return (
     <div className="space-y-2 rounded-lg bg-muted/60 p-3">
       <div className="flex items-baseline justify-between gap-2">
-        <p className="text-sm font-medium">Arrange</p>
+        <p className="text-sm font-medium">{t('Arrange')}</p>
         <span className="truncate text-xs text-muted-foreground">
           {rowsText}, {way}
         </span>
       </div>
       <div className="grid grid-cols-2 gap-2">
         <Button variant="outline" size="sm" disabled={!canLine} onClick={() => arrangeSelection('line')}>
-          <LineIcon /> {canLine ? 'Line up' : 'Lined up'}
+          <LineIcon /> {canLine ? t('Line up') : t('Lined up')}
         </Button>
         <Button variant="outline" size="sm" disabled={!canEven} onClick={() => arrangeSelection('even')}>
-          <EvenIcon /> {canEven ? 'Space evenly' : 'Even'}
+          <EvenIcon /> {canEven ? t('Space evenly') : t('Even')}
         </Button>
       </div>
       <Button
@@ -889,13 +900,13 @@ function ArrangeBlock({ syms }: { syms: Unit[] }) {
         size="sm"
         className="w-full"
         disabled={!canFill}
-        title={inRoom ? undefined : 'They need to be inside a room'}
+        title={inRoom ? undefined : t('They need to be inside a room')}
         onClick={() => arrangeSelection('fill')}
       >
-        <FillIcon /> Spread over the room
+        <FillIcon /> {t('Spread over the room')}
       </Button>
       {spacing && (
-        <Field label="Spacing">
+        <Field label={t('Spacing')}>
           {(id) => (
             <LengthInput
               id={id}
@@ -908,13 +919,9 @@ function ArrangeBlock({ syms }: { syms: Unit[] }) {
         </Field>
       )}
       <p className="text-xs leading-relaxed text-muted-foreground">
-        {uneven && (
-          <>
-            Now {formatLength(spacing.min, units)} to {formatLength(spacing.max, units)} apart.{' '}
-          </>
-        )}
-        {groups && 'Each group moves as one piece. '}Spacing is center to center. Spreading over the room leaves half a space at
-        the walls, the usual layout for ceiling lights.
+        {uneven && <>{t('Now {min} to {max} apart.', { min: formatLength(spacing.min, units), max: formatLength(spacing.max, units) })} </>}
+        {groups && `${t('Each group moves as one piece.')} `}
+        {t('Spacing is center to center. Spreading over the room leaves half a space at the walls, the usual layout for ceiling lights.')}
       </p>
     </div>
   )
@@ -923,14 +930,16 @@ function ArrangeBlock({ syms }: { syms: Unit[] }) {
 function MultiProps({ items }: { items: ItemRef[] }) {
   const floor = useFloor()
   const count = (k: ItemRef['kind']) => items.filter((r) => r.kind === k).length
-  const parts = [
-    [count('room'), 'room'],
-    [count('symbol'), 'item'],
-    [count('dimension'), 'dimension'],
-    [count('view'), 'saved view'],
-  ]
+  const parts = (
+    [
+      [count('room'), t('1 room'), '{n} rooms'],
+      [count('symbol'), t('1 item'), '{n} items'],
+      [count('dimension'), t('1 dimension'), '{n} dimensions'],
+      [count('view'), t('1 saved view'), '{n} saved views'],
+    ] as [number, string, string][]
+  )
     .filter(([n]) => n)
-    .map(([n, w]) => `${n} ${w}${n === 1 ? '' : 's'}`)
+    .map(([n, one, many]) => (n === 1 ? one : t(many, { n })))
   const groups = new Set(
     items.map((r) => {
       const x =
@@ -961,12 +970,12 @@ function MultiProps({ items }: { items: ItemRef[] }) {
   const inWalls = floor.symbols.filter((s) => symbolIds.includes(s.id) && s.type === 'wall-post').length
   const convert = (into: 'wall' | 'free', of: number) => {
     const n = convertColumns(symbolIds, into)
-    if (into === 'wall' && n < of) toast(`Built ${n} of ${of} columns into the walls`, { description: 'The others have no wall near them.' })
+    if (into === 'wall' && n < of) toast(t('Built {n} of {of} columns into the walls', { n, of }), { description: t('The others have no wall near them.') })
   }
   return (
     <>
-      <Section title={`${items.length} selected`}>
-        <p className="text-sm text-muted-foreground">{parts.join(', ')}</p>
+      <Section title={t('{n} selected', { n: items.length })}>
+        <p className="text-sm text-muted-foreground">{parts.join(t(', '))}</p>
         <div className="flex gap-2">
           <Button variant="outline" size="sm" onClick={() => rotateSelection(-90)}>
             <RotateCw className="-scale-x-100" /> 90°
@@ -974,7 +983,7 @@ function MultiProps({ items }: { items: ItemRef[] }) {
           <Button variant="outline" size="sm" onClick={() => rotateSelection(90)}>
             <RotateCw /> 90°
           </Button>
-          <span className="self-center text-xs text-muted-foreground">or drag the handle above them</span>
+          <span className="self-center text-xs text-muted-foreground">{t('or drag the handle above them')}</span>
         </div>
         {free.length >= 2 && <ArrangeBlock syms={free} />}
         {keepable.length > 0 && (
@@ -996,23 +1005,23 @@ function MultiProps({ items }: { items: ItemRef[] }) {
           <div className="flex flex-wrap gap-2">
             {columns > 0 && (
               <Button variant="outline" size="sm" onClick={() => convert('wall', columns)}>
-                <Columns2 /> Build {columns === 1 ? 'the column' : `${columns} columns`} into the walls
+                <Columns2 /> {columns === 1 ? t('Build the column into the walls') : t('Build {n} columns into the walls', { n: columns })}
               </Button>
             )}
             {inWalls > 0 && (
               <Button variant="outline" size="sm" onClick={() => convert('free', inWalls)}>
-                <Columns2 /> Make {inWalls === 1 ? 'the wall column' : `${inWalls} wall columns`} free-standing
+                <Columns2 /> {inWalls === 1 ? t('Make the wall column free-standing') : t('Make {n} wall columns free-standing', { n: inWalls })}
               </Button>
             )}
           </div>
         )}
         {Object.keys(gaps).length > 0 && (
           <div className="space-y-2 rounded-lg bg-muted/60 p-3">
-            <p className="text-sm font-medium">Position in the room</p>
+            <p className="text-sm font-medium">{t('Position in the room')}</p>
             {(
               [
-                ['Side to side', 'across', gaps.left, gaps.right, across],
-                ['Top to bottom', 'depth', gaps.back, gaps.front, depthwise],
+                [t('Side to side'), 'across', gaps.left, gaps.right, across],
+                [t('Top to bottom'), 'depth', gaps.back, gaps.front, depthwise],
               ] as const
             ).map(([label, axis, a, b, ok]) => {
               const centered = ok && Math.abs(a! - b!) < 0.5
@@ -1025,14 +1034,14 @@ function MultiProps({ items }: { items: ItemRef[] }) {
                     </span>
                   </span>
                   <Button variant="outline" size="xs" disabled={!ok || centered} onClick={() => centerSelection(axis)}>
-                    {centered ? 'Centered' : 'Center'}
+                    {centered ? t('Centered') : t('Center')}
                   </Button>
                 </div>
               )
             })}
             {across && depthwise && (
               <Button variant="outline" size="sm" className="w-full" onClick={() => centerSelection('both')}>
-                <AlignHorizontalJustifyCenter /> Center in the room
+                <AlignHorizontalJustifyCenter /> {t('Center in the room')}
               </Button>
             )}
             <PushRow gaps={gaps} rotation={0} onPush={pushSelection} fmt={fmt} />
@@ -1041,39 +1050,39 @@ function MultiProps({ items }: { items: ItemRef[] }) {
         <div className="grid grid-cols-2 gap-2">
           {grouped ? (
             <Button variant="outline" size="sm" onClick={() => groupSelection(false)}>
-              <Ungroup /> Ungroup
+              <Ungroup /> {t('Ungroup')}
             </Button>
           ) : (
             <Button variant="outline" size="sm" onClick={() => groupSelection(true)}>
-              <Group /> Group
+              <Group /> {t('Group')}
             </Button>
           )}
           <Button variant="outline" size="sm" onClick={duplicateSelection}>
-            <Copy /> Duplicate
+            <Copy /> {t('Duplicate')}
           </Button>
           <Button
             variant="outline"
             size="sm"
             onClick={() => {
               const n = copySelection()
-              if (n) toast(`Copied ${n} items`, { description: 'Paste with Ctrl+V, on this floor or another.' })
+              if (n) toast(t('Copied {items}', { items: n === 1 ? t('1 item') : t('{n} items', { n }) }), { description: t('Paste with Ctrl+V, on this floor or another.') })
             }}
           >
-            <ClipboardCopy /> Copy
+            <ClipboardCopy /> {t('Copy')}
           </Button>
           <Button variant="destructive" size="sm" onClick={deleteSelection}>
-            <Trash2 /> Delete
+            <Trash2 /> {t('Delete')}
           </Button>
         </div>
         <p className="text-xs leading-relaxed text-muted-foreground">
-          Drag any of them to move them all, or use the arrow keys. {grouped ? 'Alt + click picks one item in the group.' : 'Group them to keep them together.'}{' '}
-          Shortcuts: Ctrl+G group, Ctrl+Shift+G ungroup, Ctrl+C / X / V, Ctrl+D, Delete.
+          {t('Drag any of them to move them all, or use the arrow keys.')} {grouped ? t('Alt + click picks one item in the group.') : t('Group them to keep them together.')}{' '}
+          {t('Shortcuts: Ctrl+G group, Ctrl+Shift+G ungroup, Ctrl+C / X / V, Ctrl+D, Delete.')}
         </p>
       </Section>
       {lit && (
         <>
           <Separator />
-          <Section title="Lights">
+          <Section title={t('Lights')}>
             <GroupLightSection ids={symbolIds} />
           </Section>
         </>
@@ -1093,11 +1102,11 @@ function ViewProps({ view, units }: { view: SavedView; units: Units }) {
       <Section
         title={
           <span className="flex items-center gap-2">
-            <Video className="size-4" /> Saved 3D view
+            <Video className="size-4" /> {t('Saved 3D view')}
           </span>
         }
       >
-        <Field label="Name">
+        <Field label={t('Name')}>
           {(id) => (
             <TextInput
               id={id}
@@ -1108,7 +1117,7 @@ function ViewProps({ view, units }: { view: SavedView; units: Units }) {
             />
           )}
         </Field>
-        <Field label="Eye height">
+        <Field label={t('Eye height')}>
           {(id) => (
             <LengthInput
               id={id}
@@ -1132,14 +1141,14 @@ function ViewProps({ view, units }: { view: SavedView; units: Units }) {
             useEditor.getState().setViewMode('3d')
           }}
         >
-          <Box /> Look from here in 3D
+          <Box /> {t('Look from here in 3D')}
         </Button>
-        <p className="text-xs text-muted-foreground">Drag the camera to move it, and its round handle to turn it. Arrow keys nudge it.</p>
+        <p className="text-xs text-muted-foreground">{t('Drag the camera to move it, and its round handle to turn it. Arrow keys nudge it.')}</p>
       </Section>
       <Separator />
       <Section>
         <Button variant="destructive" size="sm" onClick={deleteSelection}>
-          <Trash2 /> Delete
+          <Trash2 /> {t('Delete')}
         </Button>
       </Section>
     </>
@@ -1164,11 +1173,11 @@ function PersonControls({ sym, units }: { sym: PlanSymbol; units: Units }) {
             aria-pressed={preset === p}
             onClick={() => updatePerson(sym.id, { height: p.height, width: p.width })}
           >
-            {p.name} · {formatLength(p.height, units)}
+            {t(p.name)} · {formatLength(p.height, units)}
           </Button>
         ))}
       </div>
-      <Field label="Height">
+      <Field label={t('Height')}>
         {(id) => (
           <LengthInput
             id={id}
@@ -1179,7 +1188,7 @@ function PersonControls({ sym, units }: { sym: PlanSymbol; units: Units }) {
           />
         )}
       </Field>
-      <Field label="Shoulders">
+      <Field label={t('Shoulders')}>
         {(id) => (
           <LengthInput
             id={id}
@@ -1190,7 +1199,7 @@ function PersonControls({ sym, units }: { sym: PlanSymbol; units: Units }) {
           />
         )}
       </Field>
-      <Field label="Skin">
+      <Field label={t('Skin')}>
         {() => (
           <div className="flex flex-wrap items-center gap-1.5 py-1">
             {SKIN_TONES.map((c) => {
@@ -1199,8 +1208,8 @@ function PersonControls({ sym, units }: { sym: PlanSymbol; units: Units }) {
                 <button
                   key={c.hex}
                   type="button"
-                  title={c.name}
-                  aria-label={`Skin: ${c.name}`}
+                  title={t(c.name)}
+                  aria-label={t('Skin: {name}', { name: t(c.name) })}
                   aria-pressed={on}
                   onClick={() => updateSymbol(sym.id, (s) => void (s.style = c.hex))}
                   className={cn('size-6 rounded-full border shadow-sm', on && 'ring-2 ring-primary ring-offset-2 ring-offset-background')}
@@ -1212,17 +1221,19 @@ function PersonControls({ sym, units }: { sym: PlanSymbol; units: Units }) {
         )}
       </Field>
       <Choice
-        label="Pose"
+        label={t('Pose')}
         value={pose}
         onChange={(v) => updatePerson(sym.id, { pose: v })}
-        options={(['stand', 'sit', 'lie'] as const).map((p) => ({ value: p, label: POSE_NAMES[p] }))}
+        options={(['stand', 'sit', 'lie'] as const).map((p) => ({ value: p, label: t(POSE_NAMES[p]) }))}
       >
         <p className="text-xs text-muted-foreground">
           {pose === 'stand'
-            ? 'Drag them onto a chair, sofa or bed and pick sitting or lying: they settle onto it.'
+            ? t('Drag them onto a chair, sofa or bed and pick sitting or lying: they settle onto it.')
             : on
-              ? `${POSE_NAMES[pose]} on the ${on.name}, ${formatLength(on.height, units)} up. Drag them to another spot on it.`
-              : `${POSE_NAMES[pose]} on the floor. Drag them onto ${pose === 'sit' ? 'a chair, sofa, bed or toilet' : 'a bed or sofa'} to ${pose === 'sit' ? 'sit' : 'lie'} on it.`}
+              ? t('{pose} on the {item}, {height} up. Drag them to another spot on it.', { pose: t(POSE_NAMES[pose]), item: t(on.name), height: formatLength(on.height, units) })
+              : pose === 'sit'
+                ? t('Sitting on the floor. Drag them onto a chair, sofa, bed or toilet to sit on it.')
+                : t('Lying on the floor. Drag them onto a bed or sofa to lie on it.')}
         </p>
       </Choice>
     </>
@@ -1273,7 +1284,7 @@ function SymbolProps({ sym, units }: { sym: PlanSymbol; units: Units }) {
       >
         {sym.type === 'person' && <PersonControls sym={sym} units={units} />}
         {(isLabel || sym.label !== undefined) && (
-          <Field label={def?.fixture === 'switch' ? 'Name' : 'Text'}>
+          <Field label={def?.fixture === 'switch' ? t('Name') : t('Text')}>
             {(id) => (
               <TextInput id={id} value={sym.label ?? ''} onChange={(v) => updateSymbol(sym.id, (s) => void (s.label = v))} />
             )}
@@ -1282,9 +1293,9 @@ function SymbolProps({ sym, units }: { sym: PlanSymbol; units: Units }) {
         {sym.type === 'tv' && <TvSize sym={sym} />}
         {(
           [
-            ['width', isRound(sym.type) ? 'Diameter' : beam ? 'Length' : 'Width', true],
-            ['depth', isLabel ? 'Text size' : beam ? 'Width' : 'Depth', !sym.wall && !isRound(sym.type)],
-            ['height', sym.type === 'gypsum-box' ? 'Drop' : beam ? 'Below the ceiling' : def?.fixture === 'switch' ? 'Mount height' : 'Height', !isLabel && !def?.fullHeight],
+            ['width', isRound(sym.type) ? t('Diameter') : beam ? t('Length') : t('Width'), true],
+            ['depth', isLabel ? t('Text size') : beam ? t('Width') : t('Depth'), !sym.wall && !isRound(sym.type)],
+            ['height', sym.type === 'gypsum-box' ? t('Drop') : beam ? t('Below the ceiling') : def?.fixture === 'switch' ? t('Mount height') : t('Height'), !isLabel && !def?.fullHeight],
           ] as [Dim, string, boolean][]
         ).map(([dim, label, shown]) => {
           if (!shown || sym.type === 'person') return null
@@ -1296,7 +1307,7 @@ function SymbolProps({ sym, units }: { sym: PlanSymbol; units: Units }) {
                   <div id={id} className="flex h-8 items-center gap-1.5 text-sm tabular-nums">
                     {formatLength(rule.min, units)}
                     <span className="flex items-center gap-1 text-xs text-muted-foreground">
-                      <Lock className="size-3" /> standard size
+                      <Lock className="size-3" /> {t('standard size')}
                     </span>
                   </div>
                 ) : (
@@ -1306,8 +1317,8 @@ function SymbolProps({ sym, units }: { sym: PlanSymbol; units: Units }) {
                     units={units}
                     onChange={(v) => {
                       if (rule && (v < rule.min || v > rule.max)) {
-                        toast(`${def?.name ?? 'This item'}: ${label.toLowerCase()} ${formatLength(rule.min, units)} to ${formatLength(rule.max, units)}`, {
-                          description: 'Kept to a size it comes in.',
+                        toast(t('{item}: {size} {min} to {max}', { item: def ? t(def.name) : t('This item'), size: label, min: formatLength(rule.min, units), max: formatLength(rule.max, units) }), {
+                          description: t('Kept to a size it comes in.'),
                         })
                       }
                       updateSymbol(sym.id, (s) => void Object.assign(s, resized(s, { [dim]: v })))
@@ -1318,10 +1329,10 @@ function SymbolProps({ sym, units }: { sym: PlanSymbol; units: Units }) {
             </Field>
           )
         })}
-        {def?.fullHeight && <p className="text-xs text-muted-foreground">Floor to ceiling, whatever the room's height.</p>}
+        {def?.fullHeight && <p className="text-xs text-muted-foreground">{t("Floor to ceiling, whatever the room's height.")}</p>}
         {sym.type === 'shower' && <ShowerGlass sym={sym} />}
         {STYLES[sym.type] && (
-          <Field label="Style">
+          <Field label={t('Style')}>
             {(id) => (
               <Select
                 value={styleOf(sym)}
@@ -1342,10 +1353,10 @@ function SymbolProps({ sym, units }: { sym: PlanSymbol; units: Units }) {
                     .filter((kind) => STYLES[sym.type].some((p) => p.kind === kind))
                     .map((kind) => (
                     <SelectGroup key={kind}>
-                      <SelectLabel>{kind}</SelectLabel>
+                      <SelectLabel>{t(kind)}</SelectLabel>
                       {STYLES[sym.type].filter((p) => p.kind === kind).map((p) => (
                         <SelectItem key={p.id} value={p.id}>
-                          {p.name}
+                          {t(p.name)}
                         </SelectItem>
                       ))}
                     </SelectGroup>
@@ -1358,14 +1369,14 @@ function SymbolProps({ sym, units }: { sym: PlanSymbol; units: Units }) {
         {(sym.type === 'curtain' || sym.type === 'blind') && <FabricControls sym={sym} />}
         {sym.type === 'shower-niche' && (
           <div className="space-y-3 rounded-lg bg-muted/60 p-3">
-            <p className="text-xs text-muted-foreground">Recessed into the wall and lined with the wall's finish (its tiles, if it's tiled).</p>
+            <p className="text-xs text-muted-foreground">{t("Recessed into the wall and lined with the wall's finish (its tiles, if it's tiled).")}</p>
             <label className="flex items-center justify-between gap-2 text-sm">
-              <span>Glass shelf</span>
+              <span>{t('Glass shelf')}</span>
               <Switch size="sm" checked={!!sym.shelf} onCheckedChange={(on) => updateSymbol(sym.id, (s) => void (s.shelf = on || undefined))} />
             </label>
             <label className="flex items-center justify-between gap-2 text-sm">
               <span className="flex items-center gap-1.5">
-                <Lightbulb className="size-4" /> LED strip
+                <Lightbulb className="size-4" /> {t('LED strip')}
               </span>
               <Switch size="sm" checked={!!sym.led} onCheckedChange={(on) => updateSymbol(sym.id, (s) => void (s.led = on || undefined))} />
             </label>
@@ -1374,30 +1385,30 @@ function SymbolProps({ sym, units }: { sym: PlanSymbol; units: Units }) {
         )}
         {sym.type === 'oven-tower' && (
           <Choice
-            label="Built in"
+            label={t('Built in')}
             value={sym.appliances ?? 'micro'}
             onChange={(v) => updateSymbol(sym.id, (s) => void (v === 'micro' ? delete s.appliances : (s.appliances = v as 'oven' | 'two-ovens')))}
             options={[
-              { value: 'micro', label: 'Oven + microwave' },
-              { value: 'oven', label: 'Oven' },
-              { value: 'two-ovens', label: 'Two ovens' },
+              { value: 'micro', label: t('Oven + microwave') },
+              { value: 'oven', label: t('Oven') },
+              { value: 'two-ovens', label: t('Two ovens') },
             ]}
           />
         )}
         {sym.type === 'kitchen-island' && (
           <div className="space-y-3 rounded-lg bg-muted/60 p-3">
             <Choice
-              label="In the top"
+              label={t('In the top')}
               value={sym.islandTop ?? 'none'}
               onChange={(v) => updateSymbol(sym.id, (s) => void (v === 'none' ? delete s.islandTop : (s.islandTop = v as 'hob' | 'sink')))}
               options={[
-                { value: 'none', label: 'Nothing' },
-                { value: 'hob', label: 'Hob' },
-                { value: 'sink', label: 'Sink' },
+                { value: 'none', label: t('Nothing') },
+                { value: 'hob', label: t('Hob') },
+                { value: 'sink', label: t('Sink') },
               ]}
             />
             <label className="flex items-center justify-between gap-2 text-sm">
-              <span>Stools</span>
+              <span>{t('Stools')}</span>
               <Switch size="sm" checked={sym.stool !== false} onCheckedChange={(on) => updateSymbol(sym.id, (s) => void (on ? delete s.stool : (s.stool = false)))} />
             </label>
           </div>
@@ -1405,18 +1416,18 @@ function SymbolProps({ sym, units }: { sym: PlanSymbol; units: Units }) {
         {sym.type === 'wall-cabinet' && (
           <div className="space-y-3 rounded-lg bg-muted/60 p-3">
             <Choice
-              label="Fronts"
+              label={t('Fronts')}
               value={sym.fronts ?? 'doors'}
               onChange={(v) => updateSymbol(sym.id, (s) => void (v === 'doors' ? delete s.fronts : (s.fronts = v as 'glass' | 'open')))}
               options={[
-                { value: 'doors', label: 'Doors' },
-                { value: 'glass', label: 'Glass doors' },
-                { value: 'open', label: 'Open shelves' },
+                { value: 'doors', label: t('Doors') },
+                { value: 'glass', label: t('Glass doors') },
+                { value: 'open', label: t('Open shelves') },
               ]}
             />
             <label className="flex items-center justify-between gap-2 text-sm">
               <span className="flex items-center gap-1.5">
-                <Lightbulb className="size-4" /> Light under it
+                <Lightbulb className="size-4" /> {t('Light under it')}
               </span>
               <Switch size="sm" checked={!!sym.led} onCheckedChange={(on) => updateSymbol(sym.id, (s) => void (s.led = on || undefined))} />
             </label>
@@ -1425,10 +1436,10 @@ function SymbolProps({ sym, units }: { sym: PlanSymbol; units: Units }) {
         )}
         {sym.type === 'range-hood' && (
           <div className="space-y-3 rounded-lg bg-muted/60 p-3">
-            {styleOf(sym) !== 'built-in' && <p className="text-xs text-muted-foreground">Its chimney goes up to the ceiling.</p>}
+            {styleOf(sym) !== 'built-in' && <p className="text-xs text-muted-foreground">{t('Its chimney goes up to the ceiling.')}</p>}
             <label className="flex items-center justify-between gap-2 text-sm">
               <span className="flex items-center gap-1.5">
-                <Lightbulb className="size-4" /> Hood lights
+                <Lightbulb className="size-4" /> {t('Hood lights')}
               </span>
               <Switch size="sm" checked={!!sym.led} onCheckedChange={(on) => updateSymbol(sym.id, (s) => void (s.led = on || undefined))} />
             </label>
@@ -1437,7 +1448,7 @@ function SymbolProps({ sym, units }: { sym: PlanSymbol; units: Units }) {
         )}
         {(sym.type === 'towel-rail' || sym.type === 'towel-radiator') && (
           <label className="flex items-center justify-between gap-2 text-sm">
-            <span className="text-muted-foreground">Towel on it</span>
+            <span className="text-muted-foreground">{t('Towel on it')}</span>
             <Switch size="sm" checked={sym.towel !== false} onCheckedChange={(on) => updateSymbol(sym.id, (s) => void (on ? delete s.towel : (s.towel = false)))} />
           </label>
         )}
@@ -1445,32 +1456,32 @@ function SymbolProps({ sym, units }: { sym: PlanSymbol; units: Units }) {
           <div className="space-y-3 rounded-lg bg-muted/60 p-3">
             {sym.width >= 110 && (
               <Choice
-                label="Sinks"
+                label={t('Sinks')}
                 value={sym.sinks === 2 ? 'two' : 'one'}
                 onChange={(v) => updateSymbol(sym.id, (s) => void (v === 'two' ? (s.sinks = 2) : delete s.sinks))}
                 options={[
-                  { value: 'one', label: 'One' },
-                  { value: 'two', label: 'Two' },
+                  { value: 'one', label: t('One') },
+                  { value: 'two', label: t('Two') },
                 ]}
               />
             )}
             <Choice
-              label="Mounted"
+              label={t('Mounted')}
               value={sym.onFloor ? 'floor' : 'wall'}
               onChange={(v) => updateSymbol(sym.id, (s) => void (v === 'floor' ? (s.onFloor = true) : delete s.onFloor))}
               options={[
-                { value: 'wall', label: 'On the wall' },
-                { value: 'floor', label: 'On the floor' },
+                { value: 'wall', label: t('On the wall') },
+                { value: 'floor', label: t('On the floor') },
               ]}
             />
             <Choice
-              label="Above it"
+              label={t('Above it')}
               value={sym.mirror ?? 'cabinet'}
               onChange={(v) => updateSymbol(sym.id, (s) => void (v === 'cabinet' ? delete s.mirror : (s.mirror = v)))}
               options={[
-                { value: 'cabinet', label: 'Mirror cabinet' },
-                { value: 'plain', label: 'Mirror' },
-                { value: 'none', label: 'Nothing' },
+                { value: 'cabinet', label: t('Mirror cabinet') },
+                { value: 'plain', label: t('Mirror') },
+                { value: 'none', label: t('Nothing') },
               ]}
             />
             <label className="flex items-center justify-between gap-2 text-sm">
@@ -1485,7 +1496,7 @@ function SymbolProps({ sym, units }: { sym: PlanSymbol; units: Units }) {
         {sym.type === 'dressing-table' && (
           <div className="space-y-3 rounded-lg bg-muted/60 p-3">
             <label className="flex items-center justify-between gap-2 text-sm">
-              <span>Stool</span>
+              <span>{t('Stool')}</span>
               <Switch
                 size="sm"
                 checked={sym.stool !== false}
@@ -1505,13 +1516,13 @@ function SymbolProps({ sym, units }: { sym: PlanSymbol; units: Units }) {
           <div className="space-y-3 rounded-lg bg-muted/60 p-3">
             {sym.type !== 'coffee-corner' && (
               <label className="flex items-center justify-between gap-2 text-sm">
-                <span>Glass doors</span>
+                <span>{t('Glass doors')}</span>
                 <Switch size="sm" checked={hasGlass(sym)} onCheckedChange={(on) => updateSymbol(sym.id, (s) => void (s.glass = on))} />
               </label>
             )}
             <label className="flex items-center justify-between gap-2 text-sm">
               <span className="flex items-center gap-1.5">
-                <Lightbulb className="size-4" /> LED lighting inside
+                <Lightbulb className="size-4" /> {t('LED lighting inside')}
               </span>
               <Switch size="sm" checked={!!sym.led} onCheckedChange={(on) => updateSymbol(sym.id, (s) => void (s.led = on || undefined))} />
             </label>
@@ -1521,7 +1532,7 @@ function SymbolProps({ sym, units }: { sym: PlanSymbol; units: Units }) {
         {def?.frames && <FramePicker sym={sym} frames={def.frames} label={def.frameLabel} />}
         {hasWorktop(sym) && <WorktopPicker sym={sym} />}
         {def?.sill !== undefined && (
-          <Field label="Sill height">
+          <Field label={t('Sill height')}>
             {(id) => (
               <LengthInput
                 id={id}
@@ -1534,7 +1545,7 @@ function SymbolProps({ sym, units }: { sym: PlanSymbol; units: Units }) {
           </Field>
         )}
         {def?.elevation !== undefined && !def.fixture && (!def.wallMount || ['ac-split', 'towel-rail', 'towel-radiator', 'wall-cabinet', 'range-hood'].includes(sym.type)) && (
-          <Field label="Above the floor">
+          <Field label={t('Above the floor')}>
             {(id) => (
               <LengthInput
                 id={id}
@@ -1548,11 +1559,11 @@ function SymbolProps({ sym, units }: { sym: PlanSymbol; units: Units }) {
         )}
         {free && (across || depthwise || Object.keys(sides).length > 0) && (
           <div className="space-y-2 rounded-lg bg-muted/60 p-3">
-            <p className="text-sm font-medium">Position in the room</p>
+            <p className="text-sm font-medium">{t('Position in the room')}</p>
             {(
               [
-                ['Side to side', 'across', gaps.left, gaps.right, across],
-                ['Front to back', 'depth', gaps.back, gaps.front, depthwise],
+                [t('Side to side'), 'across', gaps.left, gaps.right, across],
+                [t('Front to back'), 'depth', gaps.back, gaps.front, depthwise],
               ] as const
             ).map(([label, axis, a, b, ok]) => {
               const centered = ok && Math.abs(a! - b!) < 0.5
@@ -1565,14 +1576,14 @@ function SymbolProps({ sym, units }: { sym: PlanSymbol; units: Units }) {
                     </span>
                   </span>
                   <Button variant="outline" size="xs" disabled={!ok || centered} onClick={() => centerIn(axis)}>
-                    {centered ? 'Centered' : 'Center'}
+                    {centered ? t('Centered') : t('Center')}
                   </Button>
                 </div>
               )
             })}
             {across && depthwise && (
               <Button variant="outline" size="sm" className="w-full" onClick={() => centerIn('both')}>
-                <AlignHorizontalJustifyCenter /> Center in the room
+                <AlignHorizontalJustifyCenter /> {t('Center in the room')}
               </Button>
             )}
             <PushRow gaps={sides} rotation={sym.rotation} onPush={pushTo} fmt={fmt} piece />
@@ -1584,30 +1595,30 @@ function SymbolProps({ sym, units }: { sym: PlanSymbol; units: Units }) {
                 disabled={isBacked}
                 onClick={() => updateSymbol(sym.id, (s) => void Object.assign(s, { x: backed.x, y: backed.y, rotation: backed.rotation }))}
               >
-                <ArrowUpToLine /> {isBacked ? 'Against the wall' : 'Back to the nearest wall'}
+                <ArrowUpToLine /> {isBacked ? t('Against the wall') : t('Back to the nearest wall')}
               </Button>
             )}
             <p className="text-xs text-muted-foreground">
-              Gaps to the nearest wall on each side. Dragged close to a wall it's pulled right up against it
-              {backed ? ', turned to face the room,' : ''} and it lines up with the pieces around it; near the middle it
-              snaps to that. Hold Ctrl to place it freely.
+              {backed
+                ? t("Gaps to the nearest wall on each side. Dragged close to a wall it's pulled right up against it, turned to face the room, and it lines up with the pieces around it; near the middle it snaps to that. Hold Ctrl to place it freely.")
+                : t("Gaps to the nearest wall on each side. Dragged close to a wall it's pulled right up against it and it lines up with the pieces around it; near the middle it snaps to that. Hold Ctrl to place it freely.")}
             </p>
           </div>
         )}
         {DOOR_DEFAULT[sym.type] && (
           <Choice
-            label="Doors"
+            label={t('Doors')}
             value={sym.doors ?? DOOR_DEFAULT[sym.type]}
             onChange={(v) => updateSymbol(sym.id, (s) => void (s.doors = v))}
             options={[
-              { value: 'hinged', label: 'Hinged' },
-              { value: 'sliding', label: 'Sliding' },
+              { value: 'hinged', label: t('Hinged') },
+              { value: 'sliding', label: t('Sliding') },
             ]}
           />
         )}
         {sym.type.startsWith('wardrobe') && (
           <label className="flex items-center justify-between gap-2 text-sm">
-            <span className="text-muted-foreground">Glass doors</span>
+            <span className="text-muted-foreground">{t('Glass doors')}</span>
             <Switch size="sm" checked={!!sym.glass} onCheckedChange={(on) => updateSymbol(sym.id, (s) => void (s.glass = on || undefined))} />
           </label>
         )}
@@ -1618,12 +1629,12 @@ function SymbolProps({ sym, units }: { sym: PlanSymbol; units: Units }) {
               size="sm"
               className="w-full"
               onClick={() => {
-                if (!placeBehindSofa(sym.id)) toast.error('There is no sofa near it. Move it close to the back of one first.')
+                if (!placeBehindSofa(sym.id)) toast.error(t('There is no sofa near it. Move it close to the back of one first.'))
               }}
             >
-              <Sofa /> Put it behind the sofa
+              <Sofa /> {t('Put it behind the sofa')}
             </Button>
-            <p className="text-xs text-muted-foreground">Drag it near a sofa's back (or either back of a corner sofa) and it tucks in behind it.</p>
+            <p className="text-xs text-muted-foreground">{t("Drag it near a sofa's back (or either back of a corner sofa) and it tucks in behind it.")}</p>
           </div>
         )}
         {beam && (
@@ -1635,14 +1646,13 @@ function SymbolProps({ sym, units }: { sym: PlanSymbol; units: Units }) {
               onClick={() => {
                 const span = beamSpan(sym, floor.rooms, sym.rotation)
                 if (span) updateSymbol(sym.id, (b) => void Object.assign(b, span))
-                else toast.error('There are no walls either side of it that way.')
+                else toast.error(t('There are no walls either side of it that way.'))
               }}
             >
-              <MoveHorizontal /> Wall to wall
+              <MoveHorizontal /> {t('Wall to wall')}
             </Button>
             <p className="text-xs text-muted-foreground">
-              Hung from the ceiling slab, drawn dashed as plans show what's overhead. A gypsum ceiling lower than it hides it. Suggested designs keep
-              tall furniture and ceiling spots clear of it.
+              {t("Hung from the ceiling slab, drawn dashed as plans show what's overhead. A gypsum ceiling lower than it hides it. Suggested designs keep tall furniture and ceiling spots clear of it.")}
             </p>
           </div>
         )}
@@ -1653,26 +1663,26 @@ function SymbolProps({ sym, units }: { sym: PlanSymbol; units: Units }) {
               size="sm"
               className="w-full"
               onClick={() => {
-                if (!convertColumns([sym.id], sym.type === 'column' ? 'wall' : 'free')) toast.error('There is no wall near it. Move it up to a wall first.')
+                if (!convertColumns([sym.id], sym.type === 'column' ? 'wall' : 'free')) toast.error(t('There is no wall near it. Move it up to a wall first.'))
               }}
             >
               <Columns2 /> {sym.type === 'column' ? 'Build it into the wall' : 'Make it free-standing'}
             </Button>
             <p className="text-xs text-muted-foreground">
               {sym.type === 'column'
-                ? 'Moves it against the nearest wall, standing out of it into the room. The gypsum ceiling, hidden lights and shadow gaps then go around it.'
-                : 'Makes it a column on its own, away from the walls, where it is now.'}
+                ? t('Moves it against the nearest wall, standing out of it into the room. The gypsum ceiling, hidden lights and shadow gaps then go around it.')
+                : t('Makes it a column on its own, away from the walls, where it is now.')}
             </p>
           </div>
         )}
         {(sym.type === 'sofa-corner' || sym.type === 'wardrobe-corner') && (
           <Choice
-            label="Corner on"
+            label={t('Corner on')}
             value={sym.flipX ? 'right' : 'left'}
             onChange={(v) => updateSymbol(sym.id, (s) => void (s.flipX = v === 'right'))}
             options={[
-              { value: 'left', label: 'Left' },
-              { value: 'right', label: 'Right' },
+              { value: 'left', label: t('Left') },
+              { value: 'right', label: t('Right') },
             ]}
           />
         )}
@@ -1680,7 +1690,7 @@ function SymbolProps({ sym, units }: { sym: PlanSymbol; units: Units }) {
           <KeepSwitch checked={!!sym.keep} onChange={(on) => updateSymbol(sym.id, (s) => void (on ? (s.keep = true) : delete s.keep))} />
         )}
         {!sym.wall && (
-          <Field label="Rotation">
+          <Field label={t('Rotation')}>
             {(id) => (
               <NumberInput
                 id={id}
@@ -1703,16 +1713,16 @@ function SymbolProps({ sym, units }: { sym: PlanSymbol; units: Units }) {
             </Button>
           )}
           <Button variant="outline" size="sm" onClick={() => updateSymbol(sym.id, (s) => void (s.flipX = !s.flipX))}>
-            <FlipHorizontal2 /> {sym.wall ? 'Hinge side' : 'Mirror'}
+            <FlipHorizontal2 /> {sym.wall ? t('Hinge side') : tc('flip', 'Mirror')}
           </Button>
           <Button variant="outline" size="sm" onClick={() => updateSymbol(sym.id, (s) => void (s.flipY = !s.flipY))}>
-            <FlipVertical2 /> {sym.wall ? 'Swing side' : 'Flip front/back'}
+            <FlipVertical2 /> {sym.wall ? t('Swing side') : t('Flip front/back')}
           </Button>
         </div>
         {sym.wall && (
           <div className="flex items-center justify-between gap-2 rounded-lg bg-primary/10 px-3 py-2 text-sm">
             <span>
-              In wall {sym.wall.edge + 1} of <b>{wallRoom?.name ?? 'room'}</b>
+              {t('In wall {n} of {room}', { n: sym.wall.edge + 1, room: wallRoom?.name ?? t('the room') })}
             </span>
             <Button
               variant="ghost"
@@ -1726,18 +1736,18 @@ function SymbolProps({ sym, units }: { sym: PlanSymbol; units: Units }) {
                 })
               }
             >
-              <Link2Off /> Detach
+              <Link2Off /> {t('Detach')}
             </Button>
           </div>
         )}
         {sym.wall && wallLen > 0 && (
           <div className="space-y-2">
-            <Field label="Gap to wall start">
+            <Field label={t('Gap to wall start')}>
               {(id) => (
                 <LengthInput id={id} value={Math.max(0, gapStart)} units={units} min={0} onChange={(v) => setOffset(v + sym.width / 2)} />
               )}
             </Field>
-            <Field label="Gap to wall end">
+            <Field label={t('Gap to wall end')}>
               {(id) => (
                 <LengthInput id={id} value={Math.max(0, gapEnd)} units={units} min={0} onChange={(v) => setOffset(wallLen - v - sym.width / 2)} />
               )}
@@ -1749,16 +1759,16 @@ function SymbolProps({ sym, units }: { sym: PlanSymbol; units: Units }) {
               disabled={Math.abs(gapStart - gapEnd) < 0.5}
               onClick={() => setOffset(wallLen / 2)}
             >
-              <AlignHorizontalJustifyCenter /> {Math.abs(gapStart - gapEnd) < 0.5 ? 'Centered on the wall' : 'Center on wall'}
+              <AlignHorizontalJustifyCenter /> {Math.abs(gapStart - gapEnd) < 0.5 ? t('Centered on the wall') : t('Center on wall')}
             </Button>
           </div>
         )}
-        {def?.wall && !sym.wall && <p className="text-xs text-muted-foreground">Drag it onto a wall to insert it.</p>}
+        {def?.wall && !sym.wall && <p className="text-xs text-muted-foreground">{t('Drag it onto a wall to insert it.')}</p>}
       </Section>
       {def?.fixture && (
         <>
           <Separator />
-          <Section title={def.fixture === 'switch' ? 'Switch wiring' : 'Light'}>
+          <Section title={def.fixture === 'switch' ? t('Switch wiring') : tc('section', 'Light')}>
             {def.fixture === 'switch' ? <SwitchSection sym={sym} /> : <LightSection sym={sym} units={units} />}
           </Section>
         </>
@@ -1777,8 +1787,8 @@ function FloorAndProjectProps() {
   const commit = useEditor((s) => s.commit)
   return (
     <>
-      <Section title="Floor">
-        <Field label="Name">
+      <Section title={t('Floor')}>
+        <Field label={t('Name')}>
           {(id) => (
             <TextInput
               id={id}
@@ -1796,12 +1806,12 @@ function FloorAndProjectProps() {
           size="sm"
           onClick={() => {
             const n = autoDimension()
-            toast(n ? 'Added overall dimensions.' : 'Overall dimensions are already there (or the floor is empty).')
+            toast(n ? t('Added overall dimensions.') : t('Overall dimensions are already there (or the floor is empty).'))
           }}
         >
-          <Ruler /> Add overall dimensions
+          <Ruler /> {t('Add overall dimensions')}
         </Button>
-        <Field label="Wall height">
+        <Field label={t('Wall height')}>
           {(id) => (
             <LengthInput
               id={id}
@@ -1819,9 +1829,9 @@ function FloorAndProjectProps() {
       {floor.underlay && (
         <>
           <Separator />
-          <Section title="Background drawing">
+          <Section title={t('Background drawing')}>
             <label className="flex items-center justify-between text-sm">
-              Show while editing
+              {t('Show while editing')}
               <Switch
                 checked={floor.underlay.visible}
                 onCheckedChange={(v) =>
@@ -1834,7 +1844,7 @@ function FloorAndProjectProps() {
             </label>
             <div className="space-y-2">
               <div className="flex justify-between text-sm">
-                <span className="text-muted-foreground">Opacity</span>
+                <span className="text-muted-foreground">{t('Opacity')}</span>
                 <span className="tabular-nums">{Math.round(floor.underlay.opacity * 100)}%</span>
               </div>
               <Slider
@@ -1850,7 +1860,7 @@ function FloorAndProjectProps() {
                 }
               />
             </div>
-            <p className="text-xs text-muted-foreground">Only shown while editing. It isn't exported or shown in 3D.</p>
+            <p className="text-xs text-muted-foreground">{t("Only shown while editing. It isn't exported or shown in 3D.")}</p>
             <Button
               variant="outline"
               size="sm"
@@ -1860,30 +1870,30 @@ function FloorAndProjectProps() {
                 })
               }
             >
-              <ImageOff /> Remove drawing
+              <ImageOff /> {t('Remove drawing')}
             </Button>
           </Section>
         </>
       )}
       <Separator />
-      <Section title="Project">
-        <Field label="Name">
+      <Section title={t('Project')}>
+        <Field label={t('Name')}>
           {(id) => <TextInput id={id} value={project.name} onChange={(v) => commit((d) => void (d.name = v))} />}
         </Field>
-        <Field label="Units">
+        <Field label={t('Units')}>
           {(id) => (
             <Select value={project.units} onValueChange={(v) => commit((d) => void (d.units = v as Units))}>
               <SelectTrigger id={id} className="w-full" size="sm">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="metric">Metric (m, cm)</SelectItem>
-                <SelectItem value="imperial">Imperial (ft, in)</SelectItem>
+                <SelectItem value="metric">{t('Metric (m, cm)')}</SelectItem>
+                <SelectItem value="imperial">{t('Imperial (ft, in)')}</SelectItem>
               </SelectContent>
             </Select>
           )}
         </Field>
-        <Field label="Default wall">
+        <Field label={t('Default wall')}>
           {(id) => (
             <LengthInput
               id={id}
@@ -1896,23 +1906,18 @@ function FloorAndProjectProps() {
         </Field>
       </Section>
       <Separator />
-      <Section title="Getting started">
-        <ul className="list-disc space-y-1.5 pl-4 text-xs leading-relaxed text-muted-foreground">
+      <Section title={t('Getting started')}>
+        <ul className="list-disc space-y-1.5 ps-4 text-xs leading-relaxed text-muted-foreground">
+          <li>{t('Press R and drag to draw a rectangular room, or P to click out any shape.')}</li>
+          <li>{t('While drawing, type a length (e.g. 3.5) and press Enter for exact walls.')}</li>
+          <li>{t("Add doors, windows and furniture from the Library tab. Dragged up to a wall, they're pulled flush against it.")}</li>
           <li>
-            Press <Kbd>R</Kbd> and drag to draw a rectangular room, or <Kbd>P</Kbd> to click out any shape.
+            {t('One open space with two looks (a reception and its corridor)? Divide it with S: two rooms, each with its own floor, ceiling and lights, and no wall between them.')}
           </li>
-          <li>
-            While drawing, type a length (e.g. <Kbd>3.5</Kbd>) and press <Kbd>Enter</Kbd> for exact walls.
-          </li>
-          <li>Add doors, windows and furniture from the Library tab. Dragged up to a wall, they're pulled flush against it.</li>
-          <li>
-            One open space with two looks (a reception and its corridor)? Divide it with <Kbd>S</Kbd>: two rooms, each with its
-            own floor, ceiling and lights, and no wall between them.
-          </li>
-          <li>Scroll to zoom, drag empty space to pan, double-click a room to zoom to it. Switch to 3D at the top.</li>
+          <li>{t('Scroll to zoom, drag empty space to pan, double-click a room to zoom to it. Switch to 3D at the top.')}</li>
         </ul>
         <Button variant="outline" size="sm" className="mt-3 w-full" onClick={startTour}>
-          <CircleHelp /> Take the tour
+          <CircleHelp /> {t('Take the tour')}
         </Button>
       </Section>
     </>
@@ -1937,11 +1942,11 @@ function PushRow({
   const turn: Record<Side, number> = { right: 0, front: 90, left: 180, back: 270 }
   const label = (side: Side) =>
     piece
-      ? `${{ back: 'Its back', front: 'Its front', left: 'This side', right: 'This side' }[side]} up to the wall`
-      : `Move them ${{ back: 'up', front: 'down', left: 'left', right: 'right' }[side]} to the wall`
+      ? t({ back: 'Its back up to the wall', front: 'Its front up to the wall', left: 'This side up to the wall', right: 'This side up to the wall' }[side])
+      : t({ back: 'Move them up to the wall', front: 'Move them down to the wall', left: 'Move them left to the wall', right: 'Move them right to the wall' }[side])
   return (
     <div className="flex items-center justify-between gap-2 text-sm">
-      <span className="text-muted-foreground">Up to the wall</span>
+      <span className="text-muted-foreground">{t('Up to the wall')}</span>
       <div className="flex gap-1">
         {(['left', 'back', 'front', 'right'] as const)
           // In the order they point on screen: left, up, down, right.
@@ -1966,7 +1971,7 @@ function PushRow({
                   </span>
                 </TooltipTrigger>
                 <TooltipContent>
-                  {g === undefined ? 'No wall that way' : there ? 'Against the wall' : `${label(side)}, ${fmt(g)} away`}
+                  {g === undefined ? t('No wall that way') : there ? t('Against the wall') : t('{what}, {gap} away', { what: label(side), gap: fmt(g) })}
                 </TooltipContent>
               </Tooltip>
             )

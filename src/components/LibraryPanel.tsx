@@ -12,6 +12,7 @@ import type { PlanTheme } from '@/model/theme'
 import { addSymbol, currentFloor, toggleFaded, useEditor, viewCenter } from '@/store/editor'
 import { useUi } from '@/store/ui'
 import { SYMBOL_DRAG_MIME } from './Canvas'
+import { t } from '@/i18n'
 
 function Preview({ def, theme }: { def: SymbolDef; theme: PlanTheme }) {
   const pad = 14
@@ -31,7 +32,7 @@ function place(def: SymbolDef) {
   const c = viewCenter()
   const st = useEditor.getState()
   if (def.ceilingStyle || def.fixture === 'cove') {
-    if (!addSymbol(def.type, c)) toast('Select a room first, or drag this onto a room.')
+    if (!addSymbol(def.type, c)) toast(t('Select a room first, or drag this onto a room.'))
     else if (st.layer !== 'lighting') st.setLayer('lighting')
     return
   }
@@ -65,22 +66,25 @@ export function LibraryPanel() {
   return (
     <div className="space-y-3 p-4">
       <div className="relative">
-        <Search className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" />
-        <Input placeholder="Search symbols…" value={query} onChange={(e) => setQuery(e.target.value)} className="pl-8" />
+        <Search className="pointer-events-none absolute start-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+        <Input placeholder={t('Search symbols…')} value={query} onChange={(e) => setQuery(e.target.value)} className="ps-8" />
       </div>
-      <p className="text-xs text-muted-foreground">Click to add at the center of the view, or drag onto the plan.</p>
+      <p className="text-xs text-muted-foreground">{t('Click to add at the center of the view, or drag onto the plan.')}</p>
       {!searching && (
         <div className="-mx-1.5 flex gap-1">
           <Button variant="ghost" size="xs" onClick={() => setCollapsed([])} disabled={!collapsed.length}>
-            <ChevronsUpDown /> Expand all
+            <ChevronsUpDown /> {t('Expand all')}
           </Button>
           <Button variant="ghost" size="xs" onClick={() => setCollapsed([...CATEGORIES])} disabled={collapsed.length === CATEGORIES.length}>
-            <ChevronsDownUp /> Collapse all
+            <ChevronsDownUp /> {t('Collapse all')}
           </Button>
         </div>
       )}
       {order.map((cat) => {
-        const items = SYMBOLS.filter((s) => (s.category === cat || s.alsoIn?.includes(cat)) && !s.hidden && (!q || `${s.name} ${s.keywords ?? ''}`.toLowerCase().includes(q)))
+        // Found by its name in either language, or the other words it goes by.
+        const items = SYMBOLS.filter(
+          (s) => (s.category === cat || s.alsoIn?.includes(cat)) && !s.hidden && (!q || `${s.name} ${t(s.name)} ${s.keywords ?? ''}`.toLowerCase().includes(q)),
+        )
         if (!items.length) return null
         // While searching, every category with a match is shown open.
         const open = searching || !collapsed.includes(cat)
@@ -92,22 +96,22 @@ export function LibraryPanel() {
                   disabled={searching}
                   className="group flex min-w-0 flex-1 items-center gap-1.5 rounded-md py-1 text-xs font-medium tracking-wide text-muted-foreground uppercase outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring disabled:hover:text-muted-foreground"
                 >
-                  <ChevronRight className="size-3.5 transition-transform group-data-[state=open]:rotate-90" />
-                  <span className="flex-1 text-left">{cat === 'Ceilings' ? 'Gypsum ceilings' : cat}</span>
+                  <ChevronRight className="rtl-flip size-3.5 transition-transform group-data-[state=open]:rotate-90" />
+                  <span className="flex-1 text-start">{t(cat === 'Ceilings' ? 'Gypsum ceilings' : cat)}</span>
                   <span className="font-normal tabular-nums normal-case">{items.length}</span>
                 </CollapsibleTrigger>
                 <button
                   onClick={() => toggleFaded(cat)}
                   className="rounded p-1 text-muted-foreground outline-none hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
-                  aria-label={faded.includes(cat) ? `Show ${cat} on the plan` : `Fade ${cat} on the plan`}
-                  title={faded.includes(cat) ? 'Faded on the plan: click to show' : 'Fade on the plan'}
+                  aria-label={faded.includes(cat) ? t('Show {name} on the plan', { name: t(cat) }) : t('Fade {name} on the plan', { name: t(cat) })}
+                  title={faded.includes(cat) ? t('Faded on the plan: click to show') : t('Fade on the plan')}
                 >
                   {faded.includes(cat) ? <EyeOff className="size-3.5" /> : <Eye className="size-3.5" />}
                 </button>
               </div>
               <CollapsibleContent className="space-y-2">
                 {cat === 'Ceilings' && (
-                  <p className="text-xs text-muted-foreground">Tap a style to apply it to the selected room, or drag it onto a room.</p>
+                  <p className="text-xs text-muted-foreground">{t('Tap a style to apply it to the selected room, or drag it onto a room.')}</p>
                 )}
                 <div className="grid grid-cols-3 gap-1.5">
                   {items.map((def) => (
@@ -120,10 +124,10 @@ export function LibraryPanel() {
                         e.dataTransfer.effectAllowed = 'copy'
                       }}
                       onClick={() => place(def)}
-                      title={def.name}
+                      title={t(def.name)}
                     >
                       <Preview def={def} theme={theme} />
-                      <span className="w-full truncate text-center">{def.name}</span>
+                      <span className="w-full truncate text-center">{t(def.name)}</span>
                     </button>
                   ))}
                 </div>
