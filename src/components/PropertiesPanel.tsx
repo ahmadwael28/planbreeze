@@ -1,5 +1,5 @@
 import { t, tc } from '@/i18n'
-import { useId } from 'react'
+import { useEffect, useId } from 'react'
 import type { ReactNode } from 'react'
 import {
   AlignCenterHorizontal,
@@ -11,7 +11,7 @@ import {
   AlignVerticalSpaceAround,
   ArrowRight,
   ArrowUpToLine,
-  Box, BrickWall, CircleHelp, DoorOpen, Merge, MoveHorizontal, Scissors, ClipboardCopy, Sparkles, Columns2, Copy, Sofa, FlipHorizontal2, Group, Ungroup, FlipVertical2, ImageOff, Lightbulb, Link2Off, Lock, Ruler, RotateCw, SplitSquareHorizontal, Trash2, Video } from 'lucide-react'
+  Box, BrickWall, CircleHelp, DoorOpen, Merge, MoveHorizontal, Scissors, Spline, ClipboardCopy, Sparkles, Columns2, Copy, Sofa, FlipHorizontal2, Group, Ungroup, FlipVertical2, ImageOff, Lightbulb, Link2Off, Lock, Ruler, RotateCw, SplitSquareHorizontal, Trash2, Video } from 'lucide-react'
 import { toast } from 'sonner'
 import { arrange, arrangeable, layoutOf, spacingOf, wouldMove } from '@/model/arrange'
 import type { Unit } from '@/model/arrange'
@@ -62,7 +62,8 @@ import {
   groupSelection,
   draftFloor,
   duplicateSelection,
-  removeVertex,
+  extraCorners,
+  removeVertices,
   splitWall,
   useEditor,
   useFloor,
@@ -333,7 +334,16 @@ function RoomProps({ room, units }: { room: Room; units: Units }) {
   const floor = useFloor()
   const theme = usePlanTheme()
   const selection = useEditor((s) => s.selection)
-  const vertex = selection?.kind === 'room' ? selection.vertex : undefined
+  // Corners picked on the plan (Shift + click for several), and the wall picked there.
+  const picked = selection?.kind === 'room' ? (selection.vertices ?? (selection.vertex !== undefined ? [selection.vertex] : [])) : []
+  const pickedWall = selection?.kind === 'room' ? selection.edge : undefined
+  const extra = extraCorners(room)
+  const setHoverWall = useUi((s) => s.setHoverWall)
+  // The wall picked on the plan: brought into view in the list.
+  useEffect(() => {
+    if (pickedWall !== undefined) document.querySelector(`[data-wall-row="${pickedWall}"]`)?.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
+  }, [pickedWall])
+  useEffect(() => () => setHoverWall(null), [setHoverWall])
   const a = area(room.points)
   const balcony = isOutdoor(room)
   const defaultWall = useEditor((s) => s.project.defaultWallThickness)
@@ -500,14 +510,30 @@ function RoomProps({ room, units }: { room: Room; units: Units }) {
             return (
               <li
                 key={i}
+                data-wall-row={i}
+                onMouseEnter={() => setHoverWall({ roomId: room.id, edge: i })}
+                onMouseLeave={() => setHoverWall(null)}
                 className={cn(
-                  'grid grid-cols-[56px_1fr_auto] items-center gap-1.5 rounded-md px-1 py-0.5',
-                  vertex === i && 'bg-primary/10',
+                  'grid grid-cols-[64px_1fr_auto] items-center gap-1.5 rounded-md px-1 py-0.5',
+                  pickedWall === i && 'bg-primary/10 ring-1 ring-primary/40',
                 )}
               >
-                <span className={cn('text-sm text-muted-foreground', open && 'italic')} title={open ? t('No wall: open to the next room') : undefined}>
-                  {open ? t('Open') : t('Wall {n}', { n: i + 1 })}
-                </span>
+                <button
+                  type="button"
+                  className={cn('flex items-center gap-1.5 text-start text-sm text-muted-foreground', open && 'italic')}
+                  title={open ? t('No wall: open to the next room') : t('Show it on the plan')}
+                  onClick={() => useEditor.getState().select({ kind: 'room', id: room.id, edge: i })}
+                >
+                  <span
+                    className={cn(
+                      'grid size-5 shrink-0 place-items-center rounded-full border border-primary text-[10px] font-bold tabular-nums',
+                      pickedWall === i ? 'bg-primary text-primary-foreground' : 'text-primary',
+                    )}
+                  >
+                    {i + 1}
+                  </span>
+                  {open ? t('Open') : t('Wall')}
+                </button>
                 <LengthInput
                   value={dist(p, q)}
                   units={units}
@@ -560,18 +586,22 @@ function RoomProps({ room, units }: { room: Room; units: Units }) {
             )
           })}
         </ol>
-        {vertex !== undefined && (
-          <Button
-            variant="outline"
-            size="sm"
-            disabled={room.points.length <= 3}
-            onClick={() => removeVertex(room.id, vertex)}
-          >
-            {t('Remove corner {n}', { n: vertex + 1 })}
-          </Button>
+        {(picked.length > 0 || extra.length > 0) && (
+          <div className="flex flex-wrap gap-2">
+            {picked.length > 0 && (
+              <Button variant="outline" size="sm" disabled={room.points.length - picked.length < 3} onClick={() => removeVertices(room.id, picked)}>
+                <Trash2 /> {picked.length === 1 ? t('Remove corner {n}', { n: picked[0] + 1 }) : t('Remove {n} corners', { n: picked.length })}
+              </Button>
+            )}
+            {extra.length > 0 && (
+              <Button variant="outline" size="sm" onClick={() => removeVertices(room.id, extra)} title={t('Corners on a straight wall, or right on top of another, as detection can leave them')}>
+                <Spline /> {extra.length === 1 ? t('Remove 1 extra corner') : t('Remove {n} extra corners', { n: extra.length })}
+              </Button>
+            )}
+          </div>
         )}
         <p className="text-xs leading-relaxed text-muted-foreground">
-          {t('Drag corners to reshape, drag the wall handles to move walls, double-click a wall handle to add a corner.')}
+          {t('Drag corners to reshape and the wall handles to move walls. Double-click a wall to add a corner there. Shift + click corners to pick several: drag them together, or press Delete to remove them.')}
         </p>
       </Section>
       <Separator />

@@ -20,7 +20,7 @@ import type { Side } from '@/model/guides'
 import { fixSizes } from '@/model/sizes'
 import type { Clip } from '@/model/items'
 import { CEILING_STYLES, mergeRoomLights, OTHER_LIGHTS, pruneControls, remapEdges, remapEdgeValues, ROOM_LIGHTS } from '@/model/lighting'
-import { columnIntoWall, dimensionPoints, findWallSnap, isOutdoor, moveWall, roomOuter, symbolPose } from '@/model/project'
+import { columnIntoWall, dimensionPoints, findWallSnap, isOpen, isOutdoor, moveWall, roomOuter, symbolPose } from '@/model/project'
 import { dividePoints, healOpenings, joinPoints, openedPoints, sharedStretch, wallAcross } from '@/model/divide'
 import { beamSpan } from '@/model/beams'
 import { personDepth, personSupport } from '@/model/people'
@@ -58,6 +58,9 @@ export interface Settings {
   lens3d: 'normal' | 'wide' | 'ultra'
   /** Plan: library categories (and 'Dimensions', 'Saved views') shown faded and not clickable. */
   faded: string[]
+  /** Tracing over a background drawing: how solid the plan is drawn over it (1: solid), and the drawing over the plan. */
+  planOpacity: number
+  underlayOnTop: boolean
 }
 
 export type ViewMode = '2d' | '3d'
@@ -66,6 +69,8 @@ const SETTINGS_KEY = 'fp.settings'
 const HISTORY_LIMIT = 100
 
 const defaultSettings: Settings = {
+  planOpacity: 1,
+  underlayOnTop: false,
   snap: true,
   showGrid: true,
   showWallLengths: true,
@@ -152,7 +157,9 @@ function validSelection(p: Project, floorId: string, sel: Selection | null): Sel
   if (sel.kind === 'room') {
     const room = floor.rooms.find((r) => r.id === sel.id)
     if (!room) return null
-    return sel.vertex !== undefined && sel.vertex >= room.points.length ? { kind: 'room', id: sel.id } : sel
+    const n = room.points.length
+    if ((sel.vertex ?? 0) >= n || (sel.edge ?? 0) >= n || sel.vertices?.some((v) => v >= n)) return { kind: 'room', id: sel.id }
+    return sel
   }
   if (sel.kind === 'multi') return selectionOf(sel.items.filter((r) => exists(floor, r)))
   if (sel.kind === 'dimension') return floor.dimensions?.some((d) => d.id === sel.id) ? sel : null
@@ -608,15 +615,71 @@ export function selectAll() {
 }
 
 export function removeVertex(roomId: string, index: number) {
+  removeVertices(roomId, [index])
+}
+
+/** Remove some of a room's corners (at least three stay), as one undo step. False if that would leave too few. */
+export function removeVertices(roomId: string, indices: number[]): boolean {
   const st = useEditor.getState()
   const room = currentFloor(st).rooms.find((r) => r.id === roomId)
-  if (!room || room.points.length <= 3) return
+  const gone = new Set(indices)
+  if (!room || !gone.size || room.points.length - gone.size < 3) return false
   st.commit((d) => {
     const r = draftFloor(d).rooms.find((x) => x.id === roomId)!
-    r.points.splice(index, 1)
+    r.points = room.points.filter((_, i) => !gone.has(i))
     fixAttachments(d, room)
   })
   useEditor.setState({ selection: { kind: 'room', id: roomId } })
+  return true
+}
+
+/**
+ * Corners that do nothing (on a straight wall, or right on top of the next corner), as detection or tracing tends to
+ * leave them: they can go without changing the room. Not where an open wall meets a real one.
+ */
+export function extraCorners(room: Room): number[] {
+  const pts = room.points
+  const n = pts.length
+  const out: number[] = []
+  for (let i = 0; i < n && n - out.length > 3; i++) {
+    const prev = pts[(i - 1 + n) % n]
+    const p = pts[i]
+    const next = pts[(i + 1) % n]
+    if (isOpen(room, (i - 1 + n) % n) !== isOpen(room, i)) continue
+    const u = sub(p, prev)
+    const v = sub(next, p)
+    const lu = Math.hypot(u.x, u.y)
+    const lv = Math.hypot(v.x, v.y)
+    if (lu < 1 || lv < 1) {
+      out.push(i)
+      continue
+    }
+    // How far it is off the line from the corner before to the one after.
+    const w = sub(next, prev)
+    const lw = Math.hypot(w.x, w.y)
+    const off = lw < 1 ? 0 : Math.abs(w.x * (p.y - prev.y) - w.y * (p.x - prev.x)) / lw
+    if (dot(u, v) > 0 && off < 1.5 && Math.abs(Math.atan2(u.x * v.y - u.y * v.x, dot(u, v))) < (2 * Math.PI) / 180) out.push(i)
+  }
+  return out
+}
+
+/** A corner added on a room's wall `edge`, at the point on it nearest `p`; it's picked, ready to drag. */
+export function splitWallAt(roomId: string, edge: number, p: Point) {
+  const st = useEditor.getState()
+  const room = currentFloor(st).rooms.find((r) => r.id === roomId)
+  if (!room) return
+  const a = room.points[edge]
+  const b = room.points[(edge + 1) % room.points.length]
+  const L = dist(a, b)
+  if (L < 2) return
+  const s = Math.min(L - 1, Math.max(1, dot(sub(p, a), normalize(sub(b, a)))))
+  const at = { x: Math.round((a.x + ((b.x - a.x) * s) / L) * 10) / 10, y: Math.round((a.y + ((b.y - a.y) * s) / L) * 10) / 10 }
+  st.commit((d) => {
+    const r = draftFloor(d).rooms.find((x) => x.id === roomId)!
+    r.points.splice(edge + 1, 0, at)
+    fixAttachments(d, room)
+  })
+  useEditor.setState({ selection: { kind: 'room', id: roomId, vertex: edge + 1, vertices: [edge + 1] } })
 }
 
 export function splitWall(roomId: string, edge: number) {

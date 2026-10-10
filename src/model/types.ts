@@ -342,7 +342,8 @@ export interface Pose {
 }
 
 export type Selection =
-  | { kind: 'room'; id: string; vertex?: number }
+  /** A room; with a corner picked (`vertex`, and any others with it in `vertices`), or one of its walls (`edge`). */
+  | { kind: 'room'; id: string; vertex?: number; vertices?: number[]; edge?: number }
   | { kind: 'symbol'; id: string }
   | { kind: 'dimension'; id: string }
   | { kind: 'view'; id: string }

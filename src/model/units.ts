@@ -58,6 +58,11 @@ export function gridSpacing(units: Units): [number, number] {
 }
 
 /** Default snap step in cm. */
-export function snapStep(units: Units): number {
-  return units === 'metric' ? 5 : CM_PER_INCH * 2
+/**
+ * The step things move and resize by with the mouse: finer the closer you look (1 cm once a cm is a pixel on screen,
+ * 2 cm with a whole flat in view), so each step is still about a pixel of mouse movement. `zoom` is pixels per cm.
+ */
+export function snapStep(units: Units, zoom = 0.5): number {
+  const steps = units === 'metric' ? [1, 2, 5, 10] : [CM_PER_INCH / 2, CM_PER_INCH, CM_PER_INCH * 2, CM_PER_INCH * 6]
+  return steps.find((s) => s * zoom >= 0.9) ?? steps[steps.length - 1]
 }

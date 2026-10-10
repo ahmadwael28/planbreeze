@@ -1,7 +1,7 @@
 import { t } from '@/i18n'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { DragEvent, PointerEvent as RPointerEvent, ReactNode } from 'react'
-import { Camera, ImageUp, Lightbulb, PenLine, ScanLine, Sparkles, Wand2 } from 'lucide-react'
+import { Camera, Eraser, ImageUp, Lightbulb, Magnet, Maximize2, PenLine, ScanLine, Sparkles, Undo2, Wand2, ZoomIn, ZoomOut } from 'lucide-react'
 import { Loader } from '@/components/ui/loader'
 import { toast } from 'sonner'
 import { Badge } from '@/components/ui/badge'
@@ -16,11 +16,11 @@ import { usePlanTheme } from '@/hooks/use-plan-theme'
 import { cn } from '@/lib/utils'
 import { buildFloorContent, tidyRooms } from '@/import/convert'
 import type { ImportResult } from '@/import/convert'
-import { imageForAi, loadImage } from '@/import/image'
+import { eraseMarks, imageForAi, loadImage } from '@/import/image'
 import { DEFAULT_RECOGNIZE } from '@/import/recognize'
 import type { DrawingKind } from '@/import/recognize'
 import { useRecognition } from '@/import/useRecognition'
-import type { LoadedImage } from '@/import/image'
+import type { EraseStroke, LoadedImage } from '@/import/image'
 import { area, bbox, dist, polygonPath, projectOnSegment } from '@/model/geometry'
 import { floorBounds, newProject } from '@/model/project'
 import { formatLength } from '@/model/units'
@@ -64,24 +64,102 @@ function Step({ n, title, children }: { n: number; title: string; children: Reac
   )
 }
 
-/** The drawing with an adjustable measuring line and the detected outlines on top. */
+type View = { x: number; y: number; w: number; h: number }
+
+/**
+ * The drawing with an adjustable measuring line and the detected outlines on top. Scroll or pinch to zoom and drag to
+ * pan, so the line's ends can go exactly on the drawing's own marks; while an end is dragged, a magnifier shows what's
+ * under it (and under the finger, on a phone). Erasing: drag to paint out marks detection shouldn't read as walls.
+ */
 function DrawingPreview({
   img,
   outlines,
   line,
   onLine,
   showLine,
+  erasing,
+  brush,
+  strokes,
+  onStroke,
 }: {
   img: LoadedImage
   outlines: Point[][]
   line: { a: Point; b: Point }
   onLine: (l: { a: Point; b: Point }) => void
   showLine: boolean
+  erasing: boolean
+  /** Eraser radius, in screen px. */
+  brush: number
+  strokes: EraseStroke[]
+  onStroke: (s: EraseStroke) => void
 }) {
-  const svgRef = useRef<SVGSVGElement>(null)
-  const dragging = useRef<'a' | 'b' | null>(null)
+  const boxRef = useRef<HTMLDivElement>(null)
+  const full: View = { x: 0, y: 0, w: img.width, h: img.height }
+  const [view, setView] = useState<View>(full)
+  const [box, setBox] = useState({ w: 0, h: 0 })
+  const [stick, setStick] = useState(true)
+  const [drag, setDrag] = useState<'a' | 'b' | null>(null)
+  const [live, setLive] = useState<EraseStroke | null>(null)
+  const [cursor, setCursor] = useState<Point | null>(null)
   const [snapped, setSnapped] = useState<{ a: boolean; b: boolean }>({ a: false, b: false })
-  const r = Math.max(img.width, img.height) * 0.014
+  const pointers = useRef(new Map<number, Point>())
+  const gesture = useRef<
+    | { kind: 'pan'; from: Point; view: View; moved: boolean }
+    | { kind: 'pinch'; d: number; at: Point; view: View }
+    | null
+  >(null)
+  const blockClick = useRef(false)
+
+  useEffect(() => {
+    const el = boxRef.current
+    if (!el) return
+    const ro = new ResizeObserver(() => setBox({ w: el.clientWidth, h: el.clientHeight }))
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [])
+
+  /** Screen px per image px, for a view. */
+  const ppuOf = (v: View) => (box.w ? Math.min(box.w / v.w, box.h / v.h) : 1)
+  const ppu = ppuOf(view)
+  // Handles and hit areas keep their size on screen at any zoom.
+  const r = 8 / ppu
+
+  /** The image point under a screen point, for a view (the drawing is centred in the box). */
+  const at = (client: Point, v: View = view): Point => {
+    const rect = boxRef.current!.getBoundingClientRect()
+    const s = ppuOf(v)
+    return {
+      x: v.x + (client.x - rect.left - (rect.width - v.w * s) / 2) / s,
+      y: v.y + (client.y - rect.top - (rect.height - v.h * s) / 2) / s,
+    }
+  }
+  const clamp = (v: View): View => {
+    if (v.w >= img.width - 1e-6) return full
+    const cx = Math.min(img.width, Math.max(0, v.x + v.w / 2))
+    const cy = Math.min(img.height, Math.max(0, v.y + v.h / 2))
+    return { x: cx - v.w / 2, y: cy - v.h / 2, w: v.w, h: v.h }
+  }
+  /** Zoomed by `f` about the image point `p`, which stays put. Up to 40×. */
+  const zoomAt = (p: Point, f: number, v: View): View => {
+    const w = Math.min(img.width, Math.max(img.width / 40, v.w / f))
+    const s = w / v.w
+    return clamp({ x: p.x - (p.x - v.x) * s, y: p.y - (p.y - v.y) * s, w, h: v.h * s })
+  }
+  const zoomBy = (f: number) => setView((v) => zoomAt({ x: v.x + v.w / 2, y: v.y + v.h / 2 }, f, v))
+
+  // The wheel zooms about the pointer (a non-passive listener, so the dialog doesn't scroll instead).
+  useEffect(() => {
+    const el = boxRef.current
+    if (!el) return
+    const onWheel = (e: WheelEvent) => {
+      e.preventDefault()
+      const v = view
+      const f = Math.exp(-Math.max(-100, Math.min(100, e.deltaY * (e.deltaMode === 1 ? 33 : 1))) * 0.003)
+      setView(zoomAt(at({ x: e.clientX, y: e.clientY }, v), f, v))
+    }
+    el.addEventListener('wheel', onWheel, { passive: false })
+    return () => el.removeEventListener('wheel', onWheel)
+  })
 
   /** Stick to a detected room's corner if one is close, else onto its wall. */
   const snap = (p: Point): { p: Point; hit: boolean } => {
@@ -109,11 +187,83 @@ function DrawingPreview({
     }
     return best ? { p: best, hit: true } : { p, hit: false }
   }
+  const inside = (p: Point) => ({ x: Math.min(img.width, Math.max(0, p.x)), y: Math.min(img.height, Math.max(0, p.y)) })
+  const client = (e: RPointerEvent) => ({ x: e.clientX, y: e.clientY })
 
-  const toImage = (e: RPointerEvent) => {
-    const svg = svgRef.current!
-    const pt = new DOMPoint(e.clientX, e.clientY).matrixTransform(svg.getScreenCTM()!.inverse())
-    return { x: Math.min(img.width, Math.max(0, pt.x)), y: Math.min(img.height, Math.max(0, pt.y)) }
+  const onDown = (e: RPointerEvent) => {
+    pointers.current.set(e.pointerId, client(e))
+    if (pointers.current.size === 2) {
+      // Two fingers: pinch to zoom, whatever the first one was doing.
+      const [p, q] = [...pointers.current.values()]
+      setLive(null)
+      setDrag(null)
+      const mid = { x: (p.x + q.x) / 2, y: (p.y + q.y) / 2 }
+      gesture.current = { kind: 'pinch', d: dist(p, q), at: mid, view }
+      return
+    }
+    if (pointers.current.size > 2) return
+    if (erasing && e.button === 0) {
+      e.currentTarget.setPointerCapture(e.pointerId)
+      setLive({ points: [at(client(e))], r: brush / ppu })
+    } else {
+      // Pan; the pointer's only captured once it moves, so a click on a wall still lands on it.
+      gesture.current = { kind: 'pan', from: client(e), view, moved: false }
+    }
+  }
+
+  const onMove = (e: RPointerEvent) => {
+    const c = client(e)
+    if (pointers.current.has(e.pointerId)) pointers.current.set(e.pointerId, c)
+    if (erasing) setCursor(at(c))
+    const g = gesture.current
+    if (g?.kind === 'pinch' && pointers.current.size === 2) {
+      const [p, q] = [...pointers.current.values()]
+      const mid = { x: (p.x + q.x) / 2, y: (p.y + q.y) / 2 }
+      const anchor = at(g.at, g.view)
+      const v = zoomAt(anchor, dist(p, q) / Math.max(1, g.d), g.view)
+      // Keep the point between the fingers under them as they move.
+      const now = at(mid, v)
+      setView(clamp({ ...v, x: v.x + anchor.x - now.x, y: v.y + anchor.y - now.y }))
+      return
+    }
+    if (drag) {
+      const p = inside(at(c))
+      const s = stick && !e.altKey ? snap(p) : { p, hit: false }
+      setSnapped((v) => ({ ...v, [drag]: s.hit }))
+      onLine({ ...line, [drag]: s.p })
+      return
+    }
+    if (live) {
+      const p = at(c)
+      const last = live.points[live.points.length - 1]
+      if (dist(p, last) > live.r * 0.3) setLive({ ...live, points: [...live.points, p] })
+      return
+    }
+    if (g?.kind === 'pan') {
+      const dx = c.x - g.from.x
+      const dy = c.y - g.from.y
+      if (!g.moved && Math.hypot(dx, dy) < 4) return
+      if (!g.moved) {
+        g.moved = true
+        e.currentTarget.setPointerCapture(e.pointerId)
+      }
+      const s = ppuOf(g.view)
+      setView(clamp({ ...g.view, x: g.view.x - dx / s, y: g.view.y - dy / s }))
+    }
+  }
+
+  const onUp = (e: RPointerEvent) => {
+    pointers.current.delete(e.pointerId)
+    const g = gesture.current
+    if (g?.kind === 'pan' && g.moved) {
+      // The click that ends a pan isn't a click on a wall.
+      blockClick.current = true
+      setTimeout(() => (blockClick.current = false))
+    }
+    if (live) onStroke(live)
+    setLive(null)
+    setDrag(null)
+    gesture.current = null
   }
 
   const handle = (which: 'a' | 'b') => (
@@ -123,29 +273,35 @@ function DrawingPreview({
       r={r}
       className={cn('cursor-grab stroke-primary', snapped[which] ? 'fill-primary' : 'fill-background')}
       strokeWidth={r * 0.35}
+      pointerEvents={erasing ? 'none' : undefined}
       onPointerDown={(e) => {
-        dragging.current = which
-        svgRef.current!.setPointerCapture(e.pointerId)
+        e.stopPropagation()
+        if (pointers.current.size) return
+        setDrag(which)
+        e.currentTarget.ownerSVGElement!.setPointerCapture(e.pointerId)
       }}
     />
   )
 
-  return (
-    <svg
-      ref={svgRef}
-      viewBox={`0 0 ${img.width} ${img.height}`}
-      className="h-full w-full touch-none select-none"
-      preserveAspectRatio="xMidYMid meet"
-      onPointerMove={(e) => {
-        const which = dragging.current
-        if (!which) return
-        const s = snap(toImage(e))
-        setSnapped((v) => ({ ...v, [which]: s.hit }))
-        onLine({ ...line, [which]: s.p })
-      }}
-      onPointerUp={() => (dragging.current = null)}
-    >
+  const strokePath = (s: EraseStroke) =>
+    `M${s.points.map((p) => `${p.x} ${p.y}`).join('L')}${s.points.length === 1 ? 'l0.01 0' : ''}`
+  const marks = [...strokes, ...(live ? [live] : [])]
+
+  // What's under the dragged end, 3× closer, beside it.
+  const loupe = 128
+  const held = drag ? line[drag] : null
+  const lw = loupe / (ppu * 3)
+  const heldLeft = held ? (held.x - view.x) / view.w < 0.5 : false
+
+  const layers = (detail: boolean) => (
+    <>
       <image href={img.url} width={img.width} height={img.height} />
+      {marks.map((s, i) => (
+        <g key={i} pointerEvents="none" fill="none" strokeLinecap="round" strokeLinejoin="round">
+          <path d={strokePath(s)} className="stroke-destructive/50" strokeWidth={s.r * 2 + 2 / ppu} />
+          <path d={strokePath(s)} stroke="#fff" strokeWidth={s.r * 2} />
+        </g>
+      ))}
       {outlines.map((pts, i) => (
         <path
           key={i}
@@ -153,10 +309,13 @@ function DrawingPreview({
           className="fill-primary/20 stroke-primary"
           strokeWidth={r * 0.3}
           strokeLinejoin="round"
+          pointerEvents={erasing ? 'none' : undefined}
         />
       ))}
       {/* Click a detected wall to measure along it. */}
-      {showLine &&
+      {detail &&
+        showLine &&
+        !erasing &&
         outlines.map((pts, i) =>
           pts.map((a, j) => {
             const b = pts[(j + 1) % pts.length]
@@ -171,6 +330,7 @@ function DrawingPreview({
                 strokeWidth={r * 1.1}
                 className="cursor-pointer"
                 onClick={() => {
+                  if (blockClick.current) return
                   setSnapped({ a: true, b: true })
                   onLine({ a, b })
                 }}
@@ -181,21 +341,90 @@ function DrawingPreview({
           }),
         )}
       {showLine && (
-        <g>
-          <line
-            x1={line.a.x}
-            y1={line.a.y}
-            x2={line.b.x}
-            y2={line.b.y}
-            className="stroke-primary"
-            strokeWidth={r * 0.45}
-            strokeDasharray={`${r} ${r * 0.6}`}
-          />
-          {handle('a')}
-          {handle('b')}
-        </g>
+        <line
+          x1={line.a.x}
+          y1={line.a.y}
+          x2={line.b.x}
+          y2={line.b.y}
+          className="stroke-primary"
+          strokeWidth={detail ? r * 0.45 : r * 0.2}
+          strokeDasharray={detail ? `${r} ${r * 0.6}` : undefined}
+          pointerEvents="none"
+        />
       )}
-    </svg>
+    </>
+  )
+
+  return (
+    <div ref={boxRef} className="relative h-full w-full overflow-hidden">
+      <svg
+        viewBox={`${view.x} ${view.y} ${view.w} ${view.h}`}
+        className={cn(
+          'h-full w-full touch-none select-none',
+          erasing ? 'cursor-none' : view.w < img.width && 'cursor-grab active:cursor-grabbing',
+        )}
+        preserveAspectRatio="xMidYMid meet"
+        onPointerDown={onDown}
+        onPointerMove={onMove}
+        onPointerUp={onUp}
+        onPointerCancel={onUp}
+        onPointerLeave={() => setCursor(null)}
+        onDoubleClick={(e) => !erasing && setView(zoomAt(at({ x: e.clientX, y: e.clientY }), 2, view))}
+      >
+        {layers(true)}
+        {showLine && (
+          <g>
+            {handle('a')}
+            {handle('b')}
+          </g>
+        )}
+        {erasing && cursor && (
+          <circle cx={cursor.x} cy={cursor.y} r={brush / ppu} className="fill-destructive/10 stroke-destructive" strokeWidth={1.5 / ppu} pointerEvents="none" />
+        )}
+      </svg>
+
+      {held && (
+        <div
+          className={cn('pointer-events-none absolute top-2 overflow-hidden rounded-full border-2 border-primary bg-background shadow-lg', heldLeft ? 'right-2' : 'left-2')}
+          style={{ width: loupe, height: loupe }}
+        >
+          <svg viewBox={`${held.x - lw / 2} ${held.y - lw / 2} ${lw} ${lw}`} className="size-full" preserveAspectRatio="xMidYMid slice">
+            {layers(false)}
+            <g className="stroke-primary" strokeWidth={lw / loupe}>
+              <line x1={held.x - lw / 2} x2={held.x - lw * 0.06} y1={held.y} y2={held.y} />
+              <line x1={held.x + lw * 0.06} x2={held.x + lw / 2} y1={held.y} y2={held.y} />
+              <line y1={held.y - lw / 2} y2={held.y - lw * 0.06} x1={held.x} x2={held.x} />
+              <line y1={held.y + lw * 0.06} y2={held.y + lw / 2} x1={held.x} x2={held.x} />
+            </g>
+          </svg>
+        </div>
+      )}
+
+      <div className="absolute right-2 bottom-2 flex items-center gap-0.5 rounded-lg border bg-background/95 p-0.5 shadow-sm">
+        {showLine && !erasing && (
+          <Button
+            variant="ghost"
+            size="icon"
+            className={cn('size-8', stick && 'bg-primary/10 text-primary')}
+            aria-pressed={stick}
+            title={stick ? t('Line ends stick to detected corners (hold Alt to place freely)') : t('Line ends go exactly where you put them')}
+            onClick={() => setStick(!stick)}
+          >
+            <Magnet />
+          </Button>
+        )}
+        <Button variant="ghost" size="icon" className="size-8" title={t('Zoom out')} disabled={view.w >= img.width} onClick={() => zoomBy(1 / 1.6)}>
+          <ZoomOut />
+        </Button>
+        <span className="w-11 text-center text-xs tabular-nums">{Math.round((img.width / view.w) * 100)}%</span>
+        <Button variant="ghost" size="icon" className="size-8" title={t('Zoom in')} disabled={view.w <= img.width / 40 + 1e-6} onClick={() => zoomBy(1.6)}>
+          <ZoomIn />
+        </Button>
+        <Button variant="ghost" size="icon" className="size-8" title={t('Show it all')} disabled={view.w >= img.width} onClick={() => setView(full)}>
+          <Maximize2 />
+        </Button>
+      </div>
+    </div>
   )
 }
 
@@ -244,6 +473,10 @@ export function ImportWizard() {
   const [view, setView] = useState<'drawing' | 'result'>('drawing')
   const [keepUnderlay, setKeepUnderlay] = useState(true)
   const [replace, setReplace] = useState(false)
+  // Marks painted out of the drawing before detection.
+  const [erasing, setErasing] = useState(false)
+  const [brush, setBrush] = useState(12)
+  const [strokes, setStrokes] = useState<EraseStroke[]>([])
   const fileRef = useRef<HTMLInputElement>(null)
   const cameraRef = useRef<HTMLInputElement>(null)
   const abortRef = useRef<AbortController | null>(null)
@@ -260,6 +493,8 @@ export function ImportWizard() {
     setView('drawing')
     setScaleSet(false)
     setReplace(false)
+    setErasing(false)
+    setStrokes([])
   }
   const close = () => {
     openImport(null)
@@ -271,6 +506,8 @@ export function ImportWizard() {
     setImg(im)
     setAi({ status: 'idle' })
     setView('drawing')
+    setErasing(false)
+    setStrokes([])
     if (preset) {
       setLine({ a: preset.a, b: preset.b })
       setLineLen(preset.len)
@@ -320,7 +557,8 @@ export function ImportWizard() {
   })
 
   // On-device detection, in a background worker; re-runs when its inputs change.
-  const recognition = useRecognition(img && method === 'auto' ? img.work : null, { gap, sensitivity, kind })
+  const work = useMemo(() => (img && strokes.length ? eraseMarks(img, strokes) : (img?.work ?? null)), [img, strokes])
+  const recognition = useRecognition(img && method === 'auto' ? work : null, { gap, sensitivity, kind })
   const detection = recognition.result
   const detecting = recognition.busy
 
@@ -512,8 +750,7 @@ export function ImportWizard() {
   const scaleStep = (
     <Step n={1} title={t('Set the scale')}>
       <p className="text-xs leading-relaxed text-muted-foreground">
-        Click a detected wall (or drag the ends of the dashed line; they stick to room corners) whose length you know, such as one
-        with a written dimension, then enter that length.
+        {t("Click a detected wall whose length you know (one with a written dimension is ideal), or drag the ends of the dashed line onto the drawing's own marks. Zoom in (scroll, pinch or the + button) to place them exactly. Then enter the length.")}
       </p>
       <div className="flex items-center gap-2">
         <Label className="shrink-0 font-normal text-muted-foreground">{t('Line length')}</Label>
@@ -664,6 +901,7 @@ export function ImportWizard() {
                   <ResultPreview floor={previewFloor} units={units} />
                 ) : (
                   <DrawingPreview
+                    key={img.url}
                     img={img}
                     outlines={outlines}
                     line={line}
@@ -672,6 +910,10 @@ export function ImportWizard() {
                       setScaleSet(true)
                     }}
                     showLine={method !== 'ai'}
+                    erasing={erasing && method === 'auto'}
+                    brush={brush}
+                    strokes={method === 'auto' ? strokes : []}
+                    onStroke={(s) => setStrokes((all) => [...all, s])}
                   />
                 )}
               </div>
@@ -784,6 +1026,41 @@ export function ImportWizard() {
                           )}
                         </div>
                       )}
+                      <div className="space-y-2 rounded-md border p-2.5">
+                        <div className="flex flex-wrap items-center justify-between gap-1">
+                          <Button
+                            variant={erasing ? 'default' : 'outline'}
+                            size="sm"
+                            onClick={() => {
+                              setErasing(!erasing)
+                              setView('drawing')
+                            }}
+                          >
+                            <Eraser /> {erasing ? t('Done erasing') : t('Erase marks')}
+                          </Button>
+                          {strokes.length > 0 && (
+                            <div className="flex gap-1">
+                              <Button variant="ghost" size="sm" onClick={() => setStrokes((all) => all.slice(0, -1))}>
+                                <Undo2 className="rtl-flip" /> {t('Undo')}
+                              </Button>
+                              <Button variant="ghost" size="sm" onClick={() => setStrokes([])}>
+                                {t('Clear all')}
+                              </Button>
+                            </div>
+                          )}
+                        </div>
+                        <p className="text-xs leading-relaxed text-muted-foreground">
+                          {t('Dimension lines, text or door swings read as walls? Paint over them on the drawing: detection runs again without them. The drawing you trace over keeps them.')}
+                        </p>
+                        {erasing && (
+                          <div className="space-y-2">
+                            <div className="flex justify-between text-xs">
+                              <span className="text-muted-foreground">{t('Brush size')}</span>
+                            </div>
+                            <Slider min={4} max={40} step={1} value={[brush]} onValueChange={([v]) => setBrush(v)} />
+                          </div>
+                        )}
+                      </div>
                       <Button variant="link" size="sm" className="h-auto px-0" onClick={() => setTipsOpen(true)}>
                         <Lightbulb /> {t('Tips for better results')}
                       </Button>

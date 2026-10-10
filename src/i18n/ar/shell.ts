@@ -124,4 +124,11 @@ export default {
   'You can look around, measure and walk through it in 3D. To change it, make your own copy.':
     'يمكنك التجول فيه وقياسه والسير داخله ثلاثي الأبعاد. لتعديله، أنشئ نسختك الخاصة.',
   'Make a copy': 'إنشاء نسخة',
+  // Tracing over a drawing
+  'A room needs at least three corners.': 'تحتاج الغرفة إلى ثلاثة أركان على الأقل.',
+  'Show the drawing': 'إظهار الرسم',
+  'Drawing opacity': 'شفافية الرسم',
+  'Plan opacity over it': 'شفافية المخطط فوقه',
+  'Drawing on top': 'الرسم في المقدمة',
+  'Its lines and dimensions show over the rooms you draw.': 'تظهر خطوطه وأبعاده فوق الغرف التي ترسمها.',
 } as Record<string, string>

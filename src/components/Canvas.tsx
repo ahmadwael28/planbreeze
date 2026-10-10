@@ -42,8 +42,12 @@ import {
   divideRoom,
   healDrag,
   reshapeOpen,
+  splitWallAt,
 } from '@/store/editor'
+import { useUi } from '@/store/ui'
+import { t } from '@/i18n'
 import { usePlanTheme } from '@/hooks/use-plan-theme'
+import { DARK_THEME } from '@/model/theme'
 import { DimensionGraphic, PlanLayers } from './PlanLayers'
 import { PlanViews } from './PlanViews'
 import { boxGaps, boxGuides, clearanceGuides, wallGaps } from '@/model/guides'
@@ -68,7 +72,7 @@ type Drag = DragBase &
   (
     | { type: 'pan'; panX: number; panY: number }
     | { type: 'room'; id: string; start: Point; orig: Room; linked: Room[] }
-    | { type: 'vertex'; id: string; index: number; orig: Room; followers: Follower[] }
+    | { type: 'vertex'; id: string; index: number; orig: Room; followers: Follower[]; group: number[] }
     | { type: 'edge'; id: string; index: number; orig: Room; start: Point; followers: Follower[]; pair: OpenPair | null }
     | { type: 'symbol'; id: string; start: Point; orig: PlanSymbol; pose: Pose }
     | { type: 'rotate'; id: string; pose: Pose }
@@ -103,6 +107,93 @@ function snapTargets(floor: Floor, exclude?: string | string[]): Point[] {
     out.push(...r.points, ...roomOuter(r))
   }
   return out
+}
+
+/**
+ * A wall being moved (edge `index` of `room`, `amount` out from where it was) lined up with another wall's face that
+ * runs parallel to it, if one's within `thr`: either face of it in line with either face of this one. The amount that
+ * does it, and the line to show.
+ */
+function wallInLine(floor: Floor, room: Room, index: number, amount: number, thr: number): { amount: number; mark: SnapMark } | null {
+  const pts = room.points
+  const a = pts[index]
+  const b = pts[(index + 1) % pts.length]
+  const L = dist(a, b)
+  if (L < 1) return null
+  const dir = normalize(sub(b, a))
+  const out = mul(inwardNormal(a, b, signedArea(pts)), -1)
+  let best: { amount: number; d: number; c: Point; e: Point } | null = null
+  for (const r of floor.rooms) {
+    if (r.points.length < 3) continue
+    const sr = signedArea(r.points)
+    r.points.forEach((c, j) => {
+      if (r.id === room.id && j === index) return
+      const e = r.points[(j + 1) % r.points.length]
+      const ed = sub(e, c)
+      const el = Math.hypot(ed.x, ed.y)
+      if (el < 1 || Math.abs(dir.x * ed.y - dir.y * ed.x) / el > 0.01) return
+      // Its inside face, and its outside face (a wall's thickness out).
+      const faces = isOpen(r, j) ? [0] : [0, r.wallThickness]
+      for (const off of faces) {
+        const o = dot(sub(add(c, mul(inwardNormal(c, e, sr), -off)), a), out)
+        // This wall's inside face on it, or its outside face.
+        for (const cand of [o, o - room.wallThickness]) {
+          const dd = Math.abs(cand - amount)
+          if (dd < thr && (!best || dd < best.d)) best = { amount: cand, d: dd, c, e }
+        }
+      }
+    })
+  }
+  const found = best as { amount: number; d: number; c: Point; e: Point } | null
+  if (!found) return null
+  // The line it's in line with, from one wall to the other.
+  const along = [0, L, dot(sub(found.c, a), dir), dot(sub(found.e, a), dir)]
+  const lineAt = (s: number) => add(add(a, mul(dir, s)), mul(out, found.amount))
+  return { amount: found.amount, mark: { a: lineAt(Math.min(...along)), b: lineAt(Math.max(...along)), kind: 'align' } }
+}
+
+/**
+ * A door or window being placed (`sym`, at `att` on its wall) lined up with another one on a wall parallel to it,
+ * across the room or the flat: middles in line, or sides in line. Only the nearest such match counts (within `thr`),
+ * and only openings within 15 m, so it shows one guide, not a web of them. The offset that does it, and the guide.
+ */
+function openingInLine(floor: Floor, sym: PlanSymbol, att: NonNullable<PlanSymbol['wall']>, thr: number): { offset: number; mark: SnapMark } | null {
+  const room = floor.rooms.find((r) => r.id === att.roomId)
+  if (!room) return null
+  const a = room.points[att.edge]
+  const b = room.points[(att.edge + 1) % room.points.length]
+  if (!a || !b) return null
+  const dir = normalize(sub(b, a))
+  const across = { x: -dir.y, y: dir.x }
+  const half = sym.width / 2
+  const mine = { mid: att.offset, start: att.offset - half, end: att.offset + half }
+  let best: { delta: number; score: number; from: number; at: Point } | null = null
+  for (const o of floor.symbols) {
+    if (o.id === sym.id || !o.wall) continue
+    const pose = symbolPose(o, floor.rooms)
+    const r = (pose.rotation * Math.PI) / 180
+    const od = { x: Math.cos(r), y: Math.sin(r) }
+    if (Math.abs(dir.x * od.y - dir.y * od.x) > 0.01) continue
+    // On another wall: not this one, not too far off.
+    const off = Math.abs(dot(sub(pose, a), across))
+    if (off < 30 || off > 1500) continue
+    const c = dot(sub(pose, a), dir)
+    const oh = o.width / 2
+    // Middles in line count first; then the sides that face the same way.
+    const pairs: [number, number, number][] = [
+      [mine.mid, c, 0],
+      [mine.start, c - oh, 1],
+      [mine.end, c + oh, 1],
+    ]
+    for (const [m, target, weight] of pairs) {
+      const delta = target - m
+      const score = Math.abs(delta) + weight
+      if (Math.abs(delta) < thr && (!best || score < best.score)) best = { delta, score, from: m, at: add(pose, mul(dir, target - c)) }
+    }
+  }
+  if (!best) return null
+  const here = add(a, mul(dir, best.from + best.delta))
+  return { offset: att.offset + best.delta, mark: { a: here, b: best.at, kind: 'align' } }
 }
 
 /** A corner of a room open to the one being reshaped, on one of its corners (`at`): it moves with that corner. */
@@ -186,6 +277,7 @@ export function Canvas() {
   const fitRequest = useEditor((s) => s.fitRequest)
   const layer = useEditor((s) => s.layer)
   const wireSwitch = useEditor((s) => s.wireSwitch)
+  const hoverWall = useUi((s) => s.hoverWall)
   const units = project.units
   const theme = usePlanTheme()
 
@@ -309,12 +401,32 @@ export function Canvas() {
   const snapFree = (p: Point, extraTargets: Point[] = [], excludeRoom?: string | string[]): Point => {
     const st = useEditor.getState()
     if (!st.settings.snap) return p
-    const step = snapStep(st.project.units)
+    const step = snapStep(st.project.units, st.view.zoom)
     const s = axisSnap([p], [...snapTargets(currentFloor(st), excludeRoom), ...extraTargets], snapThr())
     return {
       x: s.dx !== null ? p.x + s.dx : snapTo(p.x, step),
       y: s.dy !== null ? p.y + s.dy : snapTo(p.y, step),
     }
+  }
+
+  /** Like snapFree, with the lines to show for what it lined up with (a corner straight across or along from it). */
+  const snapShown = (p: Point, extraTargets: Point[] = [], excludeRoom?: string | string[]): { p: Point; marks: SnapMark[] } => {
+    const st = useEditor.getState()
+    if (!st.settings.snap) return { p, marks: [] }
+    const step = snapStep(st.project.units, st.view.zoom)
+    const thr = snapThr()
+    const targets = [...snapTargets(currentFloor(st), excludeRoom), ...extraTargets]
+    let bx: Point | null = null
+    let by: Point | null = null
+    for (const q of targets) {
+      if (Math.abs(q.x - p.x) < thr && (!bx || Math.abs(q.x - p.x) < Math.abs(bx.x - p.x))) bx = q
+      if (Math.abs(q.y - p.y) < thr && (!by || Math.abs(q.y - p.y) < Math.abs(by.y - p.y))) by = q
+    }
+    const out = { x: bx ? bx.x : snapTo(p.x, step), y: by ? by.y : snapTo(p.y, step) }
+    const marks: SnapMark[] = []
+    if (bx) marks.push({ a: { x: bx.x, y: bx.y }, b: { x: bx.x, y: out.y }, kind: 'align' })
+    if (by) marks.push({ a: { x: by.x, y: by.y }, b: { x: out.x, y: by.y }, kind: 'align' })
+    return { p: out, marks }
   }
 
   /** Snap to the nearest wall corner (inside or outside face) if close, else to the grid. */
@@ -362,7 +474,7 @@ export function Canvas() {
     const b = room.points[(i + 1) % room.points.length]
     if (st.settings.snap) {
       const sn = axisSnap([q], snapTargets(fl), snapThr())
-      const step = snapStep(st.project.units)
+      const step = snapStep(st.project.units, st.view.zoom)
       // Along a straight-across wall: lined up with a corner nearby, else on the grid.
       if (Math.abs(a.y - b.y) < 0.01) q = { x: sn.dx !== null ? q.x + sn.dx : snapTo(q.x, step), y: a.y }
       else if (Math.abs(a.x - b.x) < 0.01) q = { x: a.x, y: sn.dy !== null ? q.y + sn.dy : snapTo(q.y, step) }
@@ -613,10 +725,29 @@ export function Canvas() {
 
     if (kind === 'vertex' && sel?.kind === 'room') {
       const orig = fl.rooms.find((r) => r.id === sel.id)!
-      st.select({ kind: 'room', id: sel.id, vertex: index })
-      drag.current = { ...base, type: 'vertex', id: sel.id, index, orig, followers: followersOf(fl, orig, [orig.points[index]]) }
+      const picked = sel.vertices ?? (sel.vertex !== undefined ? [sel.vertex] : [])
+      if (e.shiftKey) {
+        // Shift + click: add the corner to the ones picked, or take it out.
+        const next = picked.includes(index) ? picked.filter((v) => v !== index) : [...picked, index]
+        st.select({ kind: 'room', id: sel.id, vertex: next[next.length - 1], vertices: next })
+        return
+      }
+      const group = picked.includes(index) && picked.length > 1 ? picked : [index]
+      st.select({ kind: 'room', id: sel.id, vertex: index, vertices: group })
+      drag.current = {
+        ...base,
+        type: 'vertex',
+        id: sel.id,
+        index,
+        orig,
+        group,
+        followers: group.length > 1 ? [] : followersOf(fl, orig, [orig.points[index]]),
+      }
+    } else if (kind === 'wall-label' && sel?.kind === 'room') {
+      st.select({ kind: 'room', id: sel.id, edge: index })
     } else if (kind === 'edge' && sel?.kind === 'room') {
       const orig = fl.rooms.find((r) => r.id === sel.id)!
+      st.select({ kind: 'room', id: sel.id, edge: index })
       // Moving the line between two open rooms moves it for both.
       const ends = [orig.points[index], orig.points[(index + 1) % orig.points.length]]
       const open = isOpen(orig, index)
@@ -690,7 +821,7 @@ export function Canvas() {
       if (d.type === 'multi') setMovingMulti(true)
     }
     const fl = currentFloor(st)
-    const step = snapStep(st.project.units)
+    const step = snapStep(st.project.units, st.view.zoom)
     const snap = st.settings.snap
 
     switch (d.type) {
@@ -722,12 +853,15 @@ export function Canvas() {
         break
       }
       case 'vertex': {
-        const others = d.orig.points.filter((_, i) => i !== d.index)
-        const p = snapFree(w, others, [d.id, ...d.followers.map((f) => f.id)])
+        const others = d.orig.points.filter((_, i) => !d.group.includes(i))
+        const { p, marks: lined } = e.ctrlKey || e.metaKey ? { p: w, marks: [] } : snapShown(w, others, [d.id, ...d.followers.map((f) => f.id)])
+        setMarks(lined)
+        // Several corners picked: they all move with the one dragged.
+        const shift = sub(p, d.orig.points[d.index])
         st.mutate((pd) => {
           const rooms = draftFloor(pd).rooms
           const r = rooms.find((x) => x.id === d.id)
-          if (r) r.points[d.index] = p
+          if (r) for (const i of d.group) r.points[i] = i === d.index ? p : add(d.orig.points[i], shift)
           for (const f of d.followers) {
             const o = rooms.find((x) => x.id === f.id)
             if (o) o.points[f.index] = p
@@ -741,7 +875,12 @@ export function Canvas() {
         const b = pts[(d.index + 1) % pts.length]
         const outward = mul(inwardNormal(a, b, signedArea(pts)), -1)
         let amount = dot(sub(w, d.start), outward)
-        if (snap) amount = snapTo(amount, step)
+        if (snap && !e.ctrlKey && !e.metaKey) {
+          // In line with another wall if it's close to one, else on the grid.
+          const inLine = wallInLine(fl, d.orig, d.index, amount, snapThr())
+          amount = inLine ? inLine.amount : snapTo(amount, step)
+          setMarks(inLine ? [inLine.mark] : [])
+        }
         if (d.pair) {
           // The line between two open rooms: the space they make divided again, straight across, further along.
           const { other, union, poses, coves, apart } = d.pair
@@ -899,6 +1038,21 @@ export function Canvas() {
         }
         const att = findWallSnap(pos, fl.rooms, Math.max(30, 25 / zoom))
         if (!att && snap) pos = { x: snapTo(pos.x, step), y: snapTo(pos.y, step) }
+        if (att) {
+          // In line with a door or window across the room, or in the middle of its wall, whichever is nearer; else the grid.
+          const room = fl.rooms.find((r) => r.id === att.roomId)
+          const L = room ? dist(room.points[att.edge], room.points[(att.edge + 1) % room.points.length]) : 0
+          const lined = magnet ? openingInLine(fl, d.orig, att, Math.max(6, 12 / zoom)) : null
+          const toMiddle = L ? Math.abs(att.offset - L / 2) : Infinity
+          if (lined && Math.abs(lined.offset - att.offset) <= toMiddle) {
+            att.offset = lined.offset
+            setMarks([lined.mark])
+          } else {
+            setMarks([])
+            if (magnet && toMiddle < Math.max(6, 12 / zoom)) att.offset = L / 2
+            else if (snap) att.offset = snapTo(att.offset, step)
+          }
+        }
         if (!att) {
           // Close to the middle between two walls (side to side, or front to back): stick to it.
           const g = wallGaps({ ...d.orig, x: pos.x, y: pos.y, rotation: d.pose.rotation, wall: undefined }, fl.rooms)
@@ -917,11 +1071,6 @@ export function Canvas() {
           const sym = draftFloor(pd).symbols.find((x) => x.id === d.id)
           if (!sym) return
           if (att) {
-            // Close to the middle of the wall: stick to it exactly.
-            const room = fl.rooms.find((r) => r.id === att.roomId)
-            const L = room ? dist(room.points[att.edge], room.points[(att.edge + 1) % room.points.length]) : 0
-            if (L && Math.abs(att.offset - L / 2) < Math.max(6, 12 / zoom)) att.offset = L / 2
-            else if (snap) att.offset = snapTo(att.offset, step)
             sym.wall = att
           } else {
             sym.wall = undefined
@@ -1034,6 +1183,33 @@ export function Canvas() {
     if (kind === 'edge' && st.selection?.kind === 'room') {
       splitWall(st.selection.id, Number(target!.dataset.index))
       return
+    }
+    // On a wall of the picked room: a corner added there.
+    const sel = st.selection
+    if (sel?.kind === 'room' && kind !== 'vertex' && st.tool === 'select') {
+      const room = currentFloor(st).rooms.find((r) => r.id === sel.id)
+      const p = toWorld(screenPos(e))
+      if (room) {
+        const zoom = st.view.zoom
+        let best = -1
+        let bestD = Infinity
+        room.points.forEach((a, i) => {
+          const b = room.points[(i + 1) % room.points.length]
+          const pr = projectOnSegment(p, a, b)
+          // On the wall (its thickness out from the room) or just inside it, and clear of its corners.
+          const side = dot(sub(p, pr.point), inwardNormal(a, b, signedArea(room.points)))
+          if (pr.dist > room.wallThickness + 6 / zoom || side > 8 / zoom) return
+          if (dist(pr.point, a) < 12 / zoom || dist(pr.point, b) < 12 / zoom) return
+          if (pr.dist < bestD) {
+            bestD = pr.dist
+            best = i
+          }
+        })
+        if (best >= 0) {
+          splitWallAt(room.id, best, p)
+          return
+        }
+      }
     }
     if (kind === 'vertex' || ['dimension', 'rect', 'balcony', 'terrace', 'divide'].includes(st.tool)) return
     // Double-click a room (or anything in it) to bring it to the middle of the screen; outside them, the whole floor.
@@ -1169,7 +1345,7 @@ export function Canvas() {
       )}
 
       <g transform={`translate(${panX},${panY}) scale(${zoom})`}>
-        {floor.underlay?.visible && (
+        {floor.underlay?.visible && !settings.underlayOnTop && (
           <image
             href={floor.underlay.src}
             x={floor.underlay.x}
@@ -1189,6 +1365,7 @@ export function Canvas() {
         {settings.showFloorBelow && floorBelow && (
           <PlanLayers floor={floorBelow} units={units} theme={theme} scale={zoom} ghost />
         )}
+        <g opacity={floor.underlay?.visible ? settings.planOpacity : 1}>
         <PlanLayers
           floor={floor}
           units={units}
@@ -1202,6 +1379,27 @@ export function Canvas() {
           faded={settings.faded}
           images={project.images}
         />
+        </g>
+        {/* Tracing: the drawing over the plan, to read its lines and dimensions through what's drawn. Only its ink shows:
+            the paper drops out (multiplied in light mode; inverted and screened in dark mode, so the ink shows light). */}
+        {floor.underlay?.visible && settings.underlayOnTop && (
+          <image
+            href={floor.underlay.src}
+            x={floor.underlay.x}
+            y={floor.underlay.y}
+            width={floor.underlay.width}
+            height={floor.underlay.height}
+            opacity={floor.underlay.opacity}
+            preserveAspectRatio="none"
+            pointerEvents="none"
+            style={theme === DARK_THEME ? { filter: 'invert(1)', mixBlendMode: 'screen' } : { mixBlendMode: 'multiply' }}
+            transform={
+              floor.underlay.rotation
+                ? `rotate(${floor.underlay.rotation},${floor.underlay.x + floor.underlay.width / 2},${floor.underlay.y + floor.underlay.height / 2})`
+                : undefined
+            }
+          />
+        )}
 
         {/* saved 3D views */}
         {!!floor.views?.length && (
@@ -1214,6 +1412,55 @@ export function Canvas() {
         {selRoom && (
           <g>
             <path d={polygonPath(selRoom.points)} className="sel-outline" />
+            {/* The wall picked here or pointed at in the panel. */}
+            {[selection?.kind === 'room' ? selection.edge : undefined, hoverWall?.roomId === selRoom.id ? hoverWall.edge : undefined]
+              .filter((i): i is number => i !== undefined && i < selRoom.points.length)
+              .map((i, k) => {
+                const a = selRoom.points[i]
+                const b = selRoom.points[(i + 1) % selRoom.points.length]
+                return (
+                  <line
+                    key={`lit${k}`}
+                    x1={a.x}
+                    y1={a.y}
+                    x2={b.x}
+                    y2={b.y}
+                    stroke="var(--primary)"
+                    strokeOpacity={k ? 0.55 : 0.9}
+                    strokeWidth={6}
+                    strokeLinecap="round"
+                    vectorEffect="non-scaling-stroke"
+                    pointerEvents="none"
+                  />
+                )
+              })}
+            {/* Wall numbers, as listed in the panel. */}
+            {selRoom.points.map((a, i) => {
+              const b = selRoom.points[(i + 1) % selRoom.points.length]
+              if (dist(a, b) * zoom < 36) return null
+              const n = inwardNormal(a, b, signedArea(selRoom.points))
+              const along = normalize(sub(b, a))
+              const c = add(add(mul(add(a, b), 0.5), mul(n, px(17))), mul(along, px(22)))
+              const on = selection?.kind === 'room' && selection.edge === i
+              return (
+                <g key={`n${i}`} data-kind="wall-label" data-index={i} className="cursor-pointer">
+                  <circle cx={c.x} cy={c.y} r={px(9)} fill={on ? 'var(--primary)' : theme.paper} stroke="var(--primary)" strokeWidth={1.2} vectorEffect="non-scaling-stroke" />
+                  <text
+                    x={c.x}
+                    y={c.y}
+                    fontSize={px(10)}
+                    fontWeight={700}
+                    fontFamily="system-ui, sans-serif"
+                    textAnchor="middle"
+                    dominantBaseline="central"
+                    fill={on ? 'var(--primary-foreground)' : 'var(--primary)'}
+                  >
+                    {i + 1}
+                  </text>
+                  <title>{t('Wall {n}', { n: i + 1 })}</title>
+                </g>
+              )
+            })}
             {selRoom.points.map((a, i) => {
               const b = selRoom.points[(i + 1) % selRoom.points.length]
               const m = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 }
@@ -1231,7 +1478,7 @@ export function Canvas() {
                   rx={px(3)}
                   transform={`rotate(${ang},${m.x},${m.y})`}
                 >
-                  <title>Drag to move wall · double-click to add a point</title>
+                  <title>{t('Drag to move the wall · double-click it to add a corner')}</title>
                 </rect>
               )
             })}
@@ -1240,7 +1487,7 @@ export function Canvas() {
                 key={`v${i}`}
                 data-kind="vertex"
                 data-index={i}
-                className={`handle${selection?.kind === 'room' && selection.vertex === i ? ' active' : ''}`}
+                className={`handle${selection?.kind === 'room' && (selection.vertex === i || selection.vertices?.includes(i)) ? ' active' : ''}`}
                 cx={p.x}
                 cy={p.y}
                 r={px(7)}

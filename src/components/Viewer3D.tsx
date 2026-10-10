@@ -83,6 +83,8 @@ interface Ctx {
   /** The selection's meshes, showing highlighted copies of their materials (originals in userData.baseMat). */
   highlighted: THREE.Mesh[]
   hlMats: Map<THREE.Material, THREE.Material>
+  /** The middle of the selection, which the camera orbits round (see orbitAboutSelection); found when first needed. */
+  pivot?: THREE.Vector3 | null
   /** The project last built, to frame a newly opened one. */
   projectId: string | null
   /** The door in reach (see doorInReach), and who to tell when it changes. */
@@ -205,6 +207,7 @@ function updatePool(ctx: Ctx, instant = false) {
 function highlight(ctx: Ctx, sel: Selection | null) {
   for (const m of ctx.highlighted) m.material = m.userData.baseMat as THREE.Material
   ctx.highlighted = []
+  ctx.pivot = undefined
   const keys = new Set(refsOf(sel).map((r) => `${r.kind}:${r.id}`))
   if (!keys.size || !ctx.content) return
   ctx.content.traverse((o) => {
@@ -223,6 +226,35 @@ function highlight(ctx: Ctx, sel: Selection | null) {
     o.material = hl
     ctx.highlighted.push(o)
   })
+}
+
+const _q = new THREE.Quaternion()
+const _turn = new THREE.Quaternion()
+const _shift = new THREE.Vector3()
+
+/**
+ * With something selected, dragging orbits round it, as "orbit selected" does in CAD apps. OrbitControls turned the
+ * camera about its own target; the same turn about the selection's middle differs only by a shift of camera and target
+ * together, (I - R)(pivot - target), so the selection stays where it is on screen as the view swings round it.
+ * `before`: the camera's rotation before the controls moved it.
+ */
+function orbitAboutSelection(ctx: Ctx, before: THREE.Quaternion) {
+  if (ctx.tour || !ctx.highlighted.length) return
+  const after = ctx.camera.quaternion
+  if (Math.abs(before.dot(after)) > 1 - 1e-10) return
+  if (ctx.pivot === undefined) {
+    const box = new THREE.Box3()
+    for (const m of ctx.highlighted) box.expandByObject(m)
+    ctx.pivot = box.isEmpty() ? null : box.getCenter(new THREE.Vector3())
+  }
+  if (!ctx.pivot) return
+  const turn = _turn.copy(before).invert().premultiply(after)
+  const d = _shift.copy(ctx.pivot).sub(ctx.controls.target)
+  const shift = d.clone().sub(d.applyQuaternion(turn))
+  // Not down through the ground.
+  shift.y = Math.max(shift.y, 0.05 - ctx.camera.position.y)
+  ctx.camera.position.add(shift)
+  ctx.controls.target.add(shift)
 }
 
 const DOOR_MS = 650
@@ -588,6 +620,14 @@ export default function Viewer3D() {
       onNearDoor: () => {},
     }
     ctxRef.current = ctx
+    // Every turn the controls make (they also update from inside their own pointer handlers) goes round the selection.
+    const update = controls.update.bind(controls)
+    controls.update = (deltaTime?: number | null) => {
+      _q.copy(camera.quaternion)
+      const moved = update(deltaTime)
+      orbitAboutSelection(ctx, _q)
+      return moved
+    }
     controls.addEventListener('change', () => {
       ctx.dirty = true
       ctx.poolDirty = true

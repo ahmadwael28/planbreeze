@@ -307,4 +307,15 @@ export default {
     'مساحة مفتوحة واحدة بشكلين (ريسبشن وممره)؟ قسّمها بـ S: غرفتان، لكل منهما أرضيته وسقفه وإضاءته، بلا حائط بينهما.',
   'Scroll to zoom, drag empty space to pan, double-click a room to zoom to it. Switch to 3D at the top.':
     'مرّر للتكبير، واسحب مساحة فارغة لتحريك العرض، وانقر نقرًا مزدوجًا على غرفة للتكبير عليها. انتقل إلى العرض ثلاثي الأبعاد من الأعلى.',
+  // Walls and corners
+  Wall: 'حائط',
+  'Show it on the plan': 'إظهاره على المخطط',
+  'Drag to move the wall · double-click it to add a corner': 'اسحب لتحريك الحائط · انقر نقرًا مزدوجًا لإضافة ركن',
+  'Remove {n} corners': 'حذف {n} أركان',
+  'Remove 1 extra corner': 'حذف ركن زائد',
+  'Remove {n} extra corners': 'حذف {n} أركان زائدة',
+  'Corners on a straight wall, or right on top of another, as detection can leave them':
+    'أركان على حائط مستقيم أو فوق ركن آخر تمامًا، كما قد يتركها الاكتشاف',
+  'Drag corners to reshape and the wall handles to move walls. Double-click a wall to add a corner there. Shift + click corners to pick several: drag them together, or press Delete to remove them.':
+    'اسحب الأركان لتغيير الشكل، ومقابض الحوائط لتحريك الحوائط. انقر نقرًا مزدوجًا على حائط لإضافة ركن عنده. Shift + نقر على الأركان لتحديد أكثر من ركن: اسحبها معًا، أو اضغط Delete لحذفها.',
 } as Record<string, string>

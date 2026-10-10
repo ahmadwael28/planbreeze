@@ -547,4 +547,16 @@ export default {
   'Look up / down': 'النظر لأعلى / لأسفل',
   'Move faster': 'التحرك أسرع',
   'Open or close the door in front of you': 'فتح أو إغلاق الباب أمامك',
+  // Import: zoom, scale line and eraser
+  "Click a detected wall whose length you know (one with a written dimension is ideal), or drag the ends of the dashed line onto the drawing's own marks. Zoom in (scroll, pinch or the + button) to place them exactly. Then enter the length.":
+    'انقر على حائط مكتشف تعرف طوله (والأفضل حائط مكتوب عليه بُعده)، أو اسحب طرفي الخط المتقطع إلى علامات الرسم نفسه. كبّر العرض (بالتمرير أو بإصبعين أو بزر +) لتضعهما بدقة. ثم أدخل الطول.',
+  'Line ends stick to detected corners (hold Alt to place freely)': 'يلتصق طرفا الخط بالأركان المكتشفة (اضغط Alt لوضعهما بحرية)',
+  'Line ends go exactly where you put them': 'يبقى طرفا الخط حيث تضعهما تمامًا',
+  'Show it all': 'عرض الكل',
+  'Erase marks': 'مسح علامات',
+  'Done erasing': 'إنهاء المسح',
+  'Clear all': 'مسح الكل',
+  'Brush size': 'حجم الفرشاة',
+  'Dimension lines, text or door swings read as walls? Paint over them on the drawing: detection runs again without them. The drawing you trace over keeps them.':
+    'هل قُرئت خطوط الأبعاد أو النصوص أو أقواس فتح الأبواب على أنها حوائط؟ امسحها بالفرشاة على الرسم، فيُعاد الاكتشاف بدونها. ويبقى الرسم الذي تتتبّع عليه كما هو.',
 } as Record<string, string>

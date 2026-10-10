@@ -10,6 +10,13 @@ export interface LoadedImage {
   workScale: number
 }
 
+/** A brush stroke painted out of the drawing before detection, in image px. */
+export interface EraseStroke {
+  points: { x: number; y: number }[]
+  /** Brush radius. */
+  r: number
+}
+
 const STORE_MAX = 1600
 const WORK_MAX = 1400
 const AI_MAX = 1568
@@ -59,6 +66,28 @@ export async function loadImage(source: Blob | string, name: string): Promise<Lo
   } finally {
     if (typeof source !== 'string') URL.revokeObjectURL(objectUrl)
   }
+}
+
+/** The detection copy with marks painted out (white, like the paper), so dimension lines or text aren't read as walls. */
+export function eraseMarks(img: LoadedImage, strokes: EraseStroke[]): ImageData {
+  const canvas = document.createElement('canvas')
+  canvas.width = img.work.width
+  canvas.height = img.work.height
+  const ctx = canvas.getContext('2d', { willReadFrequently: true })!
+  ctx.putImageData(img.work, 0, 0)
+  ctx.scale(1 / img.workScale, 1 / img.workScale)
+  ctx.strokeStyle = '#ffffff'
+  ctx.lineCap = 'round'
+  ctx.lineJoin = 'round'
+  for (const s of strokes) {
+    ctx.lineWidth = s.r * 2
+    ctx.beginPath()
+    ctx.moveTo(s.points[0].x, s.points[0].y)
+    for (const p of s.points.slice(1)) ctx.lineTo(p.x, p.y)
+    if (s.points.length === 1) ctx.lineTo(s.points[0].x + 0.01, s.points[0].y)
+    ctx.stroke()
+  }
+  return ctx.getImageData(0, 0, canvas.width, canvas.height)
 }
 
 /** Base64 JPEG sized for the vision model. */

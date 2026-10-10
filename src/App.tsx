@@ -27,6 +27,7 @@ import {
   groupSelection,
   hasClipboard,
   pasteClipboard,
+  removeVertices,
   rotateSelection,
   selectAll,
   useEditor,
@@ -40,6 +41,7 @@ import { ConflictDialog } from '@/components/ConflictDialog'
 import { SignInDialog } from '@/components/SignInDialog'
 import { ShareDialog } from '@/components/ShareDialog'
 import { VisibilityMenu } from '@/components/VisibilityMenu'
+import { TracingControl } from '@/components/TracingControl'
 import { t, useLang } from '@/i18n'
 
 // Handy for debugging in the browser console during development.
@@ -102,6 +104,7 @@ function LayerToggle() {
         </ToggleGroupItem>
       </ToggleGroup>
       <VisibilityMenu />
+      <TracingControl />
     </div>
   )
 }
@@ -180,9 +183,17 @@ function useKeyboardShortcuts() {
         duplicateSelection()
       } else if (!mod && (k === 'delete' || k === 'backspace')) {
         e.preventDefault()
-        deleteSelection()
+        // Corners picked: those go, not the room.
+        const sel = st.selection
+        const corners = sel?.kind === 'room' ? (sel.vertices ?? (sel.vertex !== undefined ? [sel.vertex] : [])) : []
+        if (sel?.kind === 'room' && corners.length) {
+          if (!removeVertices(sel.id, corners)) toast(t('A room needs at least three corners.'))
+        } else deleteSelection()
       } else if (k === 'escape') {
-        st.select(null)
+        // Corners or a wall picked: let go of those first.
+        const sel = st.selection
+        if (sel?.kind === 'room' && (sel.vertex !== undefined || sel.edge !== undefined)) st.select({ kind: 'room', id: sel.id })
+        else st.select(null)
         st.setTool('select')
       } else if (is2d && !mod && k === 'w') {
         st.setLayer('lighting')

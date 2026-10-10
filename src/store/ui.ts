@@ -20,6 +20,8 @@ interface UiState {
   sidebarTab: SidebarTab
   /** The guided tour's step, while it's running (see GuidedTour). */
   tourStep: number | null
+  /** A room's wall pointed at in the panel's list, lit up on the plan. */
+  hoverWall: { roomId: string; edge: number } | null
   openStart: (open: boolean) => void
   openProjects: (open: boolean) => void
   openPrint: (open: boolean) => void
@@ -30,6 +32,7 @@ interface UiState {
   setSidebarOpen: (open: boolean) => void
   setSidebarTab: (tab: SidebarTab) => void
   setTourStep: (step: number | null) => void
+  setHoverWall: (w: { roomId: string; edge: number } | null) => void
 }
 
 /** Dialog visibility, shared so any part of the UI can open them. */
@@ -44,6 +47,7 @@ export const useUi = create<UiState>((set) => ({
   sidebarOpen: typeof window === 'undefined' || window.innerWidth >= 768,
   sidebarTab: 'properties',
   tourStep: null,
+  hoverWall: null,
   openStart: (startOpen) => set({ startOpen }),
   openProjects: (projectsOpen) => set({ projectsOpen }),
   openPrint: (printOpen) => set({ printOpen }),
@@ -54,4 +58,5 @@ export const useUi = create<UiState>((set) => ({
   setSidebarOpen: (sidebarOpen) => set({ sidebarOpen }),
   setSidebarTab: (sidebarTab) => set({ sidebarTab }),
   setTourStep: (tourStep) => set({ tourStep }),
+  setHoverWall: (hoverWall) => set({ hoverWall }),
 }))
