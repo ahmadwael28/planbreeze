@@ -175,4 +175,7 @@ export default {
   'Tap lights to connect or disconnect them · tap another switch to wire it': 'انقر على الإضاءات لتوصيلها أو فصلها · انقر على مفتاح آخر لتوصيله',
   'Walk: push up to go forward, sideways to turn': 'المشي: ادفع للأعلى للتقدم، وللجانبين للالتفاف',
   'Drag to turn around · pinch to zoom · two fingers to move · the stick walks': 'اسحب للالتفاف · قرّب بإصبعين للتكبير · حرّك بإصبعين للتنقل · عصا التحكم للمشي',
+  // Walking inside in 3D: dragging looks around
+  'Drag to look around · the stick walks': 'اسحب للنظر حولك · عصا التحكم للمشي',
+  'Drag to look around · WASD / arrows to walk · Q / E down / up · Shift faster': 'اسحب للنظر حولك · WASD / الأسهم للمشي · Q / E للنزول / الصعود · Shift أسرع',
 } as Record<string, string>

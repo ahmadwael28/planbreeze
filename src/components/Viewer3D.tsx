@@ -92,6 +92,9 @@ interface Ctx {
   /** The door in reach (see doorInReach), and who to tell when it changes. */
   nearDoor: string | null
   onNearDoor: (id: string | null) => void
+  /** Standing in a room (not at a viewpoint): dragging looks around instead of orbiting (see updateWalking). */
+  walking: boolean
+  onWalking: (walking: boolean) => void
   /** When the camera last moved (ms), and whether frames were slow while it moved: then it moves at a lower resolution. */
   movedAt: number
   frameMs: number
@@ -168,6 +171,56 @@ function doorInReach(ctx: Ctx): string | null {
  * Give the pool's real lights to the fixtures that matter most from where the camera is: fading over as it moves,
  * at once for a new scene or a switch flipped (`instant`).
  */
+/** The room of the floor being shown at this point (world units); `anyHeight` false: between its floor and ceiling. */
+function roomAt(v: THREE.Vector3, anyHeight: boolean) {
+  const st = useEditor.getState()
+  const floor = currentFloor(st)
+  const h = v.y / WORLD_SCALE - floorBase(st.project, floor.id)
+  if (!anyHeight && (h < 0 || h > floor.height)) return undefined
+  return floor.rooms.find((r) => pointInPolygon({ x: v.x / WORLD_SCALE, y: v.z / WORLD_SCALE }, r.points))
+}
+
+const UP = new THREE.Vector3(0, 1, 0)
+
+/**
+ * Walking inside: the camera stands in a room (and isn't at a viewpoint, which looks around its own way). Then a drag
+ * turns the view where you stand, as you'd turn your head, instead of swinging the camera round a point across the
+ * room; the controls keep zooming and moving sideways.
+ */
+function updateWalking(ctx: Ctx) {
+  const walking = !ctx.tour && !!roomAt(ctx.camera.position, false)
+  if (walking === ctx.walking) return
+  ctx.walking = walking
+  ctx.controls.enableRotate = !walking
+  // Free to look up at the ceiling.
+  if (walking) ctx.controls.maxPolarAngle = Math.PI - 0.05
+  ctx.renderer.domElement.style.cursor = walking ? 'grab' : ''
+  ctx.onWalking(walking)
+}
+
+/**
+ * Look around from where the camera stands, by a drag of (dx, dy) screen px. The scene follows the pointer, as in a
+ * panorama: a drag across the screen's height turns by the camera's field of view.
+ */
+function lookAround(ctx: Ctx, dx: number, dy: number) {
+  const k = THREE.MathUtils.degToRad(ctx.camera.fov) / Math.max(1, ctx.renderer.domElement.clientHeight)
+  const cam = ctx.camera.position
+  const target = ctx.controls.target
+  const offset = target.clone().sub(cam)
+  offset.applyAxisAngle(UP, dx * k)
+  const len = offset.length()
+  const pitch = Math.asin(THREE.MathUtils.clamp(offset.y / len, -1, 1))
+  const next = THREE.MathUtils.clamp(pitch + dy * k, -1.4, 1.4)
+  const side = new THREE.Vector3().crossVectors(offset, UP)
+  if (side.lengthSq() > 1e-10) offset.applyAxisAngle(side.normalize(), next - pitch)
+  target.copy(cam).add(offset)
+  // Turned here already, so the controls' next update doesn't count it as an orbit (see orbitAboutSelection).
+  ctx.camera.lookAt(target)
+  ctx.dirty = true
+  ctx.poolDirty = true
+  ctx.movedAt = performance.now()
+}
+
 function updatePool(ctx: Ctx, instant = false) {
   ctx.poolDirty = false
   ctx.poolAt = performance.now()
@@ -176,14 +229,6 @@ function updatePool(ctx: Ctx, instant = false) {
   // The same list for the same scene, so the pool can tell a new scene from the camera moving.
   const lights = (content.userData.poolLights ??= ((content.userData.lightHandles ?? []) as LightHandle[]).flatMap((h) => h.lights)) as VirtualLight[]
   const rooms = (content.userData.poolRooms ?? []) as PoolRoom[]
-  const st = useEditor.getState()
-  const floor = currentFloor(st)
-  const base = floorBase(st.project, floor.id)
-  const roomAt = (v: THREE.Vector3, anyHeight: boolean) => {
-    const h = v.y / WORLD_SCALE - base
-    if (!anyHeight && (h < 0 || h > floor.height)) return undefined
-    return floor.rooms.find((r) => pointInPolygon({ x: v.x / WORLD_SCALE, y: v.z / WORLD_SCALE }, r.points))
-  }
   // Walking in a room: light around the camera. Looking at the home from outside: around what it looks at.
   const inside = roomAt(ctx.camera.position, false)
   const focus = inside ? ctx.camera.position : ctx.controls.target
@@ -535,6 +580,9 @@ export default function Viewer3D() {
   // By touch: a stick to walk with, tappable doors, and touch gestures in place of the keyboard's.
   const { touch, compact } = useLayout()
   const [touched, setTouched] = useState(false)
+  // Walking inside, and whether a drag has looked around yet (until then, a hint says it can).
+  const [walking, setWalking] = useState(false)
+  const [looked, setLooked] = useState(false)
   const [built, setBuilt] = useState(0)
   const [compiling, setCompiling] = useState(true)
   /** What the scene was last built from, so showing the view again doesn't rebuild an unchanged scene. */
@@ -624,6 +672,8 @@ export default function Viewer3D() {
       slow: false,
       nearDoor: null,
       onNearDoor: () => {},
+      walking: false,
+      onWalking: () => {},
     }
     ctxRef.current = ctx
     // Every turn the controls make (they also update from inside their own pointer handlers) goes round the selection.
@@ -638,6 +688,7 @@ export default function Viewer3D() {
       ctx.dirty = true
       ctx.poolDirty = true
       ctx.movedAt = performance.now()
+      updateWalking(ctx)
     })
 
     // Walk with the keyboard; mouse orbiting keeps working alongside.
@@ -869,6 +920,7 @@ export default function Viewer3D() {
     const ctx = ctxRef.current
     if (!ctx) return
     ctx.tour = tour ? { points: viewpoints, active } : null
+    updateWalking(ctx)
     ctx.nav?.setLookOnly(tour)
     const c = ctx.controls
     c.enableZoom = c.enablePan = !tour
@@ -1108,8 +1160,11 @@ export default function Viewer3D() {
     const ctx = ctxRef.current
     if (!ctx) return
     ctx.onNearDoor = setNearDoor
+    ctx.onWalking = setWalking
+    setWalking(ctx.walking)
     return () => {
       ctx.onNearDoor = () => {}
+      ctx.onWalking = () => {}
     }
   }, [])
   useEffect(() => {
@@ -1128,13 +1183,42 @@ export default function Viewer3D() {
 
   // ---------- click to select / flip switches / open and shut doors ----------
   const down = useRef<{ x: number; y: number } | null>(null)
+  /** Walking inside: the pointer looking around, and where it was last; fingers on the screen. */
+  const look = useRef<{ id: number; x: number; y: number } | null>(null)
+  const fingers = useRef(new Set<number>())
+  const onLookMove = (e: RPointerEvent) => {
+    const l = look.current
+    const ctx = ctxRef.current
+    if (!l || l.id !== e.pointerId || !ctx) return
+    const dx = e.clientX - l.x
+    const dy = e.clientY - l.y
+    if (!dx && !dy) return
+    l.x = e.clientX
+    l.y = e.clientY
+    lookAround(ctx, dx, dy)
+    ctx.renderer.domElement.style.cursor = 'grabbing'
+    if (!looked) setLooked(true)
+  }
+  const onLookEnd = (e: RPointerEvent) => {
+    fingers.current.delete(e.pointerId)
+    if (look.current?.id !== e.pointerId) return
+    look.current = null
+    const ctx = ctxRef.current
+    if (ctx?.walking) ctx.renderer.domElement.style.cursor = 'grab'
+  }
   const onPointerDown = (e: RPointerEvent) => {
     down.current = { x: e.clientX, y: e.clientY }
     if (e.pointerType === 'touch' && !touched) setTouched(true)
+    if (e.pointerType === 'touch') fingers.current.add(e.pointerId)
+    // Walking inside, one finger or the main button looks around; a second finger pinches or moves instead.
+    const ctx = ctxRef.current
+    const one = e.pointerType === 'touch' ? fingers.current.size === 1 : e.button === 0
+    look.current = ctx?.walking && ctx.controls.enabled && one ? { id: e.pointerId, x: e.clientX, y: e.clientY } : null
     // Looking around by hand pauses the automatic tour.
     if (playing) setPlaying(false)
   }
   const onPointerUp = (e: RPointerEvent) => {
+    onLookEnd(e)
     const start = down.current
     down.current = null
     const ctx = ctxRef.current
@@ -1172,7 +1256,14 @@ export default function Viewer3D() {
 
   return (
     <div className="relative h-full w-full">
-      <div ref={hostRef} className="absolute inset-0" onPointerDown={onPointerDown} onPointerUp={onPointerUp} />
+      <div
+        ref={hostRef}
+        className="absolute inset-0"
+        onPointerDown={onPointerDown}
+        onPointerMove={onLookMove}
+        onPointerUp={onPointerUp}
+        onPointerCancel={onLookEnd}
+      />
       {nearDoor && !compiling && touch && (
         <Button
           size="lg"
@@ -1358,9 +1449,9 @@ export default function Viewer3D() {
         <>
           {touch ? (
             <>
-              {!touched && !compiling && (
+              {!compiling && (!touched || (walking && !looked)) && (
                 <div className="pointer-events-none absolute bottom-36 left-1/2 max-w-[calc(100%-1.5rem)] -translate-x-1/2 rounded-2xl bg-foreground/80 px-3 py-1.5 text-center text-xs text-background">
-                  {t('Drag to turn around · pinch to zoom · two fingers to move · the stick walks')}
+                  {walking ? t('Drag to look around · the stick walks') : t('Drag to turn around · pinch to zoom · two fingers to move · the stick walks')}
                 </div>
               )}
               <TouchStick className="absolute start-4 bottom-18 z-10" onMove={(x, y) => ctxRef.current?.nav?.setStick(x, y)} />
@@ -1368,7 +1459,9 @@ export default function Viewer3D() {
           ) : (
             <div className="pointer-events-none absolute bottom-16 left-1/2 flex -translate-x-1/2 items-center gap-1.5 rounded-full bg-foreground/80 px-3 py-1.5 text-xs whitespace-nowrap text-background max-md:hidden">
               <Keyboard className="size-3.5" />
-              {t('WASD / arrows to walk · numpad to look around · Q / E down / up · Shift faster')}
+              {walking
+                ? t('Drag to look around · WASD / arrows to walk · Q / E down / up · Shift faster')
+                : t('WASD / arrows to walk · numpad to look around · Q / E down / up · Shift faster')}
             </div>
           )}
           <div className="absolute right-3 bottom-3 flex items-center gap-2">
