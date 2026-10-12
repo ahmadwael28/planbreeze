@@ -183,27 +183,33 @@ function roomAt(v: THREE.Vector3, anyHeight: boolean) {
 const UP = new THREE.Vector3(0, 1, 0)
 
 /**
- * Walking inside: the camera stands in a room (and isn't at a viewpoint, which looks around its own way). Then a drag
- * turns the view where you stand, as you'd turn your head, instead of swinging the camera round a point across the
- * room; the controls keep zooming and moving sideways.
+ * Walking inside: the camera stands in a room (not at a viewpoint). Then, as at a viewpoint, a drag turns the view where
+ * you stand, as you'd turn your head (see lookAround), instead of swinging the camera round a point across the room;
+ * the controls keep zooming and moving sideways.
  */
 function updateWalking(ctx: Ctx) {
   const walking = !ctx.tour && !!roomAt(ctx.camera.position, false)
+  const looking = walking || !!ctx.tour
+  if (ctx.controls.enableRotate === looking) {
+    ctx.controls.enableRotate = !looking
+    ctx.renderer.domElement.style.cursor = looking ? 'grab' : ''
+  }
   if (walking === ctx.walking) return
   ctx.walking = walking
-  ctx.controls.enableRotate = !walking
   // Free to look up at the ceiling.
   if (walking) ctx.controls.maxPolarAngle = Math.PI - 0.05
-  ctx.renderer.domElement.style.cursor = walking ? 'grab' : ''
   ctx.onWalking(walking)
 }
 
+/** Looking around (walking inside, or at a viewpoint): a drag across the screen's height turns by this many fields of view. */
+const LOOK_SPEED = 1.5
+
 /**
- * Look around from where the camera stands, by a drag of (dx, dy) screen px. The scene follows the pointer, as in a
- * panorama: a drag across the screen's height turns by the camera's field of view.
+ * Look around from where the camera stands, by a drag of (dx, dy) screen px. The view turns the way the pointer goes,
+ * as your head would: right to look right, up to look up.
  */
 function lookAround(ctx: Ctx, dx: number, dy: number) {
-  const k = THREE.MathUtils.degToRad(ctx.camera.fov) / Math.max(1, ctx.renderer.domElement.clientHeight)
+  const k = (-LOOK_SPEED * THREE.MathUtils.degToRad(ctx.camera.fov)) / Math.max(1, ctx.renderer.domElement.clientHeight)
   const cam = ctx.camera.position
   const target = ctx.controls.target
   const offset = target.clone().sub(cam)
@@ -364,8 +370,6 @@ function walls(ctx: Ctx) {
 function applyLens(ctx: Ctx) {
   ctx.camera.fov = verticalFov(ctx.lens, ctx.camera.aspect)
   ctx.camera.updateProjectionMatrix()
-  // At a viewpoint the scene follows the pointer while dragging, like a panorama.
-  ctx.controls.rotateSpeed = ctx.tour ? -THREE.MathUtils.degToRad(ctx.camera.fov) / (2 * Math.PI) : 1
   ctx.dirty = true
 }
 
@@ -1204,16 +1208,17 @@ export default function Viewer3D() {
     if (look.current?.id !== e.pointerId) return
     look.current = null
     const ctx = ctxRef.current
-    if (ctx?.walking) ctx.renderer.domElement.style.cursor = 'grab'
+    if (ctx && (ctx.walking || ctx.tour)) ctx.renderer.domElement.style.cursor = 'grab'
   }
   const onPointerDown = (e: RPointerEvent) => {
     down.current = { x: e.clientX, y: e.clientY }
     if (e.pointerType === 'touch' && !touched) setTouched(true)
     if (e.pointerType === 'touch') fingers.current.add(e.pointerId)
-    // Walking inside, one finger or the main button looks around; a second finger pinches or moves instead.
+    // Walking inside or at a viewpoint, one finger or the main button looks around; a second finger pinches or moves
+    // instead.
     const ctx = ctxRef.current
     const one = e.pointerType === 'touch' ? fingers.current.size === 1 : e.button === 0
-    look.current = ctx?.walking && ctx.controls.enabled && one ? { id: e.pointerId, x: e.clientX, y: e.clientY } : null
+    look.current = ctx && (ctx.walking || ctx.tour) && ctx.controls.enabled && one ? { id: e.pointerId, x: e.clientX, y: e.clientY } : null
     // Looking around by hand pauses the automatic tour.
     if (playing) setPlaying(false)
   }
