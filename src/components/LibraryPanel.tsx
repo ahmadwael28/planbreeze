@@ -11,8 +11,11 @@ import type { SymbolDef } from '@/model/symbols'
 import type { PlanTheme } from '@/model/theme'
 import { addSymbol, currentFloor, toggleFaded, useEditor, viewCenter } from '@/store/editor'
 import { useUi } from '@/store/ui'
+import { getLayout } from '@/hooks/use-layout'
 import { SYMBOL_DRAG_MIME } from './Canvas'
-import { t } from '@/i18n'
+import { isRtl, t } from '@/i18n'
+import { labelPoint } from '@/model/geometry'
+import type { Point } from '@/model/types'
 
 function Preview({ def, theme }: { def: SymbolDef; theme: PlanTheme }) {
   const pad = 14
@@ -28,13 +31,41 @@ function Preview({ def, theme }: { def: SymbolDef; theme: PlanTheme }) {
   )
 }
 
+/** Add a piece in the middle of the view. Where the panel covers the plan, it makes way to show it, picked. */
 function place(def: SymbolDef) {
-  const c = viewCenter()
+  const added = placeAtCenter(def)
+  if (added && getLayout().panel !== 'docked') useUi.getState().setSidebarOpen(false)
+}
+
+/**
+ * Where a piece tapped in the library goes: the middle of the view; where the panel covers part of the plan, into the
+ * room that's picked if there is one, else the middle of what's still showing.
+ */
+function placePoint(): Point {
+  const st = useEditor.getState()
+  const ui = useUi.getState()
+  const { panel } = getLayout()
+  if (panel === 'docked') return viewCenter()
+  const sel = st.selection
+  const room = sel?.kind === 'room' ? currentFloor(st).rooms.find((r) => r.id === sel.id) : undefined
+  if (room) return labelPoint(room.points)
+  const { view, viewport } = st
+  const at = (sx: number, sy: number) => ({ x: (sx - view.panX) / view.zoom, y: (sy - view.panY) / view.zoom })
+  if (!ui.sidebarOpen) return viewCenter()
+  if (panel === 'sheet') return ui.sheetFull ? viewCenter() : at(viewport.w / 2, viewport.h / 4)
+  // A drawer at the end side: the middle of the rest.
+  const dw = Math.min(360, viewport.w * 0.85)
+  return at(isRtl() ? dw + (viewport.w - dw) / 2 : (viewport.w - dw) / 2, viewport.h / 2)
+}
+
+function placeAtCenter(def: SymbolDef) {
+  const c = placePoint()
   const st = useEditor.getState()
   if (def.ceilingStyle || def.fixture === 'cove') {
-    if (!addSymbol(def.type, c)) toast(t('Select a room first, or drag this onto a room.'))
+    const added = addSymbol(def.type, c)
+    if (!added) toast(t('Select a room first, or drag this onto a room.'))
     else if (st.layer !== 'lighting') st.setLayer('lighting')
-    return
+    return added
   }
   if ((def.category === 'Lighting' || def.category === 'Ceilings') && st.layer !== 'lighting') st.setLayer('lighting')
   if (def.wall) {
@@ -42,7 +73,7 @@ function place(def: SymbolDef) {
     const att = findWallSnap(c, currentFloor(st).rooms, 400 / Math.max(st.view.zoom, 0.2))
     return addSymbol(def.type, c, 0, att ?? undefined)
   }
-  addSymbol(def.type, c)
+  return addSymbol(def.type, c)
 }
 
 export function LibraryPanel() {

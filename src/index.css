@@ -139,6 +139,41 @@
     height: 100%;
     overflow: hidden;
   }
+  /* Touch: no grey flash on tap, no pull-to-refresh or bounce while working, no wait for a double-tap zoom. */
+  html {
+    -webkit-tap-highlight-color: transparent;
+    overscroll-behavior: none;
+  }
+  button,
+  [role='button'],
+  [role='tab'],
+  [role='menuitem'],
+  [role='slider'],
+  a,
+  input,
+  select,
+  label {
+    touch-action: manipulation;
+  }
+}
+
+/* By touch: menu and list rows, tabs and small switches tall enough for a finger. */
+@media (pointer: coarse) {
+  [data-slot='dropdown-menu-item'],
+  [data-slot='dropdown-menu-sub-trigger'],
+  [data-slot='dropdown-menu-checkbox-item'],
+  [data-slot='dropdown-menu-radio-item'],
+  [data-slot='select-item'] {
+    min-height: 2.75rem;
+  }
+  [data-slot='tabs-trigger'] {
+    min-height: 2.25rem;
+  }
+}
+
+/* Clear of a phone's notch, rounded corners and home bar (with viewport-fit=cover). */
+.safe-area {
+  padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
 }
 
 /* ---------- plan canvas (SVG editor) ---------- */
@@ -179,6 +214,11 @@
 .plan-canvas.tool-select [data-kind='room'],
 .plan-canvas.tool-select [data-kind='symbol'] {
   cursor: move;
+}
+/* By touch: a finger-sized area around a handle that's still the handle. */
+.plan-canvas .touch-hit {
+  fill: transparent;
+  stroke: none;
 }
 .plan-canvas .sel-outline {
   fill: none;

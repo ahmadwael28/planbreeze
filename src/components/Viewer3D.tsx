@@ -24,6 +24,8 @@ import { Slider } from '@/components/ui/slider'
 import { Switch } from '@/components/ui/switch'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { usePlanTheme } from '@/hooks/use-plan-theme'
+import { getLayout, useLayout } from '@/hooks/use-layout'
+import { TouchStick } from './TouchStick'
 import { cn } from '@/lib/utils'
 import { bbox, labelPoint, pointInPolygon } from '@/model/geometry'
 import { isLightOn, kelvinHex, kelvinOf, KELVINS, OTHER_LIGHTS, switchesFor, WIRE_COLORS, withKelvin } from '@/model/lighting'
@@ -398,7 +400,7 @@ function LightingPanel({ onInside }: { onInside: () => void }) {
   const daylight = useEditor((s) => s.settings.daylight)
   const showCeilings = useEditor((s) => s.settings.showCeilings)
   const setSettings = useEditor((s) => s.setSettings)
-  const [open, setOpen] = useState(() => window.innerWidth >= 768)
+  const [open, setOpen] = useState(() => getLayout().panel === 'docked')
 
   const switches = floor.symbols.filter((s) => s.type === 'switch')
   const lights = floor.symbols.filter((s) => {
@@ -529,6 +531,10 @@ export default function Viewer3D() {
   const setSettings = useEditor((s) => s.setSettings)
   const theme = usePlanTheme()
   const visible = useEditor((s) => s.viewMode === '3d')
+  const floorCount = useEditor((s) => s.project.floors.length)
+  // By touch: a stick to walk with, tappable doors, and touch gestures in place of the keyboard's.
+  const { touch, compact } = useLayout()
+  const [touched, setTouched] = useState(false)
   const [built, setBuilt] = useState(0)
   const [compiling, setCompiling] = useState(true)
   /** What the scene was last built from, so showing the view again doesn't rebuild an unchanged scene. */
@@ -1124,6 +1130,7 @@ export default function Viewer3D() {
   const down = useRef<{ x: number; y: number } | null>(null)
   const onPointerDown = (e: RPointerEvent) => {
     down.current = { x: e.clientX, y: e.clientY }
+    if (e.pointerType === 'touch' && !touched) setTouched(true)
     // Looking around by hand pauses the automatic tour.
     if (playing) setPlaying(false)
   }
@@ -1166,7 +1173,16 @@ export default function Viewer3D() {
   return (
     <div className="relative h-full w-full">
       <div ref={hostRef} className="absolute inset-0" onPointerDown={onPointerDown} onPointerUp={onPointerUp} />
-      {nearDoor && !compiling && (
+      {nearDoor && !compiling && touch && (
+        <Button
+          size="lg"
+          className="absolute bottom-20 left-1/2 z-10 -translate-x-1/2 rounded-full shadow-lg"
+          onClick={() => swingDoors(ctxRef.current, [nearDoor], !isShut(nearDoor))}
+        >
+          {isShut(nearDoor) ? <DoorOpen /> : <DoorClosed />} {nearLabel(nearDoor, isShut(nearDoor))}
+        </Button>
+      )}
+      {nearDoor && !compiling && !touch && (
         <div className="pointer-events-none absolute bottom-20 left-1/2 z-10 flex -translate-x-1/2 items-center gap-2 rounded-full bg-foreground/85 px-3 py-1.5 text-xs text-background shadow">
           <Kbd className="bg-background/20 text-background">{t('Space')}</Kbd>
           {nearLabel(nearDoor, isShut(nearDoor))}
@@ -1188,16 +1204,18 @@ export default function Viewer3D() {
         }}
       />
       <div className="absolute top-3 right-3 flex items-center gap-1.5 rounded-lg border bg-background/90 p-1 shadow-sm backdrop-blur" data-tour="camera3d">
-        <Select value={filter} onValueChange={(v) => setSettings({ floors3d: v as FloorFilter })}>
-          <SelectTrigger size="sm" className="w-40 border-0 shadow-none max-sm:w-28">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="upToCurrent">{t('Floors up to current')}</SelectItem>
-            <SelectItem value="current">{t('Current floor only')}</SelectItem>
-            <SelectItem value="all">{t('All floors')}</SelectItem>
-          </SelectContent>
-        </Select>
+        {floorCount > 1 && (
+          <Select value={filter} onValueChange={(v) => setSettings({ floors3d: v as FloorFilter })}>
+            <SelectTrigger size="sm" className={cn('border-0 shadow-none', compact ? 'w-28' : 'w-40')}>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="upToCurrent">{t('Floors up to current')}</SelectItem>
+              <SelectItem value="current">{t('Current floor only')}</SelectItem>
+              <SelectItem value="all">{t('All floors')}</SelectItem>
+            </SelectContent>
+          </Select>
+        )}
         <Tooltip>
           <TooltipTrigger asChild>
             <Button
@@ -1271,6 +1289,7 @@ export default function Viewer3D() {
             </DropdownMenuRadioGroup>
           </DropdownMenuContent>
         </DropdownMenu>
+        {!touch && (
         <Popover>
           <Tooltip>
             <TooltipTrigger asChild>
@@ -1317,6 +1336,7 @@ export default function Viewer3D() {
             </p>
           </PopoverContent>
         </Popover>
+        )}
       </div>
       {tour ? (
         <>
@@ -1336,10 +1356,21 @@ export default function Viewer3D() {
         </>
       ) : (
         <>
-          <div className="pointer-events-none absolute bottom-16 left-1/2 flex -translate-x-1/2 items-center gap-1.5 rounded-full bg-foreground/80 px-3 py-1.5 text-xs whitespace-nowrap text-background max-md:hidden">
-            <Keyboard className="size-3.5" />
-            {t('WASD / arrows to walk · numpad to look around · Q / E down / up · Shift faster')}
-          </div>
+          {touch ? (
+            <>
+              {!touched && !compiling && (
+                <div className="pointer-events-none absolute bottom-36 left-1/2 max-w-[calc(100%-1.5rem)] -translate-x-1/2 rounded-2xl bg-foreground/80 px-3 py-1.5 text-center text-xs text-background">
+                  {t('Drag to turn around · pinch to zoom · two fingers to move · the stick walks')}
+                </div>
+              )}
+              <TouchStick className="absolute start-4 bottom-18 z-10" onMove={(x, y) => ctxRef.current?.nav?.setStick(x, y)} />
+            </>
+          ) : (
+            <div className="pointer-events-none absolute bottom-16 left-1/2 flex -translate-x-1/2 items-center gap-1.5 rounded-full bg-foreground/80 px-3 py-1.5 text-xs whitespace-nowrap text-background max-md:hidden">
+              <Keyboard className="size-3.5" />
+              {t('WASD / arrows to walk · numpad to look around · Q / E down / up · Shift faster')}
+            </div>
+          )}
           <div className="absolute right-3 bottom-3 flex items-center gap-2">
             <Tooltip>
               <TooltipTrigger asChild>

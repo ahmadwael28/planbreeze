@@ -45,8 +45,12 @@ import {
   splitWallAt,
 } from '@/store/editor'
 import { useUi } from '@/store/ui'
-import { t } from '@/i18n'
+import { isRtl, t } from '@/i18n'
 import { usePlanTheme } from '@/hooks/use-plan-theme'
+import { useLayout } from '@/hooks/use-layout'
+import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp, Check, Undo2 } from 'lucide-react'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
 import { DARK_THEME } from '@/model/theme'
 import { DimensionGraphic, PlanLayers } from './PlanLayers'
 import { PlanViews } from './PlanViews'
@@ -70,7 +74,7 @@ interface DragBase {
 }
 type Drag = DragBase &
   (
-    | { type: 'pan'; panX: number; panY: number }
+    | { type: 'pan'; panX: number; panY: number; tap?: ItemRef; toggle?: boolean; clear?: boolean }
     | { type: 'room'; id: string; start: Point; orig: Room; linked: Room[] }
     | { type: 'vertex'; id: string; index: number; orig: Room; followers: Follower[]; group: number[] }
     | { type: 'edge'; id: string; index: number; orig: Room; start: Point; followers: Follower[]; pair: OpenPair | null }
@@ -86,6 +90,44 @@ type Drag = DragBase &
     | { type: 'marquee'; start: Point; current: Point; additive: boolean }
     | { type: 'view-rotate'; id: string; orig: SavedView }
   )
+
+/** What to do next with each tool, by touch (the keyboard-free counterpart of the hints in App). */
+function touchHint(tool: string, step: { corners: number; dim: number; cut: boolean; wiring: boolean }): string {
+  switch (tool) {
+    case 'room':
+      return step.corners === 0
+        ? t('Tap where the first corner goes')
+        : step.corners < 3
+          ? t('Tap where the next corner goes, or type a length and pick a direction')
+          : t('Tap the next corner, or the first one to close the room')
+    case 'rect':
+      return t('Drag to draw a rectangular room')
+    case 'balcony':
+      return t('Drag to draw a balcony against the outside of a wall')
+    case 'terrace':
+      return t('Drag to draw a terrace or patio against the outside of the house')
+    case 'area':
+      return t('Drag a box around things to select them')
+    case 'dimension':
+      return step.dim === 0 ? t('Tap where the dimension starts') : step.dim === 1 ? t('Tap where it ends') : t('Tap where the dimension line goes')
+    case 'divide':
+      return step.cut ? t('Tap across the room where the line ends') : t('Tap a wall (or corner) where the dividing line starts')
+    case 'wire':
+      return step.wiring ? t('Tap lights to connect or disconnect them · tap another switch to wire it') : t('Tap a switch, then the lights it controls')
+    case 'pan':
+      return t('Drag to move the view')
+  }
+  return ''
+}
+
+/** Kinds of drag that change the plan as they go (and so can be taken back when a pinch starts). */
+const PREVIEW_ONLY = new Set(['pan', 'rect', 'marquee'])
+
+/** Double taps: within this long (ms) and this far apart (px). */
+const DOUBLE_TAP_MS = 320
+const DOUBLE_TAP_PX = 24
+/** Holding a finger this long (ms) on a picked room lets it be dragged; moving sooner moves the view. */
+const HOLD_MS = 300
 
 /** The view that frames these points on screen, `margin` pixels in from the edges (null if there are none). */
 function framing(el: Element, pts: Point[], margin: number) {
@@ -280,6 +322,12 @@ export function Canvas() {
   const hoverWall = useUi((s) => s.hoverWall)
   const units = project.units
   const theme = usePlanTheme()
+  // By touch: bigger handles, tap to pick before dragging, and a bar with buttons for the drawing tools.
+  const { touch, panel } = useLayout()
+  const panelOpen = useUi((s) => s.sidebarOpen)
+  const sheetFull = useUi((s) => s.sheetFull)
+  const lastTap = useRef<{ t: number; x: number; y: number; handled: number } | null>(null)
+  const holdTimer = useRef(0)
 
   const drag = useRef<Drag | null>(null)
   const pointers = useRef(new Map<number, Point>())
@@ -309,9 +357,17 @@ export function Canvas() {
   // ---------- viewport ----------
   useEffect(() => {
     const el = svgRef.current!
+    let prev: { w: number; h: number } | null = null
     const ro = new ResizeObserver(() => {
       const r = el.getBoundingClientRect()
-      useEditor.getState().setViewport(r.width, r.height)
+      const st = useEditor.getState()
+      st.setViewport(r.width, r.height)
+      // What was in the middle stays there when the space changes (a phone turned, the panel put away).
+      if (prev && prev.w > 0 && prev.h > 0 && (prev.w !== r.width || prev.h !== r.height)) {
+        const { w, h } = prev
+        st.setView((v) => ({ ...v, panX: v.panX + (r.width - w) / 2, panY: v.panY + (r.height - h) / 2 }))
+      }
+      prev = { w: r.width, h: r.height }
     })
     ro.observe(el)
     return () => ro.disconnect()
@@ -346,6 +402,37 @@ export function Canvas() {
     glide.current = requestAnimationFrame(frame)
   }
   useEffect(() => () => cancelAnimationFrame(glide.current), [])
+
+  // The panel coming over the plan (from the bottom on a phone, the side on a small tablet): what's picked slides
+  // into the part of the plan still showing.
+  const selKey = selection ? JSON.stringify(refsOf(selection)) : ''
+  useEffect(() => {
+    if (panel === 'docked' || !panelOpen || (panel === 'sheet' && sheetFull) || !selKey) return
+    const st = useEditor.getState()
+    const { box } = selectionBox(currentFloor(st), st.selection)
+    const el = svgRef.current
+    if (!box || !el) return
+    const { width: w, height: h } = el.getBoundingClientRect()
+    const v = st.view
+    // What the panel leaves showing: the top half beside a sheet; beside a drawer, the rest of the width.
+    const dw = Math.min(360, (el.parentElement?.parentElement?.clientWidth ?? w) * 0.85)
+    const free =
+      panel === 'sheet' ? { x0: 0, x1: w, y0: 0, y1: h * 0.5 } : isRtl() ? { x0: dw, x1: w, y0: 0, y1: h } : { x0: 0, x1: w - dw, y0: 0, y1: h }
+    const cx = ((box.minX + box.maxX) / 2) * v.zoom + v.panX
+    const cy = ((box.minY + box.maxY) / 2) * v.zoom + v.panY
+    if (cx > free.x0 + 24 && cx < free.x1 - 24 && cy > free.y0 + 24 && cy < free.y1 - 24) return
+    const to = { zoom: v.zoom, panX: v.panX + (free.x0 + free.x1) / 2 - cx, panY: v.panY + (free.y0 + free.y1) / 2 - cy }
+    cancelAnimationFrame(glide.current)
+    let t0 = -1
+    const step = (now: number) => {
+      if (t0 < 0) t0 = now
+      const k = Math.min(1, (now - t0) / 260)
+      const e = 1 - Math.pow(1 - k, 3)
+      useEditor.getState().setView({ zoom: v.zoom, panX: v.panX + (to.panX - v.panX) * e, panY: v.panY + (to.panY - v.panY) * e })
+      if (k < 1) glide.current = requestAnimationFrame(step)
+    }
+    glide.current = requestAnimationFrame(step)
+  }, [panel, panelOpen, sheetFull, selKey])
 
   useEffect(() => {
     // wait one frame so the viewport size is known
@@ -568,6 +655,13 @@ export function Canvas() {
     const st = useEditor.getState()
 
     if (pointers.current.size === 2) {
+      // A second finger: it's a pinch. Whatever the first one had started moving goes back.
+      clearTimeout(holdTimer.current)
+      const was = drag.current
+      if (was?.moved && !PREVIEW_ONLY.has(was.type)) st.undo()
+      setMovingId(null)
+      setMovingMulti(false)
+      setMarks([])
       const [a, b] = [...pointers.current.values()]
       pinch.current = {
         dist: dist(a, b),
@@ -645,6 +739,9 @@ export function Canvas() {
     const id = target?.dataset.id
     const index = Number(target?.dataset.index)
     const sel = st.selection
+    const byTouch = e.pointerType === 'touch'
+    // Shift + click adds to what's picked, or takes out; by touch, taps do while "Pick several" is on.
+    const additive = e.shiftKey || (byTouch && useUi.getState().multiPick)
 
     if (st.tool === 'wire') {
       const sym = kind === 'symbol' && id ? fl.symbols.find((x) => x.id === id) : undefined
@@ -674,15 +771,38 @@ export function Canvas() {
     // Selecting several things: drag a box (the area tool, or Shift + drag on empty space).
     const itemKind = kind === 'room' || kind === 'symbol' || kind === 'dimension' || kind === 'view' ? kind : null
     if (st.tool === 'area' || (e.shiftKey && !itemKind && kind !== 'vertex' && kind !== 'edge')) {
-      drag.current = { ...base, type: 'marquee', start: w, current: w, additive: e.shiftKey }
+      drag.current = { ...base, type: 'marquee', start: w, current: w, additive }
       return
+    }
+    if (itemKind && id && byTouch && st.tool === 'select') {
+      const ref: ItemRef = { kind: itemKind, id }
+      const picked = refsOf(sel).some((r) => r.kind === ref.kind && r.id === ref.id)
+      // By touch, a finger on something not picked yet moves the view (a plan is mostly rooms, so there's little
+      // else to grab); a tap picks it. Picking several, a tap adds it or takes it out.
+      if (!picked || additive) {
+        drag.current = { ...base, type: 'pan', panX: st.view.panX, panY: st.view.panY, tap: ref, toggle: additive }
+        return
+      }
+      // A picked room moves once the finger has rested on it a moment; a quick drag still moves the view.
+      if (itemKind === 'room') {
+        const orig = fl.rooms.find((r) => r.id === id)!
+        drag.current = { ...base, type: 'pan', panX: st.view.panX, panY: st.view.panY }
+        clearTimeout(holdTimer.current)
+        holdTimer.current = window.setTimeout(() => {
+          const d = drag.current
+          if (d?.type !== 'pan' || d.moved || pointers.current.size !== 1) return
+          navigator.vibrate?.(12)
+          drag.current = { ...base, type: 'room', id, start: w, orig, linked: connectedRooms(orig, fl.rooms).filter((r) => r.id !== id) }
+        }, HOLD_MS)
+        return
+      }
     }
     if (itemKind && id) {
       const ref: ItemRef = { kind: itemKind, id }
       const same = (r: ItemRef) => r.kind === ref.kind && r.id === ref.id
       const current = refsOf(sel)
       // Shift + click adds or removes an item (with its group).
-      if (e.shiftKey) {
+      if (additive) {
         st.select(selectionOf(current.some(same) ? current.filter((r) => !same(r)) : [...current, ...withGroup(fl, ref)]))
         return
       }
@@ -726,7 +846,7 @@ export function Canvas() {
     if (kind === 'vertex' && sel?.kind === 'room') {
       const orig = fl.rooms.find((r) => r.id === sel.id)!
       const picked = sel.vertices ?? (sel.vertex !== undefined ? [sel.vertex] : [])
-      if (e.shiftKey) {
+      if (additive) {
         // Shift + click: add the corner to the ones picked, or take it out.
         const next = picked.includes(index) ? picked.filter((v) => v !== index) : [...picked, index]
         st.select({ kind: 'room', id: sel.id, vertex: next[next.length - 1], vertices: next })
@@ -788,6 +908,9 @@ export function Canvas() {
       const orig = fl.symbols.find((x) => x.id === id)!
       st.select({ kind: 'symbol', id })
       drag.current = { ...base, type: 'symbol', id, start: w, orig, pose: symbolPose(orig, fl.rooms) }
+    } else if (byTouch) {
+      // By touch, the view moves with what's picked still picked; a tap on nothing lets go of it.
+      drag.current = { ...base, type: 'pan', panX: st.view.panX, panY: st.view.panY, clear: !additive }
     } else {
       st.select(null)
       startPan()
@@ -814,7 +937,8 @@ export function Canvas() {
     const d = drag.current
     if (!d) return
     if (!d.moved) {
-      if (Math.hypot(s.x - d.sx, s.y - d.sy) < 3) return
+      if (Math.hypot(s.x - d.sx, s.y - d.sy) < (e.pointerType === 'touch' ? 8 : 3)) return
+      clearTimeout(holdTimer.current)
       d.moved = true
       if (d.type !== 'pan' && d.type !== 'rect' && d.type !== 'marquee') st.checkpoint()
       if (d.type === 'symbol' || d.type === 'resize') setMovingId(d.id)
@@ -1126,10 +1250,32 @@ export function Canvas() {
   }
 
   const onPointerUp = (e: RPointerEvent<SVGSVGElement>) => {
+    const wasPinch = !!pinch.current
     pointers.current.delete(e.pointerId)
     if (pointers.current.size < 2) pinch.current = null
+    clearTimeout(holdTimer.current)
     const d = drag.current
     drag.current = null
+    if (e.pointerType === 'touch' && !wasPinch && e.type === 'pointerup' && !d?.moved) {
+      // A tap on something not picked yet picks it (with its group), or adds it to what's picked, or takes it out.
+      if (d?.type === 'pan' && d.tap) {
+        const st = useEditor.getState()
+        const fl = currentFloor(st)
+        const tap = d.tap
+        const group = withGroup(fl, tap)
+        const current = refsOf(st.selection)
+        const has = current.some((r) => r.kind === tap.kind && r.id === tap.id)
+        st.select(selectionOf(d.toggle ? (has ? current.filter((r) => !group.some((g) => g.kind === r.kind && g.id === r.id)) : [...current, ...group]) : group))
+      }
+      if (d?.type === 'pan' && d.clear) useEditor.getState().select(null)
+      // Two taps in the same spot: what a double-click does.
+      const now = e.timeStamp
+      const last = lastTap.current
+      if (last && now - last.t < DOUBLE_TAP_MS && Math.hypot(e.clientX - last.x, e.clientY - last.y) < DOUBLE_TAP_PX) {
+        lastTap.current = { t: 0, x: 0, y: 0, handled: now }
+        doubleAt(e.target as Element, e)
+      } else lastTap.current = { t: now, x: e.clientX, y: e.clientY, handled: last?.handled ?? 0 }
+    }
     setMovingId(null)
     setMovingMulti(false)
     setMarks([])
@@ -1173,12 +1319,19 @@ export function Canvas() {
   }
 
   const onDoubleClick = (e: RMouseEvent) => {
+    // A double tap was already handled as it happened (see onPointerUp); this is the browser's own report of it.
+    if (lastTap.current && e.timeStamp - lastTap.current.handled < 600) return
+    doubleAt(e.target as Element, e)
+  }
+
+  /** A double-click or double tap at this point, on this element. */
+  const doubleAt = (el: Element, e: { clientX: number; clientY: number }) => {
     const st = useEditor.getState()
     if (st.tool === 'room') {
       finishPolygon(drawPts)
       return
     }
-    const target = (e.target as Element).closest('[data-kind]') as HTMLElement | null
+    const target = el.closest('[data-kind]') as HTMLElement | null
     const kind = target?.dataset.kind
     if (kind === 'edge' && st.selection?.kind === 'room') {
       splitWall(st.selection.id, Number(target!.dataset.index))
@@ -1315,6 +1468,7 @@ export function Canvas() {
   const closing = drawCursor ? isClosing(drawPts, drawCursor) : false
 
   return (
+    <>
     <svg
       ref={svgRef}
       className={`plan-canvas tool-${tool}`}
@@ -1437,14 +1591,14 @@ export function Canvas() {
             {/* Wall numbers, as listed in the panel. */}
             {selRoom.points.map((a, i) => {
               const b = selRoom.points[(i + 1) % selRoom.points.length]
-              if (dist(a, b) * zoom < 36) return null
+              if (dist(a, b) * zoom < (touch ? 64 : 36)) return null
               const n = inwardNormal(a, b, signedArea(selRoom.points))
               const along = normalize(sub(b, a))
-              const c = add(add(mul(add(a, b), 0.5), mul(n, px(17))), mul(along, px(22)))
+              const c = add(add(mul(add(a, b), 0.5), mul(n, px(touch ? 22 : 17))), mul(along, px(touch ? 30 : 22)))
               const on = selection?.kind === 'room' && selection.edge === i
               return (
                 <g key={`n${i}`} data-kind="wall-label" data-index={i} className="cursor-pointer">
-                  <circle cx={c.x} cy={c.y} r={px(9)} fill={on ? 'var(--primary)' : theme.paper} stroke="var(--primary)" strokeWidth={1.2} vectorEffect="non-scaling-stroke" />
+                  <circle cx={c.x} cy={c.y} r={px(touch ? 11 : 9)} fill={on ? 'var(--primary)' : theme.paper} stroke="var(--primary)" strokeWidth={1.2} vectorEffect="non-scaling-stroke" />
                   <text
                     x={c.x}
                     y={c.y}
@@ -1465,33 +1619,40 @@ export function Canvas() {
               const b = selRoom.points[(i + 1) % selRoom.points.length]
               const m = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 }
               const ang = (Math.atan2(b.y - a.y, b.x - a.x) * 180) / Math.PI
+              const k = touch ? 1.4 : 1
               return (
-                <rect
-                  key={`e${i}`}
-                  data-kind="edge"
-                  data-index={i}
-                  className="handle edge-handle"
-                  x={m.x - px(9)}
-                  y={m.y - px(4)}
-                  width={px(18)}
-                  height={px(8)}
-                  rx={px(3)}
-                  transform={`rotate(${ang},${m.x},${m.y})`}
-                >
-                  <title>{t('Drag to move the wall · double-click it to add a corner')}</title>
-                </rect>
+                <g key={`e${i}`}>
+                  {touch && (
+                    <rect data-kind="edge" data-index={i} className="touch-hit" x={m.x - px(22)} y={m.y - px(16)} width={px(44)} height={px(32)} transform={`rotate(${ang},${m.x},${m.y})`} />
+                  )}
+                  <rect
+                    data-kind="edge"
+                    data-index={i}
+                    className="handle edge-handle"
+                    x={m.x - px(9 * k)}
+                    y={m.y - px(4 * k)}
+                    width={px(18 * k)}
+                    height={px(8 * k)}
+                    rx={px(3 * k)}
+                    transform={`rotate(${ang},${m.x},${m.y})`}
+                  >
+                    <title>{t('Drag to move the wall · double-click it to add a corner')}</title>
+                  </rect>
+                </g>
               )
             })}
             {selRoom.points.map((p, i) => (
-              <circle
-                key={`v${i}`}
-                data-kind="vertex"
-                data-index={i}
-                className={`handle${selection?.kind === 'room' && (selection.vertex === i || selection.vertices?.includes(i)) ? ' active' : ''}`}
-                cx={p.x}
-                cy={p.y}
-                r={px(7)}
-              />
+              <g key={`v${i}`}>
+                {touch && <circle data-kind="vertex" data-index={i} className="touch-hit" cx={p.x} cy={p.y} r={px(22)} />}
+                <circle
+                  data-kind="vertex"
+                  data-index={i}
+                  className={`handle${selection?.kind === 'room' && (selection.vertex === i || selection.vertices?.includes(i)) ? ' active' : ''}`}
+                  cx={p.x}
+                  cy={p.y}
+                  r={px(touch ? 9 : 7)}
+                />
+              </g>
             ))}
           </g>
         )}
@@ -1502,8 +1663,10 @@ export function Canvas() {
           return (
             <g>
               <line x1={p.x} y1={p.y} x2={q.x} y2={q.y} className="sel-outline" />
-              <circle data-kind="dim-a" className="handle" cx={selDim.a.x} cy={selDim.a.y} r={px(6)} />
-              <circle data-kind="dim-b" className="handle" cx={selDim.b.x} cy={selDim.b.y} r={px(6)} />
+              {touch && <circle data-kind="dim-a" className="touch-hit" cx={selDim.a.x} cy={selDim.a.y} r={px(22)} />}
+              {touch && <circle data-kind="dim-b" className="touch-hit" cx={selDim.b.x} cy={selDim.b.y} r={px(22)} />}
+              <circle data-kind="dim-a" className="handle" cx={selDim.a.x} cy={selDim.a.y} r={px(touch ? 9 : 6)} />
+              <circle data-kind="dim-b" className="handle" cx={selDim.b.x} cy={selDim.b.y} r={px(touch ? 9 : 6)} />
             </g>
           )
         })()}
@@ -1567,8 +1730,9 @@ export function Canvas() {
               <rect x={-hw} y={-hd} width={hw * 2} height={hd * 2} className="sel-outline" />
               {!selSym.wall && (
                 <>
-                  <line x1={0} y1={-hd} x2={0} y2={-hd - px(22)} className="sel-outline" />
-                  <circle data-kind="rotate" className="handle rotate-handle" cx={0} cy={-hd - px(22)} r={px(7)}>
+                  <line x1={0} y1={-hd} x2={0} y2={-hd - px(touch ? 34 : 22)} className="sel-outline" />
+                  {touch && <circle data-kind="rotate" className="touch-hit" cx={0} cy={-hd - px(34)} r={px(22)} />}
+                  <circle data-kind="rotate" className="handle rotate-handle" cx={0} cy={-hd - px(touch ? 34 : 22)} r={px(touch ? 10 : 7)}>
                     <title>Rotate (hold Shift for free rotation)</title>
                   </circle>
                 </>
@@ -1589,20 +1753,23 @@ export function Canvas() {
                 const cx = h.includes('e') ? hw : h.includes('w') ? -hw : 0
                 const cy = h.includes('s') ? hd : h.includes('n') ? -hd : 0
                 const side = h.length === 1
+                const k = touch ? 1.5 : 1
                 return (
-                  <rect
-                    key={h}
-                    data-kind="resize"
-                    data-handle={h}
-                    className={`handle resize-handle resize-${h}`}
-                    x={cx - px(side ? 5 : 6)}
-                    y={cy - px(side ? 5 : 6)}
-                    width={px(side ? 10 : 12)}
-                    height={px(side ? 10 : 12)}
-                    rx={side ? px(5) : 0}
-                  >
-                    <title>{side ? 'Drag to stretch this side (Alt: both sides)' : 'Drag to resize from this corner (Alt: from the center)'}</title>
-                  </rect>
+                  <g key={h}>
+                    {touch && <circle data-kind="resize" data-handle={h} className="touch-hit" cx={cx} cy={cy} r={px(18)} />}
+                    <rect
+                      data-kind="resize"
+                      data-handle={h}
+                      className={`handle resize-handle resize-${h}`}
+                      x={cx - px((side ? 5 : 6) * k)}
+                      y={cy - px((side ? 5 : 6) * k)}
+                      width={px((side ? 10 : 12) * k)}
+                      height={px((side ? 10 : 12) * k)}
+                      rx={side ? px(5 * k) : 0}
+                    >
+                      <title>{side ? 'Drag to stretch this side (Alt: both sides)' : 'Drag to resize from this corner (Alt: from the center)'}</title>
+                    </rect>
+                  </g>
                 )
               })}
             </g>
@@ -1701,8 +1868,9 @@ export function Canvas() {
                   pointerEvents="none"
                   opacity={0.6}
                 />
-                <line x1={cx} y1={top} x2={cx} y2={top - px(22)} className="sel-outline" pointerEvents="none" />
-                <circle data-kind="multi-rotate" className="handle rotate-handle" cx={cx} cy={top - px(22)} r={px(7)}>
+                <line x1={cx} y1={top} x2={cx} y2={top - px(touch ? 34 : 22)} className="sel-outline" pointerEvents="none" />
+                {touch && <circle data-kind="multi-rotate" className="touch-hit" cx={cx} cy={top - px(34)} r={px(22)} />}
+                <circle data-kind="multi-rotate" className="handle rotate-handle" cx={cx} cy={top - px(touch ? 34 : 22)} r={px(touch ? 10 : 7)}>
                   <title>Turn them together (hold Shift for free rotation)</title>
                 </circle>
               </g>
@@ -1762,7 +1930,18 @@ export function Canvas() {
               <circle key={i} cx={p.x} cy={p.y} r={px(i === 0 && closing ? 8 : 4)} className="draw-point" />
             ))}
             {drawCursor && <circle cx={drawCursor.x} cy={drawCursor.y} r={px(3)} className="draw-cursor" />}
-            {drawCursor && drawPts.length > 0 && (() => {
+            {/* By touch there's no pointer to follow: each wall drawn shows its length instead. */}
+            {touch &&
+              drawPts.slice(1).map((b, i) => {
+                const a = drawPts[i]
+                const n = normalize({ x: -(b.y - a.y), y: b.x - a.x })
+                return (
+                  <text key={`len${i}`} x={(a.x + b.x) / 2 + n.x * px(14)} y={(a.y + b.y) / 2 + n.y * px(14)} fontSize={px(12)} textAnchor="middle" dominantBaseline="central" className="draw-label">
+                    {formatLength(dist(a, b), units)}
+                  </text>
+                )
+              })}
+            {drawCursor && drawPts.length > 0 && !(touch && dist(drawPts[drawPts.length - 1], drawCursor) < 1) && (() => {
               const last = drawPts[drawPts.length - 1]
               const L = dist(last, drawCursor)
               return (
@@ -1775,5 +1954,115 @@ export function Canvas() {
         )}
       </g>
     </svg>
+    {touch && tool !== 'select' && (
+      <TouchToolBar
+        hint={touchHint(tool, { corners: drawPts.length, dim: dimDraft ? (dimDraft.b ? 2 : 1) : 0, cut: !!cut, wiring: !!wireSwitch })}
+        corners={tool === 'room' ? drawPts.length : 0}
+        busy={(tool === 'room' && drawPts.length > 0) || (tool === 'dimension' && !!dimDraft) || (tool === 'divide' && !!cut)}
+        typed={typed}
+        onTyped={setTyped}
+        onWall={(dir) => {
+          const len = parseLength(typed, units)
+          if (!len || len <= 0 || !drawPts.length) return
+          const p = add(drawPts[drawPts.length - 1], mul(dir, len))
+          setDrawPts([...drawPts, p])
+          setTyped('')
+          // Keep the new corner in sight, above the bar.
+          const el = svgRef.current
+          if (!el) return
+          const { width: w, height: h } = el.getBoundingClientRect()
+          const v = useEditor.getState().view
+          const sx = p.x * v.zoom + v.panX
+          const sy = p.y * v.zoom + v.panY
+          const bottom = h - 200
+          if (sx > 40 && sx < w - 40 && sy > 60 && sy < bottom) return
+          useEditor.getState().setView({ ...v, panX: v.panX + w / 2 - sx, panY: v.panY + bottom / 2 - sy })
+        }}
+        onUndoCorner={() => setDrawPts(drawPts.slice(0, -1))}
+        onFinish={() => finishPolygon(drawPts)}
+        onCancel={() => {
+          setDrawPts([])
+          setTyped('')
+          setDimDraft(null)
+          setCut(null)
+        }}
+        onDone={() => {
+          useEditor.getState().setTool('select')
+          useEditor.getState().setWireSwitch(null)
+        }}
+      />
+    )}
+    </>
+  )
+}
+
+/**
+ * By touch, what a keyboard does while drawing: what to do next, finishing or undoing a room's corners, walls of an
+ * exact length in a direction, cancelling, and going back to picking things.
+ */
+function TouchToolBar(p: {
+  hint: string
+  corners: number
+  busy: boolean
+  typed: string
+  onTyped: (s: string) => void
+  onWall: (dir: Point) => void
+  onUndoCorner: () => void
+  onFinish: () => void
+  onCancel: () => void
+  onDone: () => void
+}) {
+  const dirs: [Point, typeof ArrowRight, string][] = [
+    [{ x: 1, y: 0 }, ArrowRight, t('Right')],
+    [{ x: 0, y: 1 }, ArrowDown, t('Down')],
+    [{ x: -1, y: 0 }, ArrowLeft, t('Left')],
+    [{ x: 0, y: -1 }, ArrowUp, t('Up')],
+  ]
+  return (
+    <div className="pointer-events-none absolute inset-x-0 bottom-3 z-20 flex justify-center px-3">
+      <div className="pointer-events-auto flex max-w-full flex-col gap-2 rounded-2xl border bg-background/95 p-2 shadow-lg backdrop-blur">
+        <p className="px-1 text-xs leading-snug text-muted-foreground">{p.hint}</p>
+        {p.corners > 0 && (
+          <div className="flex items-center gap-1" dir="ltr">
+            <Input
+              inputMode="decimal"
+              enterKeyHint="done"
+              value={p.typed}
+              onChange={(e) => p.onTyped(e.target.value)}
+              placeholder={t('Length')}
+              aria-label={t('Length of the next wall')}
+              className="h-10 w-24"
+            />
+            {dirs.map(([dir, Icon, label]) => (
+              <Button key={label} variant="outline" size="icon-lg" disabled={!p.typed.trim()} onClick={() => p.onWall(dir)} aria-label={t('Next wall: {dir}', { dir: label })}>
+                <Icon />
+              </Button>
+            ))}
+          </div>
+        )}
+        <div className="flex flex-wrap items-center justify-end gap-1.5">
+          {p.corners > 0 && (
+            <Button variant="outline" onClick={p.onUndoCorner}>
+              <Undo2 className="rtl-flip" /> {t('Undo corner')}
+            </Button>
+          )}
+          {p.busy && (
+            <Button variant="ghost" onClick={p.onCancel}>
+              {t('Cancel')}
+            </Button>
+          )}
+          {p.corners >= 3 && (
+            <Button onClick={p.onFinish}>
+              <Check /> {t('Finish room')}
+            </Button>
+          )}
+          {!p.busy && (
+            <Button onClick={p.onDone}>
+              <Check /> {t('Done')}
+            </Button>
+          )}
+        </div>
+      </div>
+    </div>
   )
 }

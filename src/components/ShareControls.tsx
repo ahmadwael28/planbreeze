@@ -29,19 +29,27 @@ function openAnother(except: string) {
  * Share the open plan (it's this user's), or, for a plan someone shared with them, who shared it and what they can
  * do with it: make their own copy, or remove it from their plans.
  */
-export function ShareControls() {
+/** Share the open plan: sign in first if need be. */
+export function share() {
+  if (useCloud.getState().user) useUi.getState().openShare(true)
+  else useCloud.getState().openSignIn(true, t('Sign in to share your plans with other people.'))
+}
+
+/** `inMenu`: on a phone, sharing your own plan is in the top bar's menu; only someone else's plan shows here. */
+export function ShareControls({ inMenu = false }: { inMenu?: boolean }) {
   const configured = useCloud((s) => s.configured)
   const user = useCloud((s) => s.user)
   const access = useEditor((s) => s.project.access)
   if (!configured) return null
 
   if (!access) {
+    if (inMenu) return null
     return (
       <Button
         variant="outline"
         size="sm"
         className="shrink-0"
-        onClick={() => (user ? useUi.getState().openShare(true) : useCloud.getState().openSignIn(true, t('Sign in to share your plans with other people.')))}
+        onClick={share}
         data-tour="share"
       >
         <Share2 /> <span className="max-md:hidden">{t('Share')}</span>

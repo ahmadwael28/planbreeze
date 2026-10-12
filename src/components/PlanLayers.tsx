@@ -2,6 +2,7 @@ import { memo, useId } from 'react'
 import {
   add,
   area,
+  bbox,
   dist,
   inwardNormal,
   labelPoint,
@@ -310,6 +311,10 @@ function RoomLabels({
   const pts = room.points
   const sa = signedArea(pts)
   const lp = labelPoint(pts)
+  // Too small on screen for its name, its area and the lengths along its walls without them running into each
+  // other (zoomed out, or on a phone): the name and area win.
+  const bb = bbox(pts)
+  const roomy = Math.min(bb.maxX - bb.minX, bb.maxY - bb.minY) * scale >= 100
   return (
     <g pointerEvents="none" fontFamily="system-ui, sans-serif" fill={theme.label}>
       <text x={lp.x} y={lp.y} fontSize={fs * 1.15} fontWeight={600} textAnchor="middle">
@@ -321,10 +326,13 @@ function RoomLabels({
         </text>
       )}
       {showWallLengths &&
+        roomy &&
         pts.map((a, i) => {
           const b = pts[(i + 1) % pts.length]
           const L = dist(a, b)
-          if (L * scale < 40 || isOpen(room, i)) return null
+          const text = formatLength(L, units)
+          // Only where the length fits along its wall.
+          if (L * scale < text.length * 6.5 + 12 || isOpen(room, i)) return null
           const mid = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 }
           const pos = add(mid, mul(inwardNormal(a, b, sa), fs * 1.1))
           const ang = uprightAngle((Math.atan2(b.y - a.y, b.x - a.x) * 180) / Math.PI)
@@ -339,7 +347,7 @@ function RoomLabels({
               fill={theme.lengthLabel}
               transform={`rotate(${ang},${pos.x},${pos.y})`}
             >
-              {formatLength(L, units)}
+              {text}
             </text>
           )
         })}

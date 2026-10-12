@@ -1,5 +1,5 @@
-import { lazy, Suspense, useEffect } from 'react'
-import { LayoutGrid, Lightbulb } from 'lucide-react'
+import { lazy, Suspense, useEffect, useRef } from 'react'
+import { LayoutGrid, Lightbulb, Maximize } from 'lucide-react'
 import { Loader } from '@/components/ui/loader'
 import { toast } from 'sonner'
 import { Canvas } from '@/components/Canvas'
@@ -12,7 +12,10 @@ import { PrintDialog } from '@/components/PrintDialog'
 import { ProjectsDialog } from '@/components/ProjectsDialog'
 import { Sidebar } from '@/components/Sidebar'
 import { StartDialog } from '@/components/StartDialog'
-import { Toolbar, zoomBy } from '@/components/Toolbar'
+import { BottomBar, Toolbar, zoomBy } from '@/components/Toolbar'
+import { SelectionBar } from '@/components/SelectionBar'
+import { Button } from '@/components/ui/button'
+import { useLayout } from '@/hooks/use-layout'
 import { TopBar } from '@/components/TopBar'
 import { sampleProject } from '@/model/sample'
 import type { PlanLayer, Tool } from '@/model/types'
@@ -85,6 +88,8 @@ function useHint(tool: Tool): string | undefined {
 function LayerToggle() {
   const layer = useEditor((s) => s.layer)
   const setLayer = useEditor((s) => s.setLayer)
+  // On a phone held upright, the icons alone.
+  const narrow = useLayout().bottomBar
   return (
     <div className="absolute start-3 top-3 z-10 flex items-center gap-2">
       <ToggleGroup
@@ -96,11 +101,11 @@ function LayerToggle() {
         className="bg-background/95 shadow-sm backdrop-blur"
         data-tour="layers"
       >
-        <ToggleGroupItem value="plan" className="px-2.5 data-[state=on]:bg-primary data-[state=on]:text-primary-foreground">
-          <LayoutGrid /> {t('Plan')}
+        <ToggleGroupItem value="plan" aria-label={t('Plan')} className="px-2.5 data-[state=on]:bg-primary data-[state=on]:text-primary-foreground">
+          <LayoutGrid /> {!narrow && t('Plan')}
         </ToggleGroupItem>
-        <ToggleGroupItem value="lighting" className="px-2.5 data-[state=on]:bg-primary data-[state=on]:text-primary-foreground">
-          <Lightbulb /> {t('Lighting')}
+        <ToggleGroupItem value="lighting" aria-label={t('Lighting')} className="px-2.5 data-[state=on]:bg-primary data-[state=on]:text-primary-foreground">
+          <Lightbulb /> {!narrow && t('Lighting')}
         </ToggleGroupItem>
       </ToggleGroup>
       <VisibilityMenu />
@@ -273,13 +278,37 @@ function loadInitialProject() {
   if (!saved) useUi.getState().openStart(true)
 }
 
+/**
+ * The panel follows the layout as the screen changes (a tablet turned, a window resized): shown when it moves beside
+ * the plan, put away when it'd cover it. And picking several by touch ends when nothing's picked any more.
+ */
+function useAdaptivePanel() {
+  const panel = useLayout().panel
+  const last = useRef(panel)
+  useEffect(() => {
+    if (panel === last.current) return
+    const docked = panel === 'docked'
+    if (docked || last.current === 'docked') useUi.getState().setSidebarOpen(docked)
+    last.current = panel
+  }, [panel])
+  useEffect(
+    () =>
+      useEditor.subscribe((s, prev) => {
+        if (!s.selection && prev.selection && useUi.getState().multiPick) useUi.getState().setMultiPick(false)
+      }),
+    [],
+  )
+}
+
 export default function App() {
   const sidebarOpen = useUi((s) => s.sidebarOpen)
   const setSidebarOpen = useUi((s) => s.setSidebarOpen)
   const tool = useEditor((s) => s.tool)
   const viewMode = useEditor((s) => s.viewMode)
   const seen3d = useEditor((s) => s.seen3d)
+  const requestFit = useEditor((s) => s.requestFit)
   const hint = useHint(tool)
+  const layout = useLayout()
   // A new language: everything on screen again in it (the app itself carries on).
   const lang = useLang()
 
@@ -287,19 +316,27 @@ export default function App() {
   useEffect(() => void initCloud(), [])
   useKeyboardShortcuts()
   useAutosave()
+  useAdaptivePanel()
 
   return (
-    <div key={lang} className="flex h-dvh flex-col overflow-hidden bg-background text-foreground">
+    <div key={lang} className="safe-area flex h-dvh flex-col overflow-hidden bg-background text-foreground">
       <TopBar onToggleSidebar={() => setSidebarOpen(!sidebarOpen)} sidebarOpen={sidebarOpen} />
       <div className="relative flex min-h-0 flex-1">
-        {viewMode === '2d' && <Toolbar />}
+        {viewMode === '2d' && !layout.bottomBar && <Toolbar />}
         <main className="relative min-w-0 flex-1" data-tour="canvas">
           {viewMode === '2d' && (
             <>
               <Canvas />
               <LayerToggle />
               <EmptyState />
-              {hint && (
+              {/* With the tools along the bottom, zooming to fit is up here (pinching does the rest). */}
+              {layout.bottomBar && (
+                <Button variant="outline" size="icon" className="absolute end-3 top-3 z-10 bg-background/95 shadow-sm backdrop-blur" onClick={requestFit} aria-label={t('Zoom to fit')}>
+                  <Maximize />
+                </Button>
+              )}
+              {/* By touch, the drawing tools have their own bar with buttons (see Canvas). */}
+              {hint && !layout.touch && (
                 <div className="pointer-events-none absolute top-14 left-1/2 max-w-[calc(100%-1.5rem)] -translate-x-1/2 rounded-full bg-foreground/85 px-3 py-1.5 text-center text-xs text-background shadow max-md:top-auto max-md:bottom-16 max-md:rounded-lg">
                   {hint}
                 </div>
@@ -322,9 +359,11 @@ export default function App() {
             </div>
           )}
           <FloorBar />
+          <SelectionBar />
         </main>
         <Sidebar open={sidebarOpen} />
       </div>
+      {viewMode === '2d' && layout.bottomBar && <BottomBar />}
       <ProjectsDialog />
       <StartDialog />
       <ImportWizard />

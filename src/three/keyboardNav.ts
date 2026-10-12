@@ -64,6 +64,8 @@ export class KeyboardNav {
   private controls: OrbitControls
   private opts: KeyboardNavOptions
   private lookOnly = false
+  /** The on-screen stick, by touch: `y` walks forward (+) or back (−), `x` turns right (+) or left (−); each −1 … 1. */
+  private stick = { x: 0, y: 0 }
 
   constructor(camera: THREE.PerspectiveCamera, controls: OrbitControls, opts: KeyboardNavOptions) {
     this.camera = camera
@@ -82,6 +84,12 @@ export class KeyboardNav {
     if (!this.lookOnly) return CODE_ACTIONS.get(code)
     const look = LOOK_ONLY_ARROWS[code] ?? CODE_ACTIONS.get(code)?.filter((a) => LOOK_ACTIONS.has(a))
     return look?.length ? look : undefined
+  }
+
+  /** Walk with the on-screen stick (see `stick`); 0, 0 when it's let go. */
+  setStick(x: number, y: number) {
+    if (!this.stick.x && !this.stick.y && (x || y)) this.opts.onStart?.()
+    this.stick = { x, y }
   }
 
   /** Start listening; returns a function that stops. */
@@ -141,7 +149,8 @@ export class KeyboardNav {
     const codes = new Set([...this.held, ...this.pressed])
     const tapped = [...this.pressed].some((c) => !this.held.has(c))
     this.pressed.clear()
-    if (!codes.size) return false
+    const stick = this.stick
+    if (!codes.size && !stick.x && !stick.y) return false
     const h = new Set([...codes].flatMap((c) => this.actionsFor(c) ?? []))
     dt = tapped ? Math.max(dt, TAP) : Math.min(dt, 0.1) // don't jump after a stall
     const cam = this.camera.position
@@ -163,6 +172,8 @@ export class KeyboardNav {
     if (h.has('right')) move.add(right)
     if (h.has('left')) move.sub(right)
     if (move.lengthSq()) move.normalize().multiplyScalar(speed)
+    // The stick walks as far forward as it's pushed.
+    if (stick.y && !this.lookOnly) move.addScaledVector(forward, stick.y * WALK * scale * dt)
     const step = this.collide(cam, move)
     if (h.has('up')) step.y += speed
     if (h.has('down')) step.y -= speed
@@ -173,7 +184,7 @@ export class KeyboardNav {
     // Turning and looking swing the target around the camera.
     const level = h.has('level')
     if (level) offset.copy(forward).multiplyScalar(offset.length()) // look straight ahead
-    const turn = (h.has('turnLeft') ? 1 : 0) - (h.has('turnRight') ? 1 : 0)
+    const turn = (h.has('turnLeft') ? 1 : 0) - (h.has('turnRight') ? 1 : 0) - stick.x * 0.8
     if (turn) offset.applyAxisAngle(UP, turn * TURN * dt)
     const look = (h.has('lookUp') ? 1 : 0) - (h.has('lookDown') ? 1 : 0)
     if (look) {

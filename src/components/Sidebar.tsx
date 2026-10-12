@@ -1,8 +1,10 @@
-import { useState } from 'react'
-import { Copy, Eye } from 'lucide-react'
+import { useEffect, useRef, useState } from 'react'
+import type { PointerEvent as RPointerEvent } from 'react'
+import { Copy, Eye, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { makeOwnCopy } from '@/cloud/sync'
+import { useLayout } from '@/hooks/use-layout'
 import { cn } from '@/lib/utils'
 import { t } from '@/i18n'
 import { isViewOnly, useEditor } from '@/store/editor'
@@ -27,37 +29,112 @@ function ViewOnlyNote() {
   )
 }
 
+/**
+ * The sheet's grip: drag it up for the whole screen, down to half or away; tap it to switch between half and full.
+ * While dragging, the sheet follows the finger (`onDrag`, a height in px, or null when let go).
+ */
+function Grip({ onDrag }: { onDrag: (h: number | null) => void }) {
+  const start = useRef<{ y: number; h: number; moved: boolean } | null>(null)
+  const full = useUi((s) => s.sheetFull)
+  const down = (e: RPointerEvent<HTMLDivElement>) => {
+    const sheet = e.currentTarget.parentElement!
+    start.current = { y: e.clientY, h: sheet.getBoundingClientRect().height, moved: false }
+    e.currentTarget.setPointerCapture(e.pointerId)
+  }
+  const move = (e: RPointerEvent<HTMLDivElement>) => {
+    const s = start.current
+    if (!s) return
+    const dy = e.clientY - s.y
+    if (!s.moved && Math.abs(dy) < 4) return
+    s.moved = true
+    onDrag(Math.max(80, s.h - dy))
+  }
+  const up = (e: RPointerEvent<HTMLDivElement>) => {
+    const s = start.current
+    start.current = null
+    onDrag(null)
+    if (!s) return
+    const ui = useUi.getState()
+    if (!s.moved) {
+      ui.setSheetFull(!full)
+      return
+    }
+    // Where it was let go: away below a third of the way, the whole screen above two thirds, else half.
+    const parent = e.currentTarget.parentElement!.parentElement!.getBoundingClientRect().height
+    const h = s.h - (e.clientY - s.y)
+    if (h < parent * 0.3) ui.setSidebarOpen(false)
+    else ui.setSheetFull(h > parent * 0.7)
+  }
+  return (
+    <div
+      className="flex h-6 shrink-0 cursor-grab touch-none items-center justify-center"
+      onPointerDown={down}
+      onPointerMove={move}
+      onPointerUp={up}
+      onPointerCancel={up}
+      role="separator"
+      aria-label={full ? t('Show half the panel') : t('Show the whole panel')}
+    >
+      <span className="h-1.5 w-10 rounded-full bg-muted-foreground/30" />
+    </div>
+  )
+}
+
+/**
+ * The panel: properties of what's picked, the library and the summary. Beside the plan on wide screens; over it on
+ * smaller landscape ones (a drawer from the side) and from the bottom on portrait ones (a sheet that leaves the plan
+ * its full width, half the screen or all of it).
+ */
 export function Sidebar({ open }: { open: boolean }) {
   const tab = useUi((s) => s.sidebarTab)
   const setTab = useUi((s) => s.setSidebarTab)
+  const setOpen = useUi((s) => s.setSidebarOpen)
+  const sheetFull = useUi((s) => s.sheetFull)
   const viewOnly = useEditor((s) => isViewOnly(s.project))
-  const selectionKey = useEditor((s) => (s.selection ? (s.selection.kind === 'multi' ? `multi:${s.selection.items.length}` : `${s.selection.kind}:${s.selection.id}`) : ''))
+  const { panel } = useLayout()
+  const [dragH, setDragH] = useState<number | null>(null)
 
   // Jump to properties when something gets selected.
-  const [lastKey, setLastKey] = useState(selectionKey)
-  if (selectionKey !== lastKey) {
-    setLastKey(selectionKey)
-    if (selectionKey) setTab('properties')
-  }
+  useEffect(() => {
+    const key = (s: ReturnType<typeof useEditor.getState>) =>
+      s.selection ? (s.selection.kind === 'multi' ? `multi:${s.selection.items.length}` : `${s.selection.kind}:${s.selection.id}`) : ''
+    return useEditor.subscribe((s, prev) => {
+      const k = key(s)
+      if (k && k !== key(prev)) useUi.getState().setSidebarTab('properties')
+    })
+  }, [])
+
+  const sheet = panel === 'sheet'
+  const overlay = panel !== 'docked'
 
   return (
     <aside
       className={cn(
-        'flex w-80 shrink-0 flex-col border-s bg-background',
-        'max-md:absolute max-md:inset-y-0 max-md:end-0 max-md:z-20 max-md:w-[min(340px,88vw)] max-md:shadow-xl',
+        'flex flex-col bg-background',
+        panel === 'docked' && 'w-80 shrink-0 border-s',
+        panel === 'drawer' && 'absolute inset-y-0 end-0 z-20 w-[min(360px,85vw)] border-s shadow-xl',
+        sheet && 'absolute inset-x-0 bottom-0 z-20 mx-auto w-full max-w-160 rounded-t-2xl border-x border-t shadow-[0_-8px_30px_rgb(0_0_0/0.18)]',
+        sheet && dragH === null && 'transition-[height] duration-200',
         !open && 'hidden',
       )}
+      style={sheet ? { height: dragH ?? (sheetFull ? '100%' : '50%') } : undefined}
       data-tour="sidebar"
     >
+      {sheet && <Grip onDrag={setDragH} />}
       <Tabs value={tab} onValueChange={(v) => setTab(v as SidebarTab)} className="flex min-h-0 flex-1 flex-col gap-0">
-        <div className="border-b p-2">
-          <TabsList className="w-full">
+        <div className={cn('flex items-center gap-1 border-b p-2', sheet && 'pt-0')}>
+          <TabsList className="min-w-0 flex-1">
             <TabsTrigger value="properties">{t('Properties')}</TabsTrigger>
             <TabsTrigger value="library">{t('Library')}</TabsTrigger>
             <TabsTrigger value="summary">{t('Summary')}</TabsTrigger>
           </TabsList>
+          {overlay && (
+            <Button variant="ghost" size="icon" className="shrink-0" onClick={() => setOpen(false)} aria-label={t('Close')}>
+              <X />
+            </Button>
+          )}
         </div>
-        <div className="min-h-0 flex-1 overflow-y-auto">
+        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
           <TabsContent value="properties">
             {viewOnly && <ViewOnlyNote />}
             {/* Shared to view: every field shows, none can be changed. */}

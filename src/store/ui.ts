@@ -1,4 +1,5 @@
 import { create } from 'zustand'
+import { getLayout } from '@/hooks/use-layout'
 
 /** Where an imported drawing goes: a brand-new project or the floor being edited. */
 export type ImportTarget = 'new' | 'current'
@@ -22,6 +23,10 @@ interface UiState {
   tourStep: number | null
   /** A room's wall pointed at in the panel's list, lit up on the plan. */
   hoverWall: { roomId: string; edge: number } | null
+  /** Touch: taps add things (or corners) to what's picked, or take them out, as Shift + click does with a mouse. */
+  multiPick: boolean
+  /** The panel as a sheet from the bottom (phones): half the screen, or all of it. */
+  sheetFull: boolean
   openStart: (open: boolean) => void
   openProjects: (open: boolean) => void
   openPrint: (open: boolean) => void
@@ -33,6 +38,8 @@ interface UiState {
   setSidebarTab: (tab: SidebarTab) => void
   setTourStep: (step: number | null) => void
   setHoverWall: (w: { roomId: string; edge: number } | null) => void
+  setMultiPick: (on: boolean) => void
+  setSheetFull: (full: boolean) => void
 }
 
 /** Dialog visibility, shared so any part of the UI can open them. */
@@ -44,10 +51,13 @@ export const useUi = create<UiState>((set) => ({
   importTarget: null,
   pendingView: null,
   libraryCollapsed: [],
-  sidebarOpen: typeof window === 'undefined' || window.innerWidth >= 768,
+  // Open from the start only where it sits beside the plan; elsewhere it'd cover it.
+  sidebarOpen: getLayout().panel === 'docked',
   sidebarTab: 'properties',
   tourStep: null,
   hoverWall: null,
+  multiPick: false,
+  sheetFull: false,
   openStart: (startOpen) => set({ startOpen }),
   openProjects: (projectsOpen) => set({ projectsOpen }),
   openPrint: (printOpen) => set({ printOpen }),
@@ -59,4 +69,16 @@ export const useUi = create<UiState>((set) => ({
   setSidebarTab: (sidebarTab) => set({ sidebarTab }),
   setTourStep: (tourStep) => set({ tourStep }),
   setHoverWall: (hoverWall) => set({ hoverWall }),
+  setMultiPick: (multiPick) => set({ multiPick }),
+  setSheetFull: (sheetFull) => set({ sheetFull }),
 }))
+
+/** Open the panel on a tab, or close it if it's already showing that tab. */
+export function togglePanel(tab: SidebarTab) {
+  const ui = useUi.getState()
+  if (ui.sidebarOpen && ui.sidebarTab === tab) ui.setSidebarOpen(false)
+  else {
+    ui.setSidebarTab(tab)
+    ui.setSidebarOpen(true)
+  }
+}

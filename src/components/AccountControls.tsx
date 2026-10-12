@@ -12,6 +12,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
+import type { ReactNode } from 'react'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { cn } from '@/lib/utils'
 import { useCloud } from '@/cloud/store'
@@ -125,6 +126,33 @@ export function AccountButton() {
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-64">
+        <AccountMenuItems />
+      </DropdownMenuContent>
+    </DropdownMenu>
+  )
+}
+
+/** Who's signed in and what they can do, as menu items (the account menu, or the top bar's menu on a phone). */
+export function AccountMenuItems({ before }: { before?: ReactNode }) {
+  const configured = useCloud((s) => s.configured)
+  const ready = useCloud((s) => s.ready)
+  const user = useCloud((s) => s.user)
+  const openSignIn = useCloud((s) => s.openSignIn)
+  if (!configured) return null
+  if (!user) {
+    return (
+      <>
+        {before}
+        <DropdownMenuItem disabled={!ready} onSelect={() => openSignIn(true)}>
+          <LogIn /> {t('Sign in')}
+        </DropdownMenuItem>
+      </>
+    )
+  }
+  const name = user.name || user.email || t('Account')
+  return (
+    <>
+        {before}
         <DropdownMenuLabel className="font-normal">
           <div className="truncate text-sm font-medium">{name}</div>
           {user.email && user.email !== name && <div className="truncate text-xs text-muted-foreground">{user.email}</div>}
@@ -145,7 +173,6 @@ export function AccountButton() {
         <DropdownMenuItem variant="destructive" onSelect={() => void signOut(true)}>
           <LogOut /> {t('Sign out and remove plans from this device')}
         </DropdownMenuItem>
-      </DropdownMenuContent>
-    </DropdownMenu>
+    </>
   )
 }
