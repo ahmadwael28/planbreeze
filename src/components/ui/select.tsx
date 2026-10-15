@@ -3,6 +3,7 @@
 import * as React from "react"
 import { cn } from "cn"
 import { Select as SelectPrimitive } from "radix-ui"
+import { useLayout } from "@/hooks/use-layout"
 import { ChevronDownIcon, CheckIcon, ChevronUpIcon } from "lucide-react"
 
 function Select({
@@ -59,10 +60,13 @@ function SelectTrigger({
 function SelectContent({
   className,
   children,
-  position = "item-aligned",
+  position: wanted = "item-aligned",
   align = "center",
   ...props
 }: React.ComponentProps<typeof SelectPrimitive.Content>) {
+  // On a phone the list comes up as a sheet from the bottom (see index.css), so it's placed as a popper.
+  const layout = useLayout()
+  const position = layout.compact && layout.touch ? "popper" : wanted
   return (
     <SelectPrimitive.Portal>
       <SelectPrimitive.Content

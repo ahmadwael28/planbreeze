@@ -178,4 +178,10 @@ export default {
   // Walking inside in 3D: dragging looks around
   'Drag to look around · the stick walks': 'اسحب للنظر حولك · عصا التحكم للمشي',
   'Drag to look around · WASD / arrows to walk · Q / E down / up · Shift faster': 'اسحب للنظر حولك · WASD / الأسهم للمشي · Q / E للنزول / الصعود · Shift أسرع',
+  // The menu on a phone
+  Menu: 'القائمة',
+  'Settings, files and your account': 'الإعدادات والملفات وحسابك',
+  App: 'التطبيق',
+  'Export & files': 'التصدير والملفات',
+  'Saved or sent on with your phone’s share sheet.': 'تُحفظ أو تُرسل من خلال قائمة المشاركة في هاتفك.',
 } as Record<string, string>

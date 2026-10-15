@@ -39,16 +39,23 @@ let current = measure()
 let key = JSON.stringify(current)
 const listeners = new Set<() => void>()
 
+/** Marks the page as on a phone (`html[data-phone]`), for the styles that make it look and feel like an app there. */
+function mark(l: Layout) {
+  if (typeof document !== 'undefined') document.documentElement.dataset.phone = String(l.compact && l.touch)
+}
+
 function update() {
   const next = measure()
   const k = JSON.stringify(next)
   if (k === key) return
   key = k
   current = next
+  mark(next)
   for (const l of listeners) l()
 }
 
 if (typeof window !== 'undefined') {
+  mark(current)
   window.addEventListener('resize', update)
   window.matchMedia('(pointer: coarse)').addEventListener('change', update)
 }

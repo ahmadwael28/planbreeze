@@ -1,3 +1,4 @@
+import { getLayout } from '@/hooks/use-layout'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { PlanLayers } from '@/components/PlanLayers'
 import { bbox } from '@/model/geometry'
@@ -59,6 +60,24 @@ export function floorToSvg(floor: Floor, pxPerCm: number, opts: ExportOptions) {
   return { svg: `<?xml version="1.0" encoding="UTF-8"?>\n${markup}`, width: w * pxPerCm, height: h * pxPerCm }
 }
 
+/**
+ * Hand a file over: on a phone or tablet, through its share sheet (save to Photos or Files, send it on…); elsewhere,
+ * or if that's not on offer, as a download.
+ */
+export async function saveBlob(blob: Blob, filename: string) {
+  const file = new File([blob], filename, { type: blob.type })
+  if (getLayout().touch && navigator.canShare?.({ files: [file] })) {
+    try {
+      await navigator.share({ files: [file], title: filename })
+      return
+    } catch (e) {
+      // Closed the share sheet: nothing more to do. Not allowed (too long after the tap): download it instead.
+      if ((e as Error).name === 'AbortError') return
+    }
+  }
+  downloadBlob(blob, filename)
+}
+
 export function downloadBlob(blob: Blob, filename: string) {
   const url = URL.createObjectURL(blob)
   const a = document.createElement('a')
@@ -74,7 +93,7 @@ const safeName = (s: string) => s.replace(/[^\w\- ]+/g, '').trim().replace(/\s+/
 
 export function exportSvg(project: Project, floor: Floor, opts: ExportOptions) {
   const { svg } = floorToSvg(floor, 1, opts)
-  downloadBlob(new Blob([svg], { type: 'image/svg+xml' }), `${safeName(project.name)}-${safeName(floor.name)}.svg`)
+  return saveBlob(new Blob([svg], { type: 'image/svg+xml' }), `${safeName(project.name)}-${safeName(floor.name)}.svg`)
 }
 
 export async function exportPng(project: Project, floor: Floor, opts: ExportOptions, longSide = 2400) {
@@ -96,7 +115,7 @@ export async function exportPng(project: Project, floor: Floor, opts: ExportOpti
     ctx.drawImage(img, 0, 0, canvas.width, canvas.height)
     const blob = await new Promise<Blob | null>((r) => canvas.toBlob(r, 'image/png'))
     if (!blob) throw new Error('Could not encode PNG')
-    downloadBlob(blob, `${safeName(project.name)}-${safeName(floor.name)}.png`)
+    await saveBlob(blob, `${safeName(project.name)}-${safeName(floor.name)}.png`)
   } finally {
     URL.revokeObjectURL(url)
   }
@@ -104,7 +123,7 @@ export async function exportPng(project: Project, floor: Floor, opts: ExportOpti
 
 export function exportJson(project: Project) {
   const blob = new Blob([JSON.stringify(project, null, 2)], { type: 'application/json' })
-  downloadBlob(blob, `${safeName(project.name)}.floorplan.json`)
+  return saveBlob(blob, `${safeName(project.name)}.floorplan.json`)
 }
 
 export async function importJson(file: File): Promise<Project> {

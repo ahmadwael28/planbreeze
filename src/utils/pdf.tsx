@@ -2,6 +2,7 @@
  * Print to scale: writes a vector PDF (jsPDF + svg2pdf.js) with a title block and a scale bar.
  * Loaded on demand.
  */
+import { saveBlob } from './export'
 import { renderToStaticMarkup } from 'react-dom/server'
 import type { Floor, Project } from '@/model/types'
 import { layoutPage, MARGIN, PrintPlan, scaleBar, scaleLabel, TITLE_H } from './print-layout'
@@ -91,5 +92,5 @@ export async function exportPdf(project: Project, floors: Floor[], opts: PrintOp
   if (!save) return doc.output('blob')
   const safe = (s: string) => s.replace(/[^\w\- ]+/g, '').trim().replace(/\s+/g, '_') || 'floorplan'
   const suffix = floors.length === 1 ? `-${safe(floors[0].name)}` : ''
-  doc.save(`${safe(project.name)}${suffix}-${opts.layer === 'lighting' ? 'lighting' : 'plan'}.pdf`)
+  await saveBlob(doc.output('blob'), `${safe(project.name)}${suffix}-${opts.layer === 'lighting' ? 'lighting' : 'plan'}.pdf`)
 }

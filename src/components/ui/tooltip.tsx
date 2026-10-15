@@ -1,6 +1,7 @@
 import * as React from "react"
 import { cn } from "cn"
 import { Tooltip as TooltipPrimitive } from "radix-ui"
+import { useLayout } from "@/hooks/use-layout"
 
 function TooltipProvider({
   delayDuration = 0,
@@ -18,7 +19,9 @@ function TooltipProvider({
 function Tooltip({
   ...props
 }: React.ComponentProps<typeof TooltipPrimitive.Root>) {
-  return <TooltipPrimitive.Root data-slot="tooltip" {...props} />
+  // By touch there's no hovering: a tap would leave a tooltip stuck on screen.
+  const touch = useLayout().touch
+  return <TooltipPrimitive.Root data-slot="tooltip" {...props} {...(touch ? { open: false } : {})} />
 }
 
 function TooltipTrigger({

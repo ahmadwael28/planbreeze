@@ -188,6 +188,7 @@ export function TileLayoutDialog() {
           compact ? 'h-dvh max-h-none w-screen max-w-none rounded-none border-0 sm:max-w-none' : 'h-[90dvh] max-h-[900px] sm:max-w-6xl',
         )}
         showCloseButton={false}
+        data-fullscreen={compact || undefined}
       >
         {target && <TileEditor key={`${target.roomId}:${target.edge ?? 'floor'}`} target={target} />}
       </DialogContent>

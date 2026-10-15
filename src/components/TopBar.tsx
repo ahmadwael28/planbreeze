@@ -52,6 +52,7 @@ import { currentFloor, isViewOnly, useEditor } from '@/store/editor'
 import { useUi } from '@/store/ui'
 import { AccountButton, AccountMenuItems, SaveStatus } from './AccountControls'
 import { ShareControls, share } from './ShareControls'
+import { PhoneMenu } from './PhoneMenu'
 import { startTour } from './tour'
 import { Logo } from './Logo'
 import type { ViewMode } from '@/store/editor'
@@ -426,7 +427,8 @@ export function TopBar({ onToggleSidebar, sidebarOpen }: Props) {
             </Tip>
           </>
         )}
-        {!full && <MoreMenu compact={compact} openFile={openFile} />}
+        {/* On a phone: a sheet with pages, as an app's settings are; elsewhere a menu. */}
+        {!full && (compact && layout.touch ? <PhoneMenu /> : <MoreMenu compact={compact} openFile={openFile} />)}
         <input
           ref={fileRef}
           type="file"

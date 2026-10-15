@@ -118,6 +118,7 @@ export function Sidebar({ open }: { open: boolean }) {
         !open && 'hidden',
       )}
       style={sheet ? { height: dragH ?? (sheetFull ? '100%' : '50%') } : undefined}
+      data-sheet={sheet || undefined}
       data-tour="sidebar"
     >
       {sheet && <Grip onDrag={setDragH} />}
