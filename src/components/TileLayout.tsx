@@ -20,6 +20,7 @@ import type { Cell, CutSide, Span, TileGrid } from '@/model/tiles'
 import { formatLength } from '@/model/units'
 import type { Point, Project, ProjectImage, Room, Surface, TileMix, Units, WallSurface } from '@/model/types'
 import { wallPatches } from '@/model/walls'
+import { aroundColumns, columnFaces, developed, wallColumns } from '@/model/developed'
 import { currentFloor, draftFloor, useEditor } from '@/store/editor'
 import { useUi } from '@/store/ui'
 import { t } from '@/i18n'
@@ -35,6 +36,9 @@ interface Laid {
   areas: Point[][]
   /** The whole outline, to show doors and windows as gaps in it. */
   frame: Point[]
+  /** A wall's columns, unfolded into it: where their corners fold (x), and their fronts. */
+  folds?: number[]
+  fronts?: [number, number][]
 }
 
 /** The floor or wall `target` points at, laid out in its own coordinates; null if it's gone or isn't finished. */
@@ -49,22 +53,38 @@ function surfaceFor(target: Target, rooms: Room[], floorHeight: number, floor: R
   }
   const s = wallSurfaceAt(room, target.edge)
   if (!s) return null
-  // Along the wall as seen from the room (left to right) and down from the floor, as its texture is laid.
+  // Along the developed wall as seen from the room (left to right, on round its columns, see model/developed) and
+  // down from the floor, as its texture is laid.
+  const cols = wallColumns(floor, room, target.edge)
+  const rect = (x0: number, x1: number, z0: number, z1: number) => [
+    { x: x0, y: -z1 },
+    { x: x1, y: -z1 },
+    { x: x1, y: -z0 },
+    { x: x0, y: -z0 },
+  ]
   const areas: Point[][] = []
+  let zLo = Infinity
+  let zHi = -Infinity
   for (const p of wallPatches(floor, () => floorHeight)) {
     if (p.room.id !== room.id || p.edge !== target.edge || p.surface !== s) continue
     const sign = p.dir.x * p.inward.y - p.dir.y * p.inward.x > 0 ? 1 : -1
     for (const [s1, s2, z0, z1] of p.parts) {
       const [u0, u1] = [sign * s1, sign * s2].sort((a, b) => a - b)
-      areas.push([
-        { x: u0, y: -z1 },
-        { x: u1, y: -z1 },
-        { x: u1, y: -z0 },
-        { x: u0, y: -z0 },
-      ])
+      for (const [a, b] of aroundColumns(cols, u0, u1)) areas.push(rect(developed(cols, a), developed(cols, b), z0, z1))
+      zLo = Math.min(zLo, z0)
+      zHi = Math.max(zHi, z1)
     }
   }
   if (!areas.length) return null
+  // Each column's sides and front, as tall as the tiles.
+  const folds: number[] = []
+  const fronts: [number, number][] = []
+  for (const c of cols) {
+    const faces = columnFaces(cols, c)
+    for (const [a, b] of [faces.left, faces.front, faces.right]) areas.push(rect(a, b, zLo, zHi))
+    folds.push(faces.left[0], faces.front[0], faces.right[0], faces.right[1])
+    fronts.push(faces.front)
+  }
   const b = bbox(areas.flat())
   const frame = [
     { x: b.minX, y: b.minY },
@@ -72,7 +92,7 @@ function surfaceFor(target: Target, rooms: Room[], floorHeight: number, floor: R
     { x: b.maxX, y: b.maxY },
     { x: b.minX, y: b.maxY },
   ]
-  return { room, place: 'wall', surface: s, areas, frame }
+  return { room, place: 'wall', surface: s, areas, frame, folds, fronts }
 }
 
 /**
@@ -736,6 +756,32 @@ function SurfaceView({
             })}
           </g>
         </g>
+        {/* A wall's columns: where their corners fold, and which is their front. */}
+        {laid.folds?.map((x, i) => {
+          const b = bbox(laid.frame)
+          return <line key={`f${i}`} x1={x} x2={x} y1={b.minY} y2={b.maxY} className="stroke-primary" strokeWidth={1.5} strokeDasharray="6 4" vectorEffect="non-scaling-stroke" pointerEvents="none" />
+        })}
+        {laid.fronts?.map(([a, b], i) => {
+          const top = bbox(laid.frame).minY
+          const fs = Math.min(14, (b - a) * 0.28) // cm, to fit across its front
+          return (
+            <text
+              key={`c${i}`}
+              x={(a + b) / 2}
+              y={top + fs * 1.3}
+              fontSize={fs}
+              textAnchor="middle"
+              className="fill-primary stroke-background"
+              strokeWidth={3}
+              paintOrder="stroke"
+              vectorEffect="non-scaling-stroke"
+              fontWeight={600}
+              pointerEvents="none"
+            >
+              {t('Column')}
+            </text>
+          )
+        })}
         {/* A floor's outline (a wall's parts around its openings would show seams that aren't there). */}
         {laid.place === 'floor' && (
           <path d={polygonPath(laid.frame)} fill="none" className="stroke-foreground" strokeWidth={1.5} vectorEffect="non-scaling-stroke" pointerEvents="none" />

@@ -19,6 +19,8 @@ import { ceilingHeightAt, ceilingLight, ceilingRoom, coveRuns, lightHex, pocketW
 import { floorMaterial, wallMaterial } from './finishTextures'
 import type { Photos } from './finishTextures'
 import { hasMix, tileGrid } from '@/model/tiles'
+import { aroundColumns, columnFaces, developed, wallColumns } from '@/model/developed'
+import type { WallColumn } from '@/model/developed'
 import type { Photo } from './finishTextures'
 import { bakeGlows, buildCeilings, buildFixture, cabinetLights } from './lighting3d'
 import type { LightHandle, SwitchHandle } from './lighting3d'
@@ -147,39 +149,49 @@ function skirting(room: Room, rooms: Room[], openings: Opening[], base: number):
 /** How far inside the walls their finishes sit (cm). */
 const FINISH_INSET = 0.3
 
+type Extent = { u0: number; u1: number; z0: number; z1: number }
+
 /**
- * The finishes on the walls (paint, wallpaper, tiles…) just inside them, around their doors and windows: one mesh per
- * room and finish, picked as the room. Texture coordinates run along the wall (left to right, seen from the room) and
- * up it, in cm.
+ * The finishes on the walls (paint, wallpaper, tiles…) just inside them, around their doors and windows and the
+ * columns standing on them: one mesh per room and finish (tiles one per wall), picked as the room. Texture
+ * coordinates run along the developed wall (left to right, seen from the room, on round its columns; see
+ * model/developed) and up it, in cm. Also how far each tiled wall reaches, for its columns to be laid the same.
  */
-function wallFinishMeshes(
-  floor: Floor,
-  openings: Opening[],
-  base: number,
-  material: (s: Surface, extent: { u0: number; u1: number; z0: number; z1: number }) => THREE.Material,
-  pick: (room: Room) => PickInfo,
-) {
-  const groups = new Map<string, { room: Room; s: Surface; pos: number[]; uv: number[]; idx: number[] }>()
+function wallFinishMeshes(floor: Floor, openings: Opening[], base: number, material: (s: Surface, extent: Extent) => THREE.Material, pick: (room: Room) => PickInfo) {
+  const groups = new Map<string, { room: Room; edge: number | null; s: Surface; pos: number[]; uv: number[]; idx: number[] }>()
+  const columns = new Map<string, WallColumn[]>()
   for (const p of wallPatches(floor, () => floor.height, openings)) {
     // One mesh per room and finish; tiles one per wall, as each wall's are laid for its own cut tiles.
-    const key = `${p.room.id}|${tileGrid(p.surface, 'wall') ? p.edge : ''}|${JSON.stringify(p.surface)}`
+    const tiled = !!tileGrid(p.surface, 'wall')
+    const key = `${p.room.id}|${tiled ? p.edge : ''}|${JSON.stringify(p.surface)}`
     let g = groups.get(key)
-    if (!g) groups.set(key, (g = { room: p.room, s: p.surface, pos: [], uv: [], idx: [] }))
+    if (!g) groups.set(key, (g = { room: p.room, edge: tiled ? p.edge : null, s: p.surface, pos: [], uv: [], idx: [] }))
+    const ck = `${p.room.id}|${p.edge}`
+    let cols = columns.get(ck)
+    if (!cols) columns.set(ck, (cols = wallColumns(floor, p.room, p.edge)))
     // Seen from the room, does the wall run left to right? If not, flip the quads and their texture.
     const facing = p.dir.x * p.inward.y - p.dir.y * p.inward.x > 0
     const sign = facing ? 1 : -1
+    const at = (d: number) => add(add(p.a, mul(p.dir, d)), mul(p.inward, FINISH_INSET))
     for (const [s1, s2, z0, z1] of p.parts) {
-      const at = (d: number) => add(add(p.a, mul(p.dir, d)), mul(p.inward, FINISH_INSET))
-      const A = at(s1)
-      const B = at(s2)
-      const i0 = g.pos.length / 3
-      g.pos.push(A.x, base + z0, A.y, B.x, base + z0, B.y, B.x, base + z1, B.y, A.x, base + z1, A.y)
-      g.uv.push(sign * s1, z0, sign * s2, z0, sign * s2, z1, sign * s1, z1)
-      if (facing) g.idx.push(i0, i0 + 1, i0 + 2, i0, i0 + 2, i0 + 3)
-      else g.idx.push(i0, i0 + 2, i0 + 1, i0, i0 + 3, i0 + 2)
+      // The stretches that show between the columns on it, each where it is on the developed wall.
+      const [w1, w2] = [sign * s1, sign * s2].sort((x, y) => x - y)
+      for (const [ua, ub] of aroundColumns(cols, w1, w2)) {
+        const [sa, sb] = [sign * ua, sign * ub].sort((x, y) => x - y)
+        const A = at(sa)
+        const B = at(sb)
+        const da = developed(cols, sign * sa)
+        const db = developed(cols, sign * sb)
+        const i0 = g.pos.length / 3
+        g.pos.push(A.x, base + z0, A.y, B.x, base + z0, B.y, B.x, base + z1, B.y, A.x, base + z1, A.y)
+        g.uv.push(da, z0, db, z0, db, z1, da, z1)
+        if (facing) g.idx.push(i0, i0 + 1, i0 + 2, i0, i0 + 2, i0 + 3)
+        else g.idx.push(i0, i0 + 2, i0 + 1, i0, i0 + 3, i0 + 2)
+      }
     }
   }
-  return [...groups.values()].map((g) => {
+  const extents = new Map<string, Extent>()
+  const meshes = [...groups.values()].map((g) => {
     const geo = new THREE.BufferGeometry()
     geo.setAttribute('position', new THREE.Float32BufferAttribute(g.pos, 3))
     geo.setAttribute('uv', new THREE.Float32BufferAttribute(g.uv, 2))
@@ -189,10 +201,12 @@ function wallFinishMeshes(
     const us = g.uv.filter((_, i) => i % 2 === 0)
     const zs = g.uv.filter((_, i) => i % 2 === 1)
     const extent = { u0: Math.min(...us), u1: Math.max(...us), z0: Math.min(...zs), z1: Math.max(...zs) }
+    if (g.edge !== null) extents.set(`${g.room.id}|${g.edge}|${JSON.stringify(g.s)}`, extent)
     const m = mesh(geo, material(g.s, extent), pick(g.room))
     m.castShadow = false
     return m
   })
+  return { meshes, extents }
 }
 
 // ---------------------------------------------------------------------------
@@ -314,7 +328,8 @@ export function buildProjectGroup(project: Project, opts: BuildOptions): THREE.G
     }
 
     // Paint, wallpaper and tiles on the walls.
-    for (const m of wallFinishMeshes(floor, openings, floorBase, wallMat, (room) => ({ floorId: floor.id, kind: 'room', id: room.id }))) group.add(m)
+    const walled = wallFinishMeshes(floor, openings, floorBase, wallMat, (room) => ({ floorId: floor.id, kind: 'room', id: room.id }))
+    for (const m of walled.meshes) group.add(m)
 
     // Gypsum ceilings (seen from inside the rooms).
     if (opts.showCeilings) {
@@ -372,22 +387,28 @@ export function buildProjectGroup(project: Project, opts: BuildOptions): THREE.G
       const up = new THREE.Vector3(0, 1, 0)
       const v3 = (x: number, y: number, z: number) => new THREE.Vector3(x, y, z)
       // A column in a wall is finished like the wall it's on (tiles to their height, paint, wallpaper…): its sides
-      // and front, the finish carrying on round it; no skirting where tiles come down to the floor.
+      // and front, the finish carrying on round it as laid on the developed wall (tiles on round its corners, and its
+      // own in a layout of several); no skirting where tiles come down to the floor.
       if (sym.type === 'wall-post') {
         const at = wallBehind(pose, sym.depth, floor.rooms)
         const s = at && wallSurfaceAt(at.room, at.edge)
-        if (s) {
+        if (s && at) {
           const w = sym.width
           const d = sym.depth
+          const cols = wallColumns(floor, at.room, at.edge)
+          const col = cols.find((c) => c.id === sym.id)
+          const dev = col ? columnFaces(cols, col) : { left: [0, d], front: [d, d + w], right: [d + w, 2 * d + w] }
           const faces = [
-            { o: v3(-w / 2 - 0.3, 0, -d / 2), n: v3(-1, 0, 0), len: d, u0: 0 },
-            { o: v3(-w / 2, 0, d / 2 + 0.3), n: v3(0, 0, 1), len: w, u0: d },
-            { o: v3(w / 2 + 0.3, 0, d / 2), n: v3(1, 0, 0), len: d, u0: d + w },
+            { o: v3(-w / 2 - 0.3, 0, -d / 2), n: v3(-1, 0, 0), len: d, u0: dev.left[0] },
+            { o: v3(-w / 2, 0, d / 2 + 0.3), n: v3(0, 0, 1), len: w, u0: dev.front[0] },
+            { o: v3(w / 2 + 0.3, 0, d / 2), n: v3(1, 0, 0), len: d, u0: dev.right[0] },
           ]
           for (const band of wallBands(s, floor.height)) {
+            // The same material as its wall's, so the tiles line up with the wall's.
+            const extent = walled.extents.get(`${at.room.id}|${at.edge}|${JSON.stringify(band.surface)}`)
             for (const f of faces) {
               const geo = rectGeo(f.o.clone().setY(band.z0), up.clone().cross(f.n), up, f.len, band.z1 - band.z0, f.u0, band.z0)
-              obj.add(mesh(geo, wallMat(band.surface)))
+              obj.add(mesh(geo, wallMat(band.surface, extent)))
             }
           }
           if (startsAtFloor(s)) obj.children.filter((o) => o.userData.skirt).forEach((o) => obj.remove(o))

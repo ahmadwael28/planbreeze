@@ -14,6 +14,7 @@ import {
 } from '@/model/geometry'
 import { finishOf, surfaceLayout, wallSurfaceAt } from '@/model/finishes'
 import { openSides } from '@/model/guides'
+import { aroundColumns, developed, wallColumns } from '@/model/developed'
 import { cellRect, hasMix, parseKey, tileGrid, tileIndex, tileStyle } from '@/model/tiles'
 import { ceilingLight, ceilingRoom, ceilingZones, coveRuns, nearestOnStrip, onCeilingJoin, pocketWidth, SHADOW_GAP, WIRE_COLORS } from '@/model/lighting'
 import { dimensionPoints, isOpen, isOutdoor, railingRuns, roomOuter, symbolPose } from '@/model/project'
@@ -272,7 +273,7 @@ function FloorFinish({ room, origin, theme, scale, images }: { room: Room; origi
 const WALL_STRIP = 5
 
 /** A room's wall finishes on the plan: a strip of each one's color along the inside of the walls, with tile joints. */
-function WallFinishes({ room, theme, images }: { room: Room; theme: PlanTheme; images?: ProjectImage[] }) {
+function WallFinishes({ room, floor, theme, images }: { room: Room; floor: Floor; theme: PlanTheme; images?: ProjectImage[] }) {
   if (isOutdoor(room) || (!room.walls && !room.wallFinishes)) return null
   const pts = room.points
   const sa = signedArea(pts)
@@ -294,24 +295,39 @@ function WallFinishes({ room, theme, images }: { room: Room; theme: PlanTheme; i
         const along = normalize(sub(b, a))
         // Along the wall as seen from the room runs from a to b, or the other way.
         const sign = along.x * inn.y - along.y * inn.x > 0 ? 1 : -1
-        const grid = k === 'tile' ? tileGrid(s, 'wall', sign > 0 ? { u0: 0, u1: L } : { u0: -L, u1: 0 }) : null
-        const first = grid && step ? (((sign * grid.origin.x) % step) + step) % step : 0
+        // On the developed wall, round the columns standing on it (see model/developed): between them, joints carry on
+        // from where they'd be after going round each one.
+        const cols = k === 'tile' ? wallColumns(floor, room, i) : []
+        const [w0, w1] = sign > 0 ? [0, L] : [-L, 0]
+        const grid = k === 'tile' ? tileGrid(s, 'wall', { u0: developed(cols, w0), u1: developed(cols, w1) }) : null
+        const stretches = aroundColumns(cols, w0, w1).map(([ua, ub]) => {
+          const [s0, s1] = [sign * ua, sign * ub].sort((x, y) => x - y)
+          const shift = developed(cols, ua) - ua
+          const first = grid && step ? (((sign * (grid.origin.x - shift) - s0) % step) + step) % step : 0
+          return { s0, s1, first }
+        })
+        const pt = (d: number) => add(p, mul(along, d))
         return (
           <g key={i}>
             <line x1={p.x} y1={p.y} x2={q.x} y2={q.y} stroke={color} strokeWidth={WALL_STRIP} />
-            {!!step && f.pattern !== 'herringbone' && f.pattern !== 'chevron' && f.pattern !== 'diagonal' && (
-              <line
-                x1={p.x}
-                y1={p.y}
-                x2={q.x}
-                y2={q.y}
-                stroke={theme.ink}
-                strokeOpacity={0.35}
-                strokeWidth={WALL_STRIP}
-                strokeDasharray={`${Math.min(0.5, step / 4)} ${step - Math.min(0.5, step / 4)}`}
-                strokeDashoffset={-first}
-              />
-            )}
+            {!!step &&
+              f.pattern !== 'herringbone' &&
+              f.pattern !== 'chevron' &&
+              f.pattern !== 'diagonal' &&
+              stretches.map(({ s0, s1, first }) => (
+                <line
+                  key={s0}
+                  x1={pt(s0).x}
+                  y1={pt(s0).y}
+                  x2={pt(s1).x}
+                  y2={pt(s1).y}
+                  stroke={theme.ink}
+                  strokeOpacity={0.35}
+                  strokeWidth={WALL_STRIP}
+                  strokeDasharray={`${Math.min(0.5, step / 4)} ${step - Math.min(0.5, step / 4)}`}
+                  strokeDashoffset={-first}
+                />
+              ))}
             <line
               x1={p.x + (inn.x * WALL_STRIP) / 2}
               y1={p.y + (inn.y * WALL_STRIP) / 2}
@@ -622,7 +638,7 @@ export function PlanLayers({
           />
         ))}
         {!lighting && !forPrint && floor.rooms.map((r) => <FloorFinish key={r.id} room={r} origin={floorOrigin(r, floor.rooms)} theme={theme} scale={scale} images={images} />)}
-        {!lighting && floor.rooms.map((r) => <WallFinishes key={r.id} room={r} theme={theme} images={images} />)}
+        {!lighting && floor.rooms.map((r) => <WallFinishes key={r.id} room={r} floor={floor} theme={theme} images={images} />)}
       </g>
       {lighting && (
         <g>
