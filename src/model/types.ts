@@ -31,6 +31,19 @@ export interface Surface {
   parallel?: boolean
   /** Wallpaper: its design. */
   design?: string
+  /** Tiles: more tiles laid among this one (a photo or a color each), for a layout of several (see `cells`). */
+  mix?: TileMix[]
+  /**
+   * Which tile goes where, by its place on the layout's grid ("column,row", see model/tiles): 1 for the first of `mix`,
+   * 2 for the next… Tiles not listed are this surface's own.
+   */
+  cells?: Record<string, number>
+}
+
+/** Another tile laid among a surface's own: a photo of it (one of the project's `images`), or a color. */
+export interface TileMix {
+  image?: string
+  color?: string
 }
 
 export interface RoomFloor extends Surface {
@@ -243,6 +256,11 @@ export interface PlanSymbol {
   openSide?: 'both' | 'left' | 'right'
   /** Showers: the sides with glass (front, back, left, right); left out, the sides not against a wall. */
   screens?: ('front' | 'back' | 'left' | 'right')[]
+  /**
+   * Showers: where the head is. On a wall side, `at` along it (0 … 1, left to right or back to front in the shower's
+   * own frame); or from the ceiling (a rain shower), in the middle. By default on the first wall, in its middle.
+   */
+  showerHead?: { side: 'front' | 'back' | 'left' | 'right' | 'ceiling'; at?: number }
   /** Frame / trim color (hex) for items that come in several finishes: spots, tracks, aluminium doors. */
   frame?: string
   /** Magnetic tracks: the modules clipped into them. */

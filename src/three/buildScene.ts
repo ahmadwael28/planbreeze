@@ -17,6 +17,8 @@ import { personSupport } from '@/model/people'
 import type { CurtainWash } from './furniture'
 import { ceilingHeightAt, ceilingLight, ceilingRoom, coveRuns, lightHex, pocketWidth } from '@/model/lighting'
 import { floorMaterial, wallMaterial } from './finishTextures'
+import type { Photos } from './finishTextures'
+import { hasMix } from '@/model/tiles'
 import type { Photo } from './finishTextures'
 import { bakeGlows, buildCeilings, buildFixture, cabinetLights } from './lighting3d'
 import type { LightHandle, SwitchHandle } from './lighting3d'
@@ -150,7 +152,13 @@ const FINISH_INSET = 0.3
  * room and finish, picked as the room. Texture coordinates run along the wall (left to right, seen from the room) and
  * up it, in cm.
  */
-function wallFinishMeshes(floor: Floor, openings: Opening[], base: number, material: (s: Surface) => THREE.Material, pick: (room: Room) => PickInfo) {
+function wallFinishMeshes(
+  floor: Floor,
+  openings: Opening[],
+  base: number,
+  material: (s: Surface, extent: { u0: number; u1: number; z0: number; z1: number }) => THREE.Material,
+  pick: (room: Room) => PickInfo,
+) {
   const groups = new Map<string, { room: Room; s: Surface; pos: number[]; uv: number[]; idx: number[] }>()
   for (const p of wallPatches(floor, () => floor.height, openings)) {
     const key = `${p.room.id}|${JSON.stringify(p.surface)}`
@@ -176,7 +184,11 @@ function wallFinishMeshes(floor: Floor, openings: Opening[], base: number, mater
     geo.setAttribute('uv', new THREE.Float32BufferAttribute(g.uv, 2))
     geo.setIndex(g.idx)
     geo.computeVertexNormals()
-    const m = mesh(geo, material(g.s), pick(g.room))
+    // How far its texture coordinates reach (a wall laid with several tiles is drawn over just that).
+    const us = g.uv.filter((_, i) => i % 2 === 0)
+    const zs = g.uv.filter((_, i) => i % 2 === 1)
+    const extent = { u0: Math.min(...us), u1: Math.max(...us), z0: Math.min(...zs), z1: Math.max(...zs) }
+    const m = mesh(geo, material(g.s, extent), pick(g.room))
     m.castShadow = false
     return m
   })
@@ -203,11 +215,14 @@ export function buildProjectGroup(project: Project, opts: BuildOptions): THREE.G
   // Photos of real tiles and wallpapers (decoded beforehand; see loadImages), and a material per wall finish.
   const images = new Map((project.images ?? []).map((i) => [i.id, i]))
   const photoOf = (s: Surface): Photo => (s.image ? readyImage(images.get(s.image)) : undefined)
+  const photos: Photos = (id) => (id ? readyImage(images.get(id)) : undefined)
   const wallMats = new Map<string, THREE.Material>()
-  const wallMat = (s: Surface) => {
-    const key = JSON.stringify(s)
+  /** A wall finish's material; laid with several tiles, its own for the stretch of wall it covers (`extent`). */
+  const wallMat = (s: Surface, extent?: { u0: number; u1: number; z0: number; z1: number }) => {
+    const mixed = !!extent && hasMix(s)
+    const key = JSON.stringify(s) + (mixed ? JSON.stringify(extent) : '')
     let m = wallMats.get(key)
-    if (!m) wallMats.set(key, (m = wallMaterial(s, photoOf(s))))
+    if (!m) wallMats.set(key, (m = wallMaterial(s, photoOf(s), mixed ? extent : undefined, photos)))
     return m
   }
   const currentIdx = Math.max(
@@ -247,7 +262,7 @@ export function buildProjectGroup(project: Project, opts: BuildOptions): THREE.G
       geo.translate(0, floorBase + 0.3, 0)
       const hl = isSelected(sel, 'room', room.id)
       // Its finish (tiles, planks…), or plain in the room's color.
-      const mat = room.floor ? floorMaterial(room, photoOf(room.floor), floorOrigin(room, floor.rooms)) : mats.get(room.color, hl, 'satin').clone()
+      const mat = room.floor ? floorMaterial(room, photoOf(room.floor), floorOrigin(room, floor.rooms), photos) : mats.get(room.color, hl, 'satin').clone()
       group.add(mesh(geo, mat, { floorId: floor.id, kind: 'room', id: room.id }))
     }
 

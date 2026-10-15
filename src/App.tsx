@@ -5,6 +5,7 @@ import { toast } from 'sonner'
 import { Canvas } from '@/components/Canvas'
 import { EmptyState } from '@/components/EmptyState'
 import { DesignDialog } from '@/components/DesignDialog'
+import { TileLayoutDialog } from '@/components/TileLayout'
 import { FloorBar } from '@/components/FloorBar'
 import { GuidedTour } from '@/components/GuidedTour'
 import { ImportWizard } from '@/components/ImportWizard'
@@ -372,6 +373,7 @@ export default function App() {
       <ShareDialog />
       <ConflictDialog />
       <DesignDialog />
+      <TileLayoutDialog />
       <GuidedTour />
     </div>
   )

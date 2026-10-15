@@ -1,7 +1,7 @@
 import { t, tc } from '@/i18n'
 import { useId, useRef, useState } from 'react'
 import type { KeyboardEvent, ReactNode } from 'react'
-import { ImagePlus, X } from 'lucide-react'
+import { ImagePlus, LayoutDashboard, X } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
@@ -15,6 +15,8 @@ import { uid } from '@/model/project'
 import { formatLength } from '@/model/units'
 import type { Finish, FloorFinish, FloorPattern, Project, ProjectImage, Room, Surface, Units, WallFinish, WallSurface } from '@/model/types'
 import { draftFloor, useEditor } from '@/store/editor'
+import { useUi } from '@/store/ui'
+import { hasMix } from '@/model/tiles'
 import { Choice } from './Choice'
 import { LengthInput, NumberInput } from './LengthInput'
 
@@ -139,12 +141,17 @@ function SurfaceControls<S extends Surface>({
   place,
   units,
   set,
+  onLayout,
+  layoutLabel,
 }: {
   surface: S
   place: Place
   units: Units
   /** Change the finish (and anything else in the project) as one undo step; `live` changes skip the undo step. */
   set: (patch: Partial<S>, also?: (d: Project) => void, live?: boolean) => void
+  /** Tiles: lay several kinds of them (see TileLayout). */
+  onLayout?: () => void
+  layoutLabel?: string
 }) {
   const images = useEditor((s) => s.project.images) ?? []
   const fileRef = useRef<HTMLInputElement>(null)
@@ -181,6 +188,9 @@ function SurfaceControls<S extends Surface>({
       // Nothing shows it any more.
       const clear = (s: Surface | null | undefined) => {
         if (s?.image === img.id) delete s.image
+        s?.mix?.forEach((m) => {
+          if (m.image === img.id) delete m.image
+        })
       }
       for (const fl of d.floors) {
         for (const r of fl.rooms) {
@@ -374,6 +384,14 @@ function SurfaceControls<S extends Surface>({
         />
       )}
       {place === 'wall' && (kind === 'tile' || kind === 'slats') && <PartWay surface={surface as WallSurface} units={units} set={set as (p: Partial<WallSurface>) => void} />}
+      {kind === 'tile' && onLayout && (
+        <div className="space-y-1">
+          <Button type="button" variant="outline" size="sm" className="w-full" onClick={onLayout}>
+            <LayoutDashboard /> {layoutLabel ?? (hasMix(surface) ? t('Change the tile layout…') : t('Lay several kinds of tile…'))}
+          </Button>
+          {hasMix(surface) && <p className="text-xs text-muted-foreground">{t('{n} kinds of tile laid here.', { n: (surface.mix?.length ?? 0) + 1 })}</p>}
+        </div>
+      )}
     </>
   )
 }
@@ -437,6 +455,7 @@ export function FloorSection({ room, units }: { room: Room; units: Units }) {
           surface={floor}
           place="floor"
           units={units}
+          onLayout={() => useUi.getState().openTileLayout({ roomId: room.id })}
           set={(patch, also, live) => {
             const recipe = (d: Project) => {
               also?.(d)
@@ -515,6 +534,8 @@ export function WallsSection({ room, units }: { room: Room; units: Units }) {
             surface={room.walls}
             place="wall"
             units={units}
+            onLayout={() => useUi.getState().openTileLayout({ roomId: room.id, edge: at ?? 0 })}
+            layoutLabel={t('Lay several kinds of tile on a wall…')}
             set={(patch, also, live) => setSurface(null, { ...room.walls!, ...patch }, also, live)}
           />
         )}
@@ -582,7 +603,15 @@ export function WallsSection({ room, units }: { room: Room; units: Units }) {
                 />
               )}
             </Field>
-            {own && <SurfaceControls surface={own} place="wall" units={units} set={(patch, also, live) => setSurface(at, { ...own, ...patch }, also, live)} />}
+            {own && (
+              <SurfaceControls
+                surface={own}
+                place="wall"
+                units={units}
+                onLayout={() => useUi.getState().openTileLayout({ roomId: room.id, edge: at })}
+                set={(patch, also, live) => setSurface(at, { ...own, ...patch }, also, live)}
+              />
+            )}
           </div>
         )}
       </div>

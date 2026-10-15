@@ -8,10 +8,15 @@ import * as THREE from 'three'
 import { bbox } from '@/model/geometry'
 import { finishOf, surfaceLayout } from '@/model/finishes'
 import type { FloorPiece, Place } from '@/model/finishes'
+import { cellKey, cellRange, hasMix, tileGrid, tileIndex, tileStyle } from '@/model/tiles'
+import type { TileGrid } from '@/model/tiles'
 import type { Point, Room, Surface } from '@/model/types'
 
 /** A photo to lay instead of a color (decoded; see lib/images). */
 export type Photo = HTMLImageElement | undefined
+
+/** The project's photos by id, decoded (for surfaces laid with several tiles). */
+export type Photos = (id: string | undefined) => Photo
 
 const cache = new Map<string, { texture: THREE.Texture; block: [number, number] }>()
 
@@ -145,6 +150,162 @@ function wallpaper(ctx: CanvasRenderingContext2D, design: string, base: string, 
   grain(ctx, W, H, 0.02, 11)
 }
 
+/** How one piece looks: its color, or a photo of the real thing (a tile in a mix of several has its own). */
+interface PieceStyle {
+  color: string
+  photo: Photo
+}
+
+/**
+ * Draws a finish's pieces onto a canvas of W × H px at `ppcm` px per cm: each in its style (color or photo), with a
+ * touch of variation from piece to piece, wood grain, marble veins… and the joint around it. `joint` is what goes
+ * between them (fill the canvas with it first).
+ */
+function piecePainter(ctx: CanvasRenderingContext2D, s: Surface, place: Place, f: ReturnType<typeof finishOf>, ppcm: number, W: number, H: number) {
+  const kind = f.def.kind
+  const tile = kind === 'tile'
+  const slats = kind === 'slats'
+  const dark0 = lightness(f.color) < 0.35
+  const joint = tile ? (dark0 ? '#2b2b2c' : shade(f.color, -0.16)) : slats ? shade(f.color, dark0 ? -0.5 : -0.62) : 'rgba(30,20,12,0.55)'
+  const draw = (piece: FloorPiece, dx: number, dy: number, { color: base, photo }: PieceStyle) => {
+    const dark = lightness(base) < 0.35
+    // Wood-look porcelain gets wood grain, not a stone's speckle.
+    const woody = /wood/i.test(f.def.colors.find((c) => c.hex === base)?.name ?? '')
+    const vein = s.finish === 'marble' ? (dark ? 'rgba(235,235,235,0.55)' : base === '#f3eee5' ? 'rgba(176,140,80,0.5)' : 'rgba(120,112,104,0.32)') : ''
+    const pts = piece.pts.map((p) => ({ x: p.x * ppcm + dx, y: p.y * ppcm + dy }))
+    const xs = pts.map((p) => p.x)
+    const ys = pts.map((p) => p.y)
+    if (Math.max(...xs) < 0 || Math.min(...xs) > W || Math.max(...ys) < 0 || Math.min(...ys) > H) return
+    const rand = random(piece.id * 131 + 17)
+    const outline = () => {
+      ctx.beginPath()
+      pts.forEach((p, i) => (i ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y)))
+      ctx.closePath()
+    }
+    ctx.save()
+    outline()
+    ctx.clip()
+    // The piece's extent along its length and across, around its middle.
+    const a = piece.axis
+    const nrm = { x: -a.y, y: a.x }
+    const along = pts.map((p) => p.x * a.x + p.y * a.y)
+    const across = pts.map((p) => p.x * nrm.x + p.y * nrm.y)
+    const len = Math.max(...along) - Math.min(...along)
+    const wid = Math.max(...across) - Math.min(...across)
+    const ma = (Math.max(...along) + Math.min(...along)) / 2
+    const mn = (Math.max(...across) + Math.min(...across)) / 2
+    const cx = a.x * ma + nrm.x * mn
+    const cy = a.y * ma + nrm.y * mn
+    if (photo) {
+      // The photo along the piece (its long side along the piece's), each a touch lighter or darker; on floors some
+      // are turned round as a tiler would, on walls they stay the right way up.
+      ctx.translate(cx, cy)
+      ctx.rotate(Math.atan2(a.y, a.x) + (place === 'floor' && rand() < 0.5 ? Math.PI : 0))
+      if (photo.naturalHeight > photo.naturalWidth * 1.05) {
+        ctx.rotate(Math.PI / 2)
+        ctx.drawImage(photo, -wid / 2, -len / 2, wid, len)
+      } else ctx.drawImage(photo, -len / 2, -wid / 2, len, wid)
+      ctx.setTransform(1, 0, 0, 1, 0, 0)
+      const v = (rand() - 0.5) * 0.08
+      ctx.fillStyle = v > 0 ? `rgba(255,255,255,${v})` : `rgba(0,0,0,${-v})`
+      ctx.fill()
+    } else {
+      const spread = tile ? (s.finish === 'marble' ? 0.03 : 0.045) : s.finish === 'spc' ? 0.06 : slats ? 0.05 : 0.1
+      ctx.fillStyle = shade(base, (rand() - 0.5) * 2 * spread)
+      ctx.fill()
+      if (tile && !woody) {
+        if (s.finish === 'marble') {
+          // Veins wandering across the slab, and soft clouds.
+          for (let i = 0; i < 5; i++) {
+            const r = Math.max(len, wid) * (0.3 + rand() * 0.5)
+            const g = ctx.createRadialGradient(cx + (rand() - 0.5) * len, cy + (rand() - 0.5) * wid, 0, cx, cy, r)
+            g.addColorStop(0, dark ? 'rgba(255,255,255,0.04)' : 'rgba(120,110,100,0.06)')
+            g.addColorStop(1, 'rgba(0,0,0,0)')
+            ctx.fillStyle = g
+            ctx.fillRect(cx - len, cy - len, len * 2, len * 2)
+          }
+          ctx.strokeStyle = vein
+          for (let i = 0; i < 2 + Math.floor(rand() * 3); i++) {
+            ctx.lineWidth = 0.6 + rand() * 2.2
+            ctx.beginPath()
+            const p0 = { x: cx - (a.x * len) / 2 + nrm.x * (rand() - 0.5) * wid * 1.4, y: cy - (a.y * len) / 2 + nrm.y * (rand() - 0.5) * wid * 1.4 }
+            const at = (t: number, o: number) => ({ x: cx + a.x * t * len + nrm.x * o * wid, y: cy + a.y * t * len + nrm.y * o * wid })
+            const c1 = at(-1 / 6, rand() - 0.5)
+            const c2 = at(1 / 6, rand() - 0.5)
+            const p1 = at(0.55, (rand() - 0.5) * 1.4)
+            ctx.moveTo(p0.x, p0.y)
+            ctx.bezierCurveTo(c1.x, c1.y, c2.x, c2.y, p1.x, p1.y)
+            ctx.stroke()
+          }
+        } else {
+          // A speckle (ceramic) or a gentle mottling (porcelain).
+          const n = s.finish === 'ceramic' ? 50 : 8
+          for (let i = 0; i < n; i++) {
+            ctx.fillStyle = rand() < 0.5 ? 'rgba(0,0,0,0.05)' : 'rgba(255,255,255,0.06)'
+            const r = s.finish === 'ceramic' ? 0.6 + rand() * 1.2 : wid * (0.1 + rand() * 0.25)
+            ctx.beginPath()
+            ctx.arc(cx + (rand() - 0.5) * len * a.x + (rand() - 0.5) * wid * nrm.x, cy + (rand() - 0.5) * len * a.y + (rand() - 0.5) * wid * nrm.y, r, 0, Math.PI * 2)
+            ctx.fill()
+          }
+        }
+      } else {
+        if (slats) {
+          // Rounded off: lighter down the middle, shaded toward the grooves.
+          const g = ctx.createLinearGradient(cx - (nrm.x * wid) / 2, cy - (nrm.y * wid) / 2, cx + (nrm.x * wid) / 2, cy + (nrm.y * wid) / 2)
+          g.addColorStop(0, 'rgba(0,0,0,0.22)')
+          g.addColorStop(0.35, 'rgba(255,255,255,0.06)')
+          g.addColorStop(0.65, 'rgba(255,255,255,0.03)')
+          g.addColorStop(1, 'rgba(0,0,0,0.3)')
+          ctx.fillStyle = g
+          ctx.fill()
+        }
+        // Wood grain along the plank, and a knot now and then.
+        const lines = Math.max(slats ? 3 : 6, Math.round(wid / 1.6))
+        const grained = !slats || !['#2a2a2b', '#ecebe7', '#8e8b86'].includes(base)
+        for (let i = 0; grained && i < lines; i++) {
+          const off = (rand() - 0.5) * wid
+          const amp = 0.4 + rand() * 1.6
+          const freq = 1 + rand() * 3
+          const ph = rand() * 6
+          ctx.strokeStyle = rand() < 0.8 ? `rgba(60,35,15,${0.05 + rand() * 0.1})` : `rgba(255,240,220,${0.05 + rand() * 0.07})`
+          ctx.lineWidth = 0.5 + rand() * 1.1
+          ctx.beginPath()
+          for (let t = -0.55; t <= 0.551; t += 0.05) {
+            const o = off + Math.sin(t * freq * Math.PI * 2 + ph) * amp
+            const x = cx + a.x * t * len + nrm.x * o
+            const y = cy + a.y * t * len + nrm.y * o
+            if (t === -0.55) ctx.moveTo(x, y)
+            else ctx.lineTo(x, y)
+          }
+          ctx.stroke()
+        }
+        if (!slats && !tile && s.finish !== 'spc' && rand() < 0.18) {
+          const t = (rand() - 0.5) * 0.7
+          const kx = cx + a.x * t * len + nrm.x * (rand() - 0.5) * wid * 0.5
+          const ky = cy + a.y * t * len + nrm.y * (rand() - 0.5) * wid * 0.5
+          for (const [r, al] of [
+            [wid * 0.18, 0.12],
+            [wid * 0.1, 0.25],
+          ]) {
+            ctx.fillStyle = `rgba(55,30,12,${al})`
+            ctx.beginPath()
+            ctx.ellipse(kx, ky, r * 2.2, r, Math.atan2(a.y, a.x), 0, Math.PI * 2)
+            ctx.fill()
+          }
+        }
+      }
+    }
+    ctx.restore()
+    if (slats) return
+    // The joint around it.
+    outline()
+    ctx.strokeStyle = joint
+    ctx.lineWidth = tile ? Math.max(1.2, (f.def.grout ?? 0.2) * ppcm) : Math.max(0.8, 0.12 * ppcm)
+    ctx.stroke()
+  }
+  return Object.assign(draw, { joint: tile || slats ? joint : f.color })
+}
+
 /** A shared texture for a finish, and the size (cm) one repeat of it covers. Null for paint. */
 export function surfaceTexture(s: Surface, place: Place = 'floor', photo?: Photo): { texture: THREE.Texture; block: [number, number] } | null {
   const f = finishOf(s, place)
@@ -163,7 +324,6 @@ export function surfaceTexture(s: Surface, place: Place = 'floor', photo?: Photo
   const W = canvas.width
   const H = canvas.height
   const base = f.color
-  const dark = lightness(base) < 0.35
 
   if (!layout) {
     if (photo) {
@@ -191,148 +351,11 @@ export function surfaceTexture(s: Surface, place: Place = 'floor', photo?: Photo
       grain(ctx, W, H, s.finish === 'carpet' ? 0.08 : 0.025, 7)
     }
   } else {
-    const kind = f.def.kind
-    const tile = kind === 'tile'
-    const slats = kind === 'slats'
-    // Wood-look porcelain gets wood grain, not a stone's speckle.
-    const woody = /wood/i.test(f.def.colors.find((c) => c.hex === f.color)?.name ?? '')
-    const joint = tile ? (dark ? '#2b2b2c' : shade(base, -0.16)) : slats ? shade(base, dark ? -0.5 : -0.62) : 'rgba(30,20,12,0.55)'
-    ctx.fillStyle = tile || slats ? joint : base
+    const draw = piecePainter(ctx, s, place, f, ppcm, W, H)
+    ctx.fillStyle = draw.joint
     ctx.fillRect(0, 0, W, H)
-    const vein = s.finish === 'marble' ? (dark ? 'rgba(235,235,235,0.55)' : f.color === '#f3eee5' ? 'rgba(176,140,80,0.5)' : 'rgba(120,112,104,0.32)') : ''
-    const draw = (piece: FloorPiece, dx: number, dy: number) => {
-      const pts = piece.pts.map((p) => ({ x: p.x * ppcm + dx, y: p.y * ppcm + dy }))
-      const xs = pts.map((p) => p.x)
-      const ys = pts.map((p) => p.y)
-      if (Math.max(...xs) < 0 || Math.min(...xs) > W || Math.max(...ys) < 0 || Math.min(...ys) > H) return
-      const rand = random(piece.id * 131 + 17)
-      const outline = () => {
-        ctx.beginPath()
-        pts.forEach((p, i) => (i ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y)))
-        ctx.closePath()
-      }
-      ctx.save()
-      outline()
-      ctx.clip()
-      // The piece's extent along its length and across, around its middle.
-      const a = piece.axis
-      const nrm = { x: -a.y, y: a.x }
-      const along = pts.map((p) => p.x * a.x + p.y * a.y)
-      const across = pts.map((p) => p.x * nrm.x + p.y * nrm.y)
-      const len = Math.max(...along) - Math.min(...along)
-      const wid = Math.max(...across) - Math.min(...across)
-      const ma = (Math.max(...along) + Math.min(...along)) / 2
-      const mn = (Math.max(...across) + Math.min(...across)) / 2
-      const cx = a.x * ma + nrm.x * mn
-      const cy = a.y * ma + nrm.y * mn
-      if (photo) {
-        // The photo along the piece (its long side along the piece's), each a touch lighter or darker; on floors some
-        // are turned round as a tiler would, on walls they stay the right way up.
-        ctx.translate(cx, cy)
-        ctx.rotate(Math.atan2(a.y, a.x) + (place === 'floor' && rand() < 0.5 ? Math.PI : 0))
-        if (photo.naturalHeight > photo.naturalWidth * 1.05) {
-          ctx.rotate(Math.PI / 2)
-          ctx.drawImage(photo, -wid / 2, -len / 2, wid, len)
-        } else ctx.drawImage(photo, -len / 2, -wid / 2, len, wid)
-        ctx.setTransform(1, 0, 0, 1, 0, 0)
-        const v = (rand() - 0.5) * 0.08
-        ctx.fillStyle = v > 0 ? `rgba(255,255,255,${v})` : `rgba(0,0,0,${-v})`
-        ctx.fill()
-      } else {
-        const spread = tile ? (s.finish === 'marble' ? 0.03 : 0.045) : s.finish === 'spc' ? 0.06 : slats ? 0.05 : 0.1
-        ctx.fillStyle = shade(base, (rand() - 0.5) * 2 * spread)
-        ctx.fill()
-        if (tile && !woody) {
-          if (s.finish === 'marble') {
-            // Veins wandering across the slab, and soft clouds.
-            for (let i = 0; i < 5; i++) {
-              const r = Math.max(len, wid) * (0.3 + rand() * 0.5)
-              const g = ctx.createRadialGradient(cx + (rand() - 0.5) * len, cy + (rand() - 0.5) * wid, 0, cx, cy, r)
-              g.addColorStop(0, dark ? 'rgba(255,255,255,0.04)' : 'rgba(120,110,100,0.06)')
-              g.addColorStop(1, 'rgba(0,0,0,0)')
-              ctx.fillStyle = g
-              ctx.fillRect(cx - len, cy - len, len * 2, len * 2)
-            }
-            ctx.strokeStyle = vein
-            for (let i = 0; i < 2 + Math.floor(rand() * 3); i++) {
-              ctx.lineWidth = 0.6 + rand() * 2.2
-              ctx.beginPath()
-              const p0 = { x: cx - (a.x * len) / 2 + nrm.x * (rand() - 0.5) * wid * 1.4, y: cy - (a.y * len) / 2 + nrm.y * (rand() - 0.5) * wid * 1.4 }
-              const at = (t: number, o: number) => ({ x: cx + a.x * t * len + nrm.x * o * wid, y: cy + a.y * t * len + nrm.y * o * wid })
-              const c1 = at(-1 / 6, rand() - 0.5)
-              const c2 = at(1 / 6, rand() - 0.5)
-              const p1 = at(0.55, (rand() - 0.5) * 1.4)
-              ctx.moveTo(p0.x, p0.y)
-              ctx.bezierCurveTo(c1.x, c1.y, c2.x, c2.y, p1.x, p1.y)
-              ctx.stroke()
-            }
-          } else {
-            // A speckle (ceramic) or a gentle mottling (porcelain).
-            const n = s.finish === 'ceramic' ? 50 : 8
-            for (let i = 0; i < n; i++) {
-              ctx.fillStyle = rand() < 0.5 ? 'rgba(0,0,0,0.05)' : 'rgba(255,255,255,0.06)'
-              const r = s.finish === 'ceramic' ? 0.6 + rand() * 1.2 : wid * (0.1 + rand() * 0.25)
-              ctx.beginPath()
-              ctx.arc(cx + (rand() - 0.5) * len * a.x + (rand() - 0.5) * wid * nrm.x, cy + (rand() - 0.5) * len * a.y + (rand() - 0.5) * wid * nrm.y, r, 0, Math.PI * 2)
-              ctx.fill()
-            }
-          }
-        } else {
-          if (slats) {
-            // Rounded off: lighter down the middle, shaded toward the grooves.
-            const g = ctx.createLinearGradient(cx - (nrm.x * wid) / 2, cy - (nrm.y * wid) / 2, cx + (nrm.x * wid) / 2, cy + (nrm.y * wid) / 2)
-            g.addColorStop(0, 'rgba(0,0,0,0.22)')
-            g.addColorStop(0.35, 'rgba(255,255,255,0.06)')
-            g.addColorStop(0.65, 'rgba(255,255,255,0.03)')
-            g.addColorStop(1, 'rgba(0,0,0,0.3)')
-            ctx.fillStyle = g
-            ctx.fill()
-          }
-          // Wood grain along the plank, and a knot now and then.
-          const lines = Math.max(slats ? 3 : 6, Math.round(wid / 1.6))
-          const grained = !slats || !['#2a2a2b', '#ecebe7', '#8e8b86'].includes(base)
-          for (let i = 0; grained && i < lines; i++) {
-            const off = (rand() - 0.5) * wid
-            const amp = 0.4 + rand() * 1.6
-            const freq = 1 + rand() * 3
-            const ph = rand() * 6
-            ctx.strokeStyle = rand() < 0.8 ? `rgba(60,35,15,${0.05 + rand() * 0.1})` : `rgba(255,240,220,${0.05 + rand() * 0.07})`
-            ctx.lineWidth = 0.5 + rand() * 1.1
-            ctx.beginPath()
-            for (let t = -0.55; t <= 0.551; t += 0.05) {
-              const o = off + Math.sin(t * freq * Math.PI * 2 + ph) * amp
-              const x = cx + a.x * t * len + nrm.x * o
-              const y = cy + a.y * t * len + nrm.y * o
-              if (t === -0.55) ctx.moveTo(x, y)
-              else ctx.lineTo(x, y)
-            }
-            ctx.stroke()
-          }
-          if (!slats && !tile && s.finish !== 'spc' && rand() < 0.18) {
-            const t = (rand() - 0.5) * 0.7
-            const kx = cx + a.x * t * len + nrm.x * (rand() - 0.5) * wid * 0.5
-            const ky = cy + a.y * t * len + nrm.y * (rand() - 0.5) * wid * 0.5
-            for (const [r, al] of [
-              [wid * 0.18, 0.12],
-              [wid * 0.1, 0.25],
-            ]) {
-              ctx.fillStyle = `rgba(55,30,12,${al})`
-              ctx.beginPath()
-              ctx.ellipse(kx, ky, r * 2.2, r, Math.atan2(a.y, a.x), 0, Math.PI * 2)
-              ctx.fill()
-            }
-          }
-        }
-      }
-      ctx.restore()
-      if (slats) return
-      // The joint around it.
-      outline()
-      ctx.strokeStyle = joint
-      ctx.lineWidth = tile ? Math.max(1.2, (f.def.grout ?? 0.2) * ppcm) : Math.max(0.8, 0.12 * ppcm)
-      ctx.stroke()
-    }
-    for (const p of layout.pieces) wrapped(W, H, (dx, dy) => draw(p, dx, dy))
+    const style = { color: base, photo }
+    for (const p of layout.pieces) wrapped(W, H, (dx, dy) => draw(p, dx, dy, style))
   }
   const texture = new THREE.CanvasTexture(canvas)
   texture.colorSpace = THREE.SRGBColorSpace
@@ -352,27 +375,90 @@ function laidTexture(s: Surface, place: Place, photo: Photo, u0: number, v0: num
   if (!tex) return null
   const t = tex.texture.clone()
   t.userData.roomCopy = true
-  const angle = ((surfaceLayout(s, place)?.angle ?? 0) * Math.PI) / 180
+  return lay(t, surfaceLayout(s, place)?.angle ?? 0, tex.block, u0, v0)
+}
+
+/**
+ * Lays a texture covering `block` (cm) at a layout's `angle` (degrees) from (u0, v0) of the texture coordinates; drawn
+ * from (x0, y0) of the layout's frame. Turned the way the plan turns it (see model/tiles), so both agree.
+ */
+function lay(t: THREE.Texture, angleDeg: number, block: [number, number], u0: number, v0: number, x0 = 0, y0 = 0) {
+  const angle = (-angleDeg * Math.PI) / 180
   const c = Math.cos(angle)
   const sn = Math.sin(angle)
-  const sx = 1 / tex.block[0]
-  const sy = 1 / tex.block[1]
+  const sx = 1 / block[0]
+  const sy = 1 / block[1]
   t.repeat.set(sx, sy)
   t.rotation = angle
-  t.offset.set(-sx * (c * u0 + sn * v0), -sy * (-sn * u0 + c * v0))
+  // From (x0, y0) of the frame (the canvas's rows run down while the texture's run up; a whole repeat makes no odds).
+  t.offset.set(-sx * (c * u0 + sn * v0) - sx * x0, -sy * (-sn * u0 + c * v0) + sy * y0)
   t.needsUpdate = true
   return t
+}
+
+/**
+ * A texture for a surface laid with several tiles (see model/tiles), drawn once over its whole extent `pts` (surface
+ * coordinates, y down; from the surface's origin): each tile in its own photo or color, laid from (u0, v0) of the
+ * texture coordinates. Not shared: disposed with the surface.
+ */
+function mixedTexture(s: Surface, place: Place, g: TileGrid, pts: Point[], photos: Photos, u0: number, v0: number) {
+  const f = finishOf(s, place)
+  const { c0, c1, r0, r1 } = cellRange(g, pts)
+  const x0 = c0 * g.len
+  const y0 = r0 * g.w
+  const Wcm = (c1 - c0 + 2) * g.len
+  const Hcm = (r1 - r0 + 1) * g.w
+  // Fine enough for a tile's photo, and within what phones take.
+  const ppcm = Math.min(4, 2048 / Math.max(Wcm, Hcm))
+  const canvas = document.createElement('canvas')
+  canvas.width = Math.max(8, Math.round(Wcm * ppcm))
+  canvas.height = Math.max(8, Math.round(Hcm * ppcm))
+  const ctx = canvas.getContext('2d')!
+  const draw = piecePainter(ctx, s, place, f, ppcm, canvas.width, canvas.height)
+  ctx.fillStyle = draw.joint
+  ctx.fillRect(0, 0, canvas.width, canvas.height)
+  const styles = Array.from({ length: (s.mix?.length ?? 0) + 1 }, (_, k) => {
+    const st = tileStyle(s, k)
+    return { color: st.color ?? f.color, photo: st.image ? photos(st.image) : undefined }
+  })
+  for (let r = r0; r <= r1; r++) {
+    for (let c = c0; c <= c1; c++) {
+      const sh = g.offset && ((r % 2) + 2) % 2 === 1 ? g.len / 2 : 0
+      const x = c * g.len + sh
+      const y = r * g.w
+      const piece = {
+        pts: [
+          { x, y },
+          { x: x + g.len, y },
+          { x: x + g.len, y: y + g.w },
+          { x, y: y + g.w },
+        ],
+        axis: { x: 1, y: 0 },
+        id: (((r * 31 + c * 17) % 97) + 97) % 97,
+      }
+      draw(piece, -x0 * ppcm, -y0 * ppcm, styles[tileIndex(s, cellKey({ c, r }))])
+    }
+  }
+  const texture = new THREE.CanvasTexture(canvas)
+  texture.colorSpace = THREE.SRGBColorSpace
+  texture.wrapS = texture.wrapT = THREE.RepeatWrapping
+  texture.anisotropy = 8
+  texture.userData.roomCopy = true
+  return lay(texture, g.angle, [Wcm, Hcm], u0, v0, x0, y0)
 }
 
 /**
  * A room's floor material: its finish's texture laid from the room's corner (texture coordinates are the plan's x and
  * -y, in cm).
  */
-export function floorMaterial(room: Room, photo?: Photo, origin?: Point): THREE.MeshStandardMaterial {
+export function floorMaterial(room: Room, photo?: Photo, origin?: Point, photos?: Photos): THREE.MeshStandardMaterial {
   const floor = room.floor!
   // Laid from the room's corner (or the corner of the whole space it's open to, so it runs on across).
   const o = origin ?? (({ minX, minY }) => ({ x: minX, y: minY }))(bbox(room.points))
-  const map = laidTexture(floor, 'floor', photo, o.x, -o.y)
+  const g = photos && hasMix(floor) ? tileGrid(floor, 'floor') : null
+  const map = g
+    ? mixedTexture(floor, 'floor', g, room.points.map((p) => ({ x: p.x - o.x, y: p.y - o.y })), photos!, o.x, -o.y)
+    : laidTexture(floor, 'floor', photo, o.x, -o.y)
   const f = finishOf(floor, 'floor')
   return new THREE.MeshStandardMaterial({ map, color: map ? '#ffffff' : f.color, roughness: f.def.roughness, metalness: 0 })
 }
@@ -381,8 +467,17 @@ export function floorMaterial(room: Room, photo?: Photo, origin?: Point): THREE.
  * A material for a wall finish, whose texture coordinates are the distance along the wall and the height up it (cm),
  * so tiles start at the floor.
  */
-export function wallMaterial(s: Surface, photo?: Photo): THREE.MeshStandardMaterial {
-  const map = laidTexture(s, 'wall', photo, 0, 0)
+export function wallMaterial(s: Surface, photo?: Photo, extent?: { u0: number; u1: number; z0: number; z1: number }, photos?: Photos): THREE.MeshStandardMaterial {
+  const g = extent && photos && hasMix(s) ? tileGrid(s, 'wall') : null
+  // Surface coordinates run along the wall and down from the floor (minus the height).
+  const map = g
+    ? mixedTexture(s, 'wall', g, [
+        { x: extent!.u0, y: -extent!.z0 },
+        { x: extent!.u1, y: -extent!.z0 },
+        { x: extent!.u1, y: -extent!.z1 },
+        { x: extent!.u0, y: -extent!.z1 },
+      ], photos!, 0, 0)
+    : laidTexture(s, 'wall', photo, 0, 0)
   const f = finishOf(s, 'wall')
   return new THREE.MeshStandardMaterial({ map, color: map ? '#ffffff' : f.color, roughness: f.def.roughness, metalness: 0 })
 }

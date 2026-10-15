@@ -27,6 +27,8 @@ interface UiState {
   multiPick: boolean
   /** The panel as a sheet from the bottom (phones): half the screen, or all of it. */
   sheetFull: boolean
+  /** Laying out several tiles (see TileLayout): a room's floor, or one of its walls (`edge`). */
+  tileLayout: { roomId: string; edge?: number } | null
   openStart: (open: boolean) => void
   openProjects: (open: boolean) => void
   openPrint: (open: boolean) => void
@@ -40,6 +42,7 @@ interface UiState {
   setHoverWall: (w: { roomId: string; edge: number } | null) => void
   setMultiPick: (on: boolean) => void
   setSheetFull: (full: boolean) => void
+  openTileLayout: (target: { roomId: string; edge?: number } | null) => void
 }
 
 /** Dialog visibility, shared so any part of the UI can open them. */
@@ -58,6 +61,7 @@ export const useUi = create<UiState>((set) => ({
   hoverWall: null,
   multiPick: false,
   sheetFull: false,
+  tileLayout: null,
   openStart: (startOpen) => set({ startOpen }),
   openProjects: (projectsOpen) => set({ projectsOpen }),
   openPrint: (printOpen) => set({ printOpen }),
@@ -71,6 +75,7 @@ export const useUi = create<UiState>((set) => ({
   setHoverWall: (hoverWall) => set({ hoverWall }),
   setMultiPick: (multiPick) => set({ multiPick }),
   setSheetFull: (sheetFull) => set({ sheetFull }),
+  openTileLayout: (tileLayout) => set({ tileLayout }),
 }))
 
 /** Open the panel on a tab, or close it if it's already showing that tab. */

@@ -1,5 +1,5 @@
 import { t, tc } from '@/i18n'
-import { useEffect, useId } from 'react'
+import { useEffect, useId, useRef } from 'react'
 import type { ReactNode } from 'react'
 import {
   AlignCenterHorizontal,
@@ -37,7 +37,7 @@ import type { Worktop } from '@/model/symbols'
 import type { FrameColor } from '@/model/symbols'
 import { formatArea, formatLength } from '@/model/units'
 import { PERSON, PERSON_PRESETS, personLook, personSupport, POSE_NAMES } from '@/model/people'
-import type { Dimension, ItemRef, OutdoorKind, PlanSymbol, RailingStyle, Room, RoomUse, SavedView, Units } from '@/model/types'
+import type { Dimension, ItemRef, OutdoorKind, PlanSymbol, Project, RailingStyle, Room, RoomUse, SavedView, Units } from '@/model/types'
 import {
   arrangeSelection,
   autoDimension,
@@ -79,6 +79,7 @@ import { useUi } from '@/store/ui'
 import { LengthInput, NumberInput, TextInput } from './LengthInput'
 import { CeilingSection, GroupLightSection, GrooveLightWalls, HiddenLightControls, LightSection, SwitchSection } from './LightingProps'
 import { Choice } from './Choice'
+import { headOf, headPoint, showerGlass } from '@/model/shower'
 import { FloorSection, WallsSection } from './FinishProps'
 
 function Section({ title, action, children, className }: { title?: ReactNode; action?: ReactNode; children: ReactNode; className?: string }) {
@@ -828,6 +829,117 @@ function ShowerGlass({ sym }: { sym: PlanSymbol }) {
   )
 }
 
+/**
+ * Where the shower head goes: tap or drag along a wall on the little plan of the shower (turned as it is on the plan),
+ * or have it come down from the ceiling (a rain shower).
+ */
+function ShowerHeadPicker({ sym }: { sym: PlanSymbol }) {
+  const floor = useFloor()
+  const units = useEditor((s) => s.project.units)
+  const theme = usePlanTheme()
+  const gRef = useRef<SVGGElement>(null)
+  const glass = showerGlass(sym, () => openSides(sym, floor.rooms))
+  const place = headOf(sym, glass)
+  const walls = (['back', 'left', 'right', 'front'] as const).filter((s) => !glass.includes(s))
+  const w = sym.width
+  const d = sym.depth
+  const set = (head: PlanSymbol['showerHead'], live = false) => {
+    const st = useEditor.getState()
+    const recipe = (p: Project) => {
+      const s = draftFloor(p).symbols.find((x) => x.id === sym.id)
+      if (!s) return
+      if (head) s.showerHead = head
+      else delete s.showerHead
+    }
+    if (live) st.mutate(recipe)
+    else st.commit(recipe)
+  }
+  /** The wall nearest a pointer, and how far along it. */
+  const spotAt = (e: { clientX: number; clientY: number }) => {
+    const g = gRef.current
+    const m = g?.getScreenCTM()
+    if (!g || !m || !walls.length) return null
+    const p = new DOMPoint(e.clientX, e.clientY).matrixTransform(m.inverse())
+    let best: { side: (typeof walls)[number]; at: number; gap: number } | null = null
+    for (const side of walls) {
+      const along = side === 'back' || side === 'front'
+      const len = along ? w : d
+      const at = Math.min(1, Math.max(0, ((along ? p.x : p.y) + len / 2) / len))
+      const gap = Math.abs(along ? p.y - (side === 'back' ? -d / 2 : d / 2) : p.x - (side === 'left' ? -w / 2 : w / 2))
+      if (!best || gap < best.gap) best = { side, at, gap }
+    }
+    if (!best) return null
+    // Right in the middle when close to it.
+    const at = Math.abs(best.at - 0.5) < 0.06 ? 0.5 : Math.round(best.at * 1000) / 1000
+    return { side: best.side, at }
+  }
+  const dragging = useRef(false)
+  const head = place.side === 'ceiling' ? null : headPoint(place, w, d)
+  const len = place.side === 'back' || place.side === 'front' ? w : d
+  const fromCorner = Math.min(place.at, 1 - place.at) * len
+  const pad = Math.max(w, d) * 0.18
+  const r = Math.max(w, d)
+
+  return (
+    <div className="space-y-1.5">
+      <Choice
+        label={t('Shower head')}
+        value={place.side === 'ceiling' ? 'ceiling' : 'wall'}
+        onChange={(v) => set(v === 'ceiling' ? { side: 'ceiling' } : undefined)}
+        options={[
+          ...(walls.length ? [{ value: 'wall' as const, label: t('On a wall') }] : []),
+          { value: 'ceiling', label: t('From the ceiling'), title: t('A rain shower over the middle') },
+        ]}
+      />
+      <svg
+        viewBox={`${-r / 2 - pad} ${-r / 2 - pad} ${r + pad * 2} ${r + pad * 2}`}
+        className="h-36 w-full touch-none rounded-md bg-muted/60"
+        role="application"
+        aria-label={t('Tap a wall of the shower to put the head there')}
+        onPointerDown={(e) => {
+          const spot = spotAt(e)
+          if (!spot) return
+          e.currentTarget.setPointerCapture(e.pointerId)
+          dragging.current = true
+          useEditor.getState().checkpoint()
+          set(spot, true)
+        }}
+        onPointerMove={(e) => {
+          if (!dragging.current) return
+          const spot = spotAt(e)
+          if (spot) set(spot, true)
+        }}
+        onPointerUp={() => (dragging.current = false)}
+        onPointerCancel={() => (dragging.current = false)}
+      >
+        <g ref={gRef} transform={`rotate(${sym.rotation})`}>
+          <rect x={-w / 2} y={-d / 2} width={w} height={d} fill={theme.paper} stroke={theme.ink} strokeOpacity={0.35} strokeWidth={1} strokeDasharray="4 3" vectorEffect="non-scaling-stroke" />
+          {walls.map((side) => {
+            const [x1, y1, x2, y2] =
+              side === 'back' ? [-w / 2, -d / 2, w / 2, -d / 2] : side === 'front' ? [-w / 2, d / 2, w / 2, d / 2] : side === 'left' ? [-w / 2, -d / 2, -w / 2, d / 2] : [w / 2, -d / 2, w / 2, d / 2]
+            return <line key={side} x1={x1} y1={y1} x2={x2} y2={y2} stroke={theme.wall} strokeWidth={8} strokeLinecap="square" vectorEffect="non-scaling-stroke" className="cursor-pointer" />
+          })}
+          {head ? (
+            <g pointerEvents="none">
+              <line x1={head.x} y1={head.y} x2={head.x + head.nx * 22} y2={head.y + head.ny * 22} stroke="var(--primary)" strokeWidth={2} vectorEffect="non-scaling-stroke" />
+              <circle cx={head.x + head.nx * 22} cy={head.y + head.ny * 22} r={Math.max(w, d) * 0.08} fill="var(--primary)" />
+            </g>
+          ) : (
+            <circle cx={0} cy={0} r={Math.max(w, d) * 0.16} fill="none" stroke="var(--primary)" strokeWidth={2} strokeDasharray="4 3" vectorEffect="non-scaling-stroke" pointerEvents="none" />
+          )}
+        </g>
+      </svg>
+      <p className="text-xs text-muted-foreground">
+        {place.side === 'ceiling'
+          ? t('From the ceiling, over the middle.')
+          : place.at === 0.5
+            ? t('In the middle of its wall. Tap or drag along a wall to move it.')
+            : t('{length} from the nearer corner. Tap or drag along a wall to move it.', { length: formatLength(fromCorner, units) })}
+      </p>
+    </div>
+  )
+}
+
 /** Swatches for the frame finishes an item comes in, plus any custom color. */
 function FramePicker({ sym, frames, label }: { sym: PlanSymbol; frames: FrameColor[]; label?: string }) {
   const current = frameOf(sym) ?? frames[0]
@@ -1361,6 +1473,7 @@ function SymbolProps({ sym, units }: { sym: PlanSymbol; units: Units }) {
         })}
         {def?.fullHeight && <p className="text-xs text-muted-foreground">{t("Floor to ceiling, whatever the room's height.")}</p>}
         {sym.type === 'shower' && <ShowerGlass sym={sym} />}
+        {(sym.type === 'shower' || sym.type === 'shower-quadrant') && <ShowerHeadPicker sym={sym} />}
         {STYLES[sym.type] && (
           <Field label={t('Style')}>
             {(id) => (

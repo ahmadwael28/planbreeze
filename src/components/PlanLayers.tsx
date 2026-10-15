@@ -13,6 +13,8 @@ import {
   sub,
 } from '@/model/geometry'
 import { finishOf, surfaceLayout, wallSurfaceAt } from '@/model/finishes'
+import { openSides } from '@/model/guides'
+import { cellRect, hasMix, parseKey, tileGrid, tileIndex, tileStyle } from '@/model/tiles'
 import { ceilingLight, ceilingRoom, ceilingZones, coveRuns, nearestOnStrip, onCeilingJoin, pocketWidth, SHADOW_GAP, WIRE_COLORS } from '@/model/lighting'
 import { dimensionPoints, isOpen, isOutdoor, railingRuns, roomOuter, symbolPose } from '@/model/project'
 import { floorOrigin } from '@/model/divide'
@@ -80,7 +82,8 @@ const SymbolGraphic = memo(function SymbolGraphic({
     >
       {!forPrint && <rect x={-sym.width / 2} y={-depth / 2} width={sym.width} height={depth} fill="transparent" />}
       {def ? (
-        def.render(sym.width, depth, theme, sym)
+        // A shower with glass where there's no wall: which sides that is, for where its head goes (see model/shower).
+        def.render(sym.width, depth, theme, sym.type === 'shower' && !sym.screens ? { ...sym, screens: openSides(sym, rooms) } : sym)
       ) : (
         <rect x={-sym.width / 2} y={-depth / 2} width={sym.width} height={depth} fill="#f87171" />
       )}
@@ -203,15 +206,39 @@ function CurtainPockets({ room, theme }: { room: Room; theme: PlanTheme }) {
  * or the corner of the whole space it's open to, so they run on across). Their width follows the zoom by hand, as
  * Chrome draws non-scaling strokes in patterns far too wide at some zooms.
  */
-function FloorFinish({ room, origin, theme, scale }: { room: Room; origin: Point; theme: PlanTheme; scale: number }) {
+function FloorFinish({ room, origin, theme, scale, images }: { room: Room; origin: Point; theme: PlanTheme; scale: number; images?: ProjectImage[] }) {
   // Unique on the page: the same room can be drawn twice (the plan, and a preview of it over the plan).
   const uid = useId().replace(/[^\w-]/g, '')
   const layout = room.floor && surfaceLayout(room.floor, 'floor')
   if (!layout) return null
   const [bw, bh] = layout.block
   const id = `floor-${uid}`
+  // Laid with several tiles: the others in their colors (a photo's average), under the joints.
+  const floor = room.floor!
+  const grid = hasMix(floor) ? tileGrid(floor, 'floor') : null
+  const toneOf = (k: number) => {
+    const st = tileStyle(floor, k)
+    return (st.image && images?.find((m) => m.id === st.image)?.tone) || st.color || finishOf(floor, 'floor').color
+  }
   return (
     <g pointerEvents="none">
+      {grid && (
+        <>
+          <clipPath id={`${id}-clip`}>
+            <path d={polygonPath(room.points)} />
+          </clipPath>
+          <g clipPath={`url(#${id}-clip)`}>
+            <g transform={`translate(${origin.x} ${origin.y}) rotate(${grid.angle})`}>
+              {Object.keys(floor.cells ?? {}).map((key) => {
+                const k = tileIndex(floor, key)
+                if (!k) return null
+                const r = cellRect(grid, parseKey(key))
+                return <rect key={key} x={r.x} y={r.y} width={r.w} height={r.h} fill={theme.tint(toneOf(k))} />
+              })}
+            </g>
+          </g>
+        </>
+      )}
       <defs>
         <pattern
           id={id}
@@ -587,7 +614,7 @@ export function PlanLayers({
             fillOpacity={lighting ? 0.55 : 1}
           />
         ))}
-        {!lighting && !forPrint && floor.rooms.map((r) => <FloorFinish key={r.id} room={r} origin={floorOrigin(r, floor.rooms)} theme={theme} scale={scale} />)}
+        {!lighting && !forPrint && floor.rooms.map((r) => <FloorFinish key={r.id} room={r} origin={floorOrigin(r, floor.rooms)} theme={theme} scale={scale} images={images} />)}
         {!lighting && floor.rooms.map((r) => <WallFinishes key={r.id} room={r} theme={theme} images={images} />)}
       </g>
       {lighting && (

@@ -2,6 +2,8 @@ import type { ReactNode } from 'react'
 import { lightHex } from './lighting'
 import type { PlanTheme } from './theme'
 import type { CeilingStyle, PlanSymbol } from './types'
+import { headInModel, headOf, headPoint, showerGlass } from './shower'
+import type { ShowerSide } from './shower'
 
 export type SymbolCategory =
   | 'Doors & Windows'
@@ -516,6 +518,32 @@ function ceilingIcon(style: CeilingStyle, t: PlanTheme) {
 }
 
 /** Drawing helpers bound to a theme. */
+/**
+ * A shower's head on the plan, where it's been put (in the shower's own frame, as its flips mirror the drawing): an arm
+ * out from its wall with the head on it, or a rain head over the middle (dashed: it's up at the ceiling).
+ */
+function showerHeadMark(sym: PlanSymbol | undefined, w: number, d: number, t: PlanTheme, glass: ShowerSide[]) {
+  const place = sym ? headInModel(sym, headOf(sym, glass)) : { side: 'back' as const, at: 0.5 }
+  const p = headPoint(place, w, d)
+  const stroke = { stroke: t.ink, vectorEffect: 'non-scaling-stroke', fill: 'none' } as const
+  if (place.side === 'ceiling') {
+    return (
+      <g data-shower-head="">
+        <circle cx={p.x} cy={p.y} r={14} {...stroke} strokeWidth={1} strokeDasharray="3 2" />
+        <circle cx={p.x} cy={p.y} r={2.5} fill={t.ink} />
+      </g>
+    )
+  }
+  const tip = { x: p.x + p.nx * 22, y: p.y + p.ny * 22 }
+  return (
+    <g data-shower-head="">
+      <line x1={p.x} y1={p.y} x2={tip.x} y2={tip.y} {...stroke} strokeWidth={1.4} />
+      <circle cx={tip.x} cy={tip.y} r={7} {...stroke} strokeWidth={1.2} fill={t.fill} />
+      <circle cx={tip.x} cy={tip.y} r={2} fill={t.ink} />
+    </g>
+  )
+}
+
 function kit(t: PlanTheme) {
   const base = {
     stroke: t.ink,
@@ -1814,6 +1842,7 @@ export const SYMBOLS: SymbolDef[] = [
           <line x1={-w / 2} y1={-d / 2} x2={w / 2} y2={d / 2} {...k.thin} />
           <line x1={w / 2} y1={-d / 2} x2={-w / 2} y2={d / 2} {...k.thin} />
           <circle cx={0} cy={0} r={4} {...k.s()} />
+          {showerHeadMark(sym, w, d, t, sym?.screens ?? ['front'])}
           {sym?.doors === 'sliding' ? (
             <>
               <line x1={-w / 2} y1={d / 2 - 2} x2={-w / 2 + w * 0.55} y2={d / 2 - 2} {...k.line} />
@@ -1835,7 +1864,7 @@ export const SYMBOLS: SymbolDef[] = [
     width: 90,
     depth: 90,
     height: 200,
-    render: (w, d, t) => {
+    render: (w, d, t, sym) => {
       const k = kit(t)
       // Walls along the back and left; a quarter-round glass front with sliding doors.
       return (
@@ -1843,6 +1872,7 @@ export const SYMBOLS: SymbolDef[] = [
           <path d={`M${-w / 2},${-d / 2} L${w / 2},${-d / 2} A${w},${d} 0 0 1 ${-w / 2},${d / 2} Z`} {...k.s()} />
           <path d={`M${w / 2 - 7},${-d / 2} A${w - 7},${d - 7} 0 0 1 ${-w / 2},${d / 2 - 7}`} {...k.thin} strokeDasharray="4 3" />
           <circle cx={-w / 2 + w * 0.35} cy={-d / 2 + d * 0.35} r={4} {...k.s()} />
+          {showerHeadMark(sym, w, d, t, sym ? showerGlass(sym, () => []) : [])}
         </>
       )
     },

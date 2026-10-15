@@ -440,7 +440,8 @@ export function surfaceLayout(s: Surface, place: Place = 'floor'): Layout | null
   if (def.kind === 'tile') {
     // The long side across (x), the short down (y).
     const cols = Math.max(2, Math.round(240 / len))
-    const rows = Math.max(2, Math.round(240 / w))
+    // An even number of rows, so brick bond alternates across one block and into the next.
+    const rows = 2 * Math.max(1, Math.round(120 / w))
     const pieces: FloorPiece[] = []
     for (let r = 0; r < rows; r++) {
       const shift = pattern === 'offset' && r % 2 ? len / 2 : 0

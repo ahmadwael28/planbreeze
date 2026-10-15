@@ -9,6 +9,8 @@
  * costs few draw calls.
  */
 import * as THREE from 'three'
+import { headInModel, headOf, headPoint, showerGlass } from '@/model/shower'
+import type { HeadPlace } from '@/model/shower'
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js'
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js'
 import { inwardNormal, signedArea } from '@/model/geometry'
@@ -1857,8 +1859,32 @@ function bathtub(k: Kit, w: number, d: number, h: number) {
   return g
 }
 
+/**
+ * A rain head where it's been put (see model/shower): on an arm out from its wall with a mixer below, or down from the
+ * ceiling (`ceilingH`) in the middle with the mixer on the first wall there is (`mixerAt`: that wall's middle).
+ */
+function showerHead(g: THREE.Group, chrome: Mat, head: HeadPlace, w: number, d: number, h: number, ceilingH: number, mixerAt?: HeadPlace) {
+  const mixer = (p: { x: number; y: number; nx: number; ny: number }) =>
+    g.add(rbox(p.ny !== 0 ? 14 : 4, 8, p.ny !== 0 ? 4 : 14, 2, p.x + p.nx * 2, 105, p.y + p.ny * 2, chrome))
+  if (head.side === 'ceiling') {
+    const c = headPoint(head, w, d)
+    g.add(cylinder(1.1, Math.max(4, ceilingH - (h - 10.4)), c.x, h - 10.4, c.y, chrome, 1, 1.1, 12))
+    g.add(cylinder(15, 1.6, c.x, h - 12, c.y, chrome))
+    if (mixerAt) mixer(headPoint(mixerAt, w, d))
+    return
+  }
+  const p = headPoint(head, w, d)
+  const arm = cylinder(1.1, 25, 0, 0, 0, chrome, 1, 1.1, 12)
+  if (p.ny !== 0) arm.rotation.x = Math.PI / 2
+  else arm.rotation.z = Math.PI / 2
+  arm.position.set(p.x + p.nx * 12.5, h - 10, p.y + p.ny * 12.5)
+  g.add(arm)
+  g.add(cylinder(11, 1.6, p.x + p.nx * 25, h - 12, p.y + p.ny * 25, chrome))
+  mixer(p)
+}
+
 /** A shower with glass on the given sides (model frame: +x right, +z front); the others are walls. */
-function shower(k: Kit, w: number, d: number, h: number, glass: Mat, sides: Set<Side>, doors: 'hinged' | 'sliding') {
+function shower(k: Kit, w: number, d: number, h: number, glass: Mat, sides: Set<Side>, doors: 'hinged' | 'sliding', head: HeadPlace, ceilingH: number) {
   const g = new THREE.Group()
   const tray = 5
   g.add(rbox(w, tray, d, 1.5, 0, 0, 0, k.q(COLORS.ceramic, 'gloss')))
@@ -1912,26 +1938,14 @@ function shower(k: Kit, w: number, d: number, h: number, glass: Mat, sides: Set<
   corner('left', 'front', -1, 1)
   corner('right', 'back', 1, -1)
   corner('left', 'back', -1, -1)
-  // Rain head on an arm from a wall, and a mixer; with no wall at all, hanging from the frame.
+  // Rain head where it's been put, and a mixer on its wall.
   const wall = (['back', 'left', 'right', 'front'] as const).find((s) => !sides.has(s))
-  if (wall) {
-    const { x, z, nx, nz } = at[wall]
-    const arm = cylinder(1.1, 25, 0, 0, 0, chrome, 1, 1.1, 12)
-    if (nz !== 0) arm.rotation.x = Math.PI / 2
-    else arm.rotation.z = Math.PI / 2
-    arm.position.set(x + nx * 12.5, h - 10, z + nz * 12.5)
-    g.add(arm)
-    g.add(cylinder(11, 1.6, x + nx * 25, h - 12, z + nz * 25, chrome))
-    g.add(rbox(nz !== 0 ? 14 : 4, 8, nz !== 0 ? 4 : 14, 2, x + nx * 2, 105, z + nz * 2, chrome))
-  } else {
-    g.add(cylinder(1.1, 10, 0, h - 10.4, 0, chrome, 1, 1.1, 12))
-    g.add(cylinder(11, 1.6, 0, h - 12, 0, chrome))
-  }
+  showerHead(g, chrome, head, w, d, h, ceilingH, wall && { side: wall, at: 0.5 })
   return g
 }
 
 /** A curved corner shower: walls on the back and left, a quarter-round glass front with sliding or hinged doors. */
-function quadrantShower(k: Kit, w: number, d: number, h: number, glass: Mat, doors: 'hinged' | 'sliding') {
+function quadrantShower(k: Kit, w: number, d: number, h: number, glass: Mat, doors: 'hinged' | 'sliding', head: HeadPlace, ceilingH: number) {
   const g = new THREE.Group()
   const tray = 5
   const shape = new THREE.Shape()
@@ -1982,14 +1996,9 @@ function quadrantShower(k: Kit, w: number, d: number, h: number, glass: Mat, doo
       g.add(box(1.4, 30, 1.4, p.x, 90, p.z, chrome))
     }
   }
-  // Rain head on an arm from the back wall, near the corner, and a mixer.
-  const hx = -w / 2 + w * 0.32
-  const arm = cylinder(1.1, 25, 0, 0, 0, chrome, 1, 1.1, 12)
-  arm.rotation.x = Math.PI / 2
-  arm.position.set(hx, h - 10, -d / 2 + 12.5)
-  g.add(arm)
-  g.add(cylinder(11, 1.6, hx, h - 12, -d / 2 + 25, chrome))
-  g.add(rbox(14, 8, 4, 2, hx, 105, -d / 2 + 2, chrome))
+  // Rain head where it's been put (from the ceiling: over the middle of the quarter), and a mixer on its wall.
+  const over = head.side === 'ceiling' ? { side: 'ceiling' as const, at: 0.5 } : head
+  showerHead(g, chrome, over, w, d, h, ceilingH, { side: 'back', at: 0.32 })
   return g
 }
 
@@ -2736,11 +2745,12 @@ export function symbolModel(
       // Glass where chosen, or on the sides not against a wall; the model is mirrored by flips, the sides with it.
       const flip = (s: Side): Side =>
         sym.flipX && (s === 'left' || s === 'right') ? (s === 'left' ? 'right' : 'left') : sym.flipY && (s === 'front' || s === 'back') ? (s === 'front' ? 'back' : 'front') : s
-      g = shower(k, w, d, h, k.glass(), new Set((sym.screens ?? openSides(sym, rooms)).map(flip)), sym.doors ?? 'hinged')
+      const glass = sym.screens ?? openSides(sym, rooms)
+      g = shower(k, w, d, h, k.glass(), new Set(glass.map(flip)), sym.doors ?? 'hinged', headInModel(sym, headOf(sym, glass)), ceilingH)
       break
     }
     case 'shower-quadrant':
-      g = quadrantShower(k, w, d, h, k.glass(), sym.doors ?? 'sliding')
+      g = quadrantShower(k, w, d, h, k.glass(), sym.doors ?? 'sliding', headInModel(sym, headOf(sym, showerGlass(sym, () => []))), ceilingH)
       break
     case 'wall-post':
       g = wallPost(k, w, d, floorH)
