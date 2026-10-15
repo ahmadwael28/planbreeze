@@ -4,14 +4,18 @@
  *
  * The grid is the one the finish is laid in (see surfaceLayout): straight, brick (offset) or diagonal tiles, the long
  * side across. Places on it are numbered from where the finish is laid from, in the grid's own frame `G`, which is the
- * surface's turned by the layout's angle: G = R(-angle) · q, with q the surface's coordinates y down (a floor: the plan
- * from its origin; a wall: along it, and down from the floor, i.e. minus the height). The plan, the 3D view and the
- * layout editor all place tiles this way, so they agree.
+ * surface's turned by the layout's angle about the grid's corner: G = R(-angle) · (q - origin), with q the surface's
+ * coordinates y down (a floor: the plan from its origin; a wall: along it, and down from the floor, i.e. minus the
+ * height). On a wall the corner is placed so its cut tiles are where they were chosen to be (see wallOrigin). The plan,
+ * the 3D view and the layout editor all place tiles this way, so they agree.
  */
 import { finishOf, surfaceLayout } from './finishes'
 import type { Place } from './finishes'
 import { pointInPolygon } from './geometry'
-import type { Point, Surface, TileMix } from './types'
+import type { Point, Surface, TileMix, WallSurface } from './types'
+
+/** Where a wall's cut tiles go, as seen from the room (see WallSurface.cut). */
+export type CutSide = 'left' | 'right' | 'both'
 
 export interface TileGrid {
   /** A tile's long side (across, x) and short side (down, y), cm. */
@@ -21,6 +25,16 @@ export interface TileGrid {
   offset: boolean
   /** The angle the grid is laid at (degrees), as in Layout. */
   angle: number
+  /** Where the grid's corner (0, 0) is, in surface coordinates. */
+  origin: Point
+  /** How far apart the tiles' joints are along the surface's x (along a wall). */
+  period: number
+}
+
+/** A wall's extent along it, left to right as seen from the room (surface x). */
+export interface Span {
+  u0: number
+  u1: number
 }
 
 /** A place on the grid: column and row. */
@@ -29,23 +43,68 @@ export interface Cell {
   r: number
 }
 
-/** A surface's tiles as a grid, when they're laid in one (straight, brick or diagonal tiles); null otherwise. */
-export function tileGrid(s: Surface, place: Place): TileGrid | null {
+const rad = (deg: number) => (deg * Math.PI) / 180
+
+/** How far apart joints are along x for tiles len × w laid at `angle`: a tile's length, its width when turned. */
+function periodOf(len: number, w: number, angle: number) {
+  const a = rad(angle)
+  const c = Math.abs(Math.cos(a))
+  const s = Math.abs(Math.sin(a))
+  if (s < 0.01) return len
+  if (c < 0.01) return w
+  return len / c
+}
+
+/**
+ * Where along a wall its grid starts, so its cut tiles are where chosen: whole tiles from the left end (cut at the
+ * right), from the right end (cut at the left), or centered, cut alike at both ends. Centered, there's a joint in the
+ * middle of the wall or a tile: whichever leaves the bigger pieces at the ends, so there are no slivers.
+ */
+export function wallOrigin(cut: CutSide | undefined, span: Span, period: number): number {
+  if (cut === 'left') return span.u1
+  if (cut !== 'both') return span.u0
+  const mid = (span.u0 + span.u1) / 2
+  const half = (span.u1 - span.u0) / 2
+  const piece = (o: number) => {
+    const r = (((half - o) % period) + period) % period
+    return r < 0.5 || period - r < 0.5 ? period : r
+  }
+  return piece(0) >= piece(period / 2) ? mid : mid - period / 2
+}
+
+/**
+ * A surface's tiles as a grid, when they're laid in one (straight, brick or diagonal tiles); null otherwise. On a
+ * wall, `span` (how far it reaches) places the grid for its cut tiles; without it the grid starts at the wall's start.
+ */
+export function tileGrid(s: Surface, place: Place, span?: Span): TileGrid | null {
   const f = finishOf(s, place)
   if (f.def.kind !== 'tile' || !f.size || !['straight', 'offset', 'diagonal'].includes(f.pattern)) return null
   const layout = surfaceLayout(s, place)
   if (!layout) return null
-  return { len: Math.max(...f.size), w: Math.min(...f.size), offset: f.pattern === 'offset', angle: layout.angle }
+  const len = Math.max(...f.size)
+  const w = Math.min(...f.size)
+  const period = periodOf(len, w, layout.angle)
+  const x = place === 'wall' && span ? wallOrigin((s as WallSurface).cut, span, period) : 0
+  return { len, w, offset: f.pattern === 'offset', angle: layout.angle, origin: { x, y: 0 }, period }
 }
 
-const rad = (deg: number) => (deg * Math.PI) / 180
+/** How wide the cut tiles are at a wall's left and right ends (0: whole tiles there). */
+export function cutPieces(g: TileGrid, span: Span): { left: number; right: number } {
+  const mod = (v: number) => {
+    const r = ((v % g.period) + g.period) % g.period
+    return r < 0.5 || g.period - r < 0.5 ? 0 : r
+  }
+  return { left: mod(g.origin.x - span.u0), right: mod(span.u1 - g.origin.x) }
+}
 
 /** Surface coordinates (y down) to the grid's frame. */
 export function toGrid(g: TileGrid, q: Point): Point {
   const a = rad(g.angle)
   const c = Math.cos(a)
   const s = Math.sin(a)
-  return { x: c * q.x + s * q.y, y: -s * q.x + c * q.y }
+  const x = q.x - g.origin.x
+  const y = q.y - g.origin.y
+  return { x: c * x + s * y, y: -s * x + c * y }
 }
 
 /** The grid's frame to surface coordinates (y down). */
@@ -53,7 +112,7 @@ export function fromGrid(g: TileGrid, p: Point): Point {
   const a = rad(g.angle)
   const c = Math.cos(a)
   const s = Math.sin(a)
-  return { x: c * p.x - s * p.y, y: s * p.x + c * p.y }
+  return { x: c * p.x - s * p.y + g.origin.x, y: s * p.x + c * p.y + g.origin.y }
 }
 
 const odd = (n: number) => ((n % 2) + 2) % 2 === 1

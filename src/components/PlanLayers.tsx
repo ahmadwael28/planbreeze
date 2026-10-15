@@ -287,9 +287,15 @@ function WallFinishes({ room, theme, images }: { room: Room; theme: PlanTheme; i
         const q = add(b, mul(inn, WALL_STRIP / 2))
         const f = finishOf(s, 'wall')
         const color = (s.image && images?.find((m) => m.id === s.image)?.tone) || f.color
-        // Joints every tile (along the wall) or slat.
+        // Joints every tile (along the wall) or slat; tiles from where the wall's grid starts (see model/tiles).
         const k = f.def.kind
         const step = f.size && (k === 'tile' ? (s.turned ? Math.min(...f.size) : Math.max(...f.size)) : k === 'slats' ? f.size[0] + f.size[1] : 0)
+        const L = dist(a, b)
+        const along = normalize(sub(b, a))
+        // Along the wall as seen from the room runs from a to b, or the other way.
+        const sign = along.x * inn.y - along.y * inn.x > 0 ? 1 : -1
+        const grid = k === 'tile' ? tileGrid(s, 'wall', sign > 0 ? { u0: 0, u1: L } : { u0: -L, u1: 0 }) : null
+        const first = grid && step ? (((sign * grid.origin.x) % step) + step) % step : 0
         return (
           <g key={i}>
             <line x1={p.x} y1={p.y} x2={q.x} y2={q.y} stroke={color} strokeWidth={WALL_STRIP} />
@@ -303,6 +309,7 @@ function WallFinishes({ room, theme, images }: { room: Room; theme: PlanTheme; i
                 strokeOpacity={0.35}
                 strokeWidth={WALL_STRIP}
                 strokeDasharray={`${Math.min(0.5, step / 4)} ${step - Math.min(0.5, step / 4)}`}
+                strokeDashoffset={-first}
               />
             )}
             <line

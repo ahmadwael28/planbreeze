@@ -371,4 +371,16 @@ export default {
   'From the ceiling, over the middle.': 'من السقف، فوق المنتصف.',
   'In the middle of its wall. Tap or drag along a wall to move it.': 'في منتصف حائطه. انقر أو اسحب على امتداد حائط لنقله.',
   '{length} from the nearer corner. Tap or drag along a wall to move it.': 'على بُعد {length} من أقرب ركن. انقر أو اسحب على امتداد حائط لنقله.',
+  // Where a wall's cut tiles go
+  'Cut tiles at': 'البلاط المقصوص عند',
+  'Left end': 'الطرف الأيسر',
+  'Both ends': 'الطرفين',
+  'Right end': 'الطرف الأيمن',
+  'The tiles centered on the wall, cut alike at both ends': 'البلاط في منتصف الحائط، مقصوص بالتساوي عند الطرفين',
+  'Where tiles that don’t fit the wall are cut, as seen from the room.': 'مكان قص البلاط الذي لا يكتمل على طول الحائط، كما يُرى من داخل الغرفة.',
+  'Whole tiles from end to end.': 'بلاط كامل من طرف إلى طرف.',
+  'Cut tiles {length} wide at each end.': 'بلاط مقصوص بعرض {length} عند كل طرف.',
+  'Cut tiles {length} wide at the left end.': 'بلاط مقصوص بعرض {length} عند الطرف الأيسر.',
+  'Cut tiles {length} wide at the right end.': 'بلاط مقصوص بعرض {length} عند الطرف الأيمن.',
+  'Cut tiles {left} wide at the left, {right} at the right.': 'بلاط مقصوص بعرض {left} عند اليسار، و{right} عند اليمين.',
 } as Record<string, string>

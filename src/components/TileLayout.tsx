@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
 import { useLayout } from '@/hooks/use-layout'
 import { readPhoto } from '@/lib/images'
 import { cn } from '@/lib/utils'
@@ -14,10 +15,10 @@ import type { Place } from '@/model/finishes'
 import { bbox, dist, polygonPath } from '@/model/geometry'
 import { floorOrigin } from '@/model/divide'
 import { uid } from '@/model/project'
-import { borderCells, cellAt, cellCenter, cellKey, cellRect, cellsOn, checker, parseKey, randomMix, tileGrid, tileIndex, tileStyle, toGrid } from '@/model/tiles'
-import type { Cell, TileGrid } from '@/model/tiles'
+import { borderCells, cellAt, cellCenter, cellKey, cellRect, cellsOn, checker, cutPieces, parseKey, randomMix, tileGrid, tileIndex, tileStyle, toGrid } from '@/model/tiles'
+import type { Cell, CutSide, Span, TileGrid } from '@/model/tiles'
 import { formatLength } from '@/model/units'
-import type { Point, Project, ProjectImage, Room, Surface, TileMix } from '@/model/types'
+import type { Point, Project, ProjectImage, Room, Surface, TileMix, Units, WallSurface } from '@/model/types'
 import { wallPatches } from '@/model/walls'
 import { currentFloor, draftFloor, useEditor } from '@/store/editor'
 import { useUi } from '@/store/ui'
@@ -205,7 +206,9 @@ function TileEditor({ target }: { target: Target }) {
   const compact = useLayout().compact
   const laid = surfaceFor(target, floor.rooms, floor.height, floor)
   const s = laid?.surface
-  const grid = s && laid ? tileGrid(s, laid.place) : null
+  // A wall's grid is placed for its cut tiles, so it needs how far the wall reaches.
+  const span = laid?.place === 'wall' ? spanOf(laid.areas) : undefined
+  const grid = s && laid ? tileGrid(s, laid.place, span) : null
   const f = s && laid ? finishOf(s, laid.place) : null
   // The tiles on it (quick to work out, even for a few thousand).
   const cells = grid && laid ? cellsOn(grid, laid.areas) : []
@@ -356,6 +359,7 @@ function TileEditor({ target }: { target: Target }) {
           </div>
           <div className={cn('min-h-0 overflow-y-auto overscroll-contain', compact ? 'flex-1 border-t' : 'w-80 shrink-0 border-s')}>
             <div className="space-y-5 p-4">
+              {span && <CutTiles grid={grid} span={span} cut={(s as WallSurface).cut} units={units} onChange={(cut) => editSurface(target, (x) => void ((x as WallSurface).cut = cut === 'right' ? undefined : cut))} />}
               <section className="space-y-2">
                 <h3 className="text-sm font-semibold">{t('Tiles')}</h3>
                 {/* Two lines either way, so the buttons below don't move as tiles are picked. */}
@@ -480,6 +484,49 @@ function TileEditor({ target }: { target: Target }) {
         </div>
       )}
     </>
+  )
+}
+
+/** How far a wall's parts reach along it (left to right, as seen from the room). */
+function spanOf(areas: Point[][]): Span {
+  const xs = areas.flat().map((p) => p.x)
+  return { u0: Math.min(...xs), u1: Math.max(...xs) }
+}
+
+/**
+ * Where a wall's cut tiles go, as seen from the room: at the left end, both ends alike (the tiles centered), or the
+ * right end; and how wide they come out.
+ */
+export function CutTiles({ grid, span, cut, units, onChange }: { grid: TileGrid; span: Span; cut?: CutSide; units: Units; onChange: (c: CutSide) => void }) {
+  const { left, right } = cutPieces(grid, span)
+  const len = (v: number) => formatLength(v, units)
+  const note =
+    !left && !right
+      ? t('Whole tiles from end to end.')
+      : left && right
+        ? Math.abs(left - right) < 0.5
+          ? t('Cut tiles {length} wide at each end.', { length: len(left) })
+          : t('Cut tiles {left} wide at the left, {right} at the right.', { left: len(left), right: len(right) })
+        : left
+          ? t('Cut tiles {length} wide at the left end.', { length: len(left) })
+          : t('Cut tiles {length} wide at the right end.', { length: len(right) })
+  return (
+    <section className="space-y-2">
+      <h3 className="text-sm font-semibold">{t('Cut tiles at')}</h3>
+      {/* Left and right as seen from the room, whichever way the page reads. */}
+      <ToggleGroup type="single" variant="outline" size="sm" value={cut ?? 'right'} onValueChange={(v) => v && onChange(v as CutSide)} className="w-full" dir="ltr">
+        <ToggleGroupItem value="left" className="flex-1">
+          {t('Left end')}
+        </ToggleGroupItem>
+        <ToggleGroupItem value="both" className="flex-1" title={t('The tiles centered on the wall, cut alike at both ends')}>
+          {t('Both ends')}
+        </ToggleGroupItem>
+        <ToggleGroupItem value="right" className="flex-1">
+          {t('Right end')}
+        </ToggleGroupItem>
+      </ToggleGroup>
+      <p className="text-xs text-muted-foreground">{note}</p>
+    </section>
   )
 }
 
@@ -663,7 +710,7 @@ function SurfaceView({
         <path d={polygonPath(laid.frame)} className="fill-background stroke-muted-foreground" strokeWidth={1} strokeDasharray="5 4" vectorEffect="non-scaling-stroke" />
         <g clipPath={`url(#${id}-clip)`}>
           <path d={polygonPath(laid.frame)} fill={joint} />
-          <g transform={`rotate(${grid.angle})`}>
+          <g transform={`translate(${grid.origin.x} ${grid.origin.y}) rotate(${grid.angle})`}>
             {cells.map((c) => {
               const key = cellKey(c)
               const r = cellRect(grid, c)

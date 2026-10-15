@@ -18,7 +18,7 @@ import type { CurtainWash } from './furniture'
 import { ceilingHeightAt, ceilingLight, ceilingRoom, coveRuns, lightHex, pocketWidth } from '@/model/lighting'
 import { floorMaterial, wallMaterial } from './finishTextures'
 import type { Photos } from './finishTextures'
-import { hasMix } from '@/model/tiles'
+import { hasMix, tileGrid } from '@/model/tiles'
 import type { Photo } from './finishTextures'
 import { bakeGlows, buildCeilings, buildFixture, cabinetLights } from './lighting3d'
 import type { LightHandle, SwitchHandle } from './lighting3d'
@@ -161,7 +161,8 @@ function wallFinishMeshes(
 ) {
   const groups = new Map<string, { room: Room; s: Surface; pos: number[]; uv: number[]; idx: number[] }>()
   for (const p of wallPatches(floor, () => floor.height, openings)) {
-    const key = `${p.room.id}|${JSON.stringify(p.surface)}`
+    // One mesh per room and finish; tiles one per wall, as each wall's are laid for its own cut tiles.
+    const key = `${p.room.id}|${tileGrid(p.surface, 'wall') ? p.edge : ''}|${JSON.stringify(p.surface)}`
     let g = groups.get(key)
     if (!g) groups.set(key, (g = { room: p.room, s: p.surface, pos: [], uv: [], idx: [] }))
     // Seen from the room, does the wall run left to right? If not, flip the quads and their texture.
@@ -219,10 +220,11 @@ export function buildProjectGroup(project: Project, opts: BuildOptions): THREE.G
   const wallMats = new Map<string, THREE.Material>()
   /** A wall finish's material; laid with several tiles, its own for the stretch of wall it covers (`extent`). */
   const wallMat = (s: Surface, extent?: { u0: number; u1: number; z0: number; z1: number }) => {
-    const mixed = !!extent && hasMix(s)
-    const key = JSON.stringify(s) + (mixed ? JSON.stringify(extent) : '')
+    // Tiles depend on how far the wall reaches (where they're cut, the whole surface when several are laid).
+    const sized = !!extent && (hasMix(s) || !!tileGrid(s, 'wall'))
+    const key = JSON.stringify(s) + (sized ? JSON.stringify(extent) : '')
     let m = wallMats.get(key)
-    if (!m) wallMats.set(key, (m = wallMaterial(s, photoOf(s), mixed ? extent : undefined, photos)))
+    if (!m) wallMats.set(key, (m = wallMaterial(s, photoOf(s), sized ? extent : undefined, photos)))
     return m
   }
   const currentIdx = Math.max(

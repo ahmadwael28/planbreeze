@@ -22,6 +22,8 @@ interface Base<T extends string> {
   /** A note under it. */
   children?: ReactNode
   className?: string
+  /** Options that are physical sides (left, right): kept in that order whichever way the page reads. */
+  physical?: boolean
 }
 
 type Props<T extends string> =
@@ -88,6 +90,7 @@ export function Choice<T extends string>(props: Props<T>) {
   } else if (props.multiple) {
     control = (
       <ToggleGroupPrimitive.Root
+        dir={props.physical ? 'ltr' : undefined}
         type="multiple"
         value={props.value}
         onValueChange={(v) => props.onChange(v as T[])}
@@ -100,6 +103,7 @@ export function Choice<T extends string>(props: Props<T>) {
   } else {
     control = (
       <ToggleGroupPrimitive.Root
+        dir={props.physical ? 'ltr' : undefined}
         type="single"
         value={props.value}
         // Clicking the chosen one again keeps it chosen.

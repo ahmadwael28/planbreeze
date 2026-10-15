@@ -16,7 +16,7 @@ import { formatLength } from '@/model/units'
 import type { Finish, FloorFinish, FloorPattern, Project, ProjectImage, Room, Surface, Units, WallFinish, WallSurface } from '@/model/types'
 import { draftFloor, useEditor } from '@/store/editor'
 import { useUi } from '@/store/ui'
-import { hasMix } from '@/model/tiles'
+import { hasMix, tileGrid } from '@/model/tiles'
 import { Choice } from './Choice'
 import { LengthInput, NumberInput } from './LengthInput'
 
@@ -384,6 +384,21 @@ function SurfaceControls<S extends Surface>({
         />
       )}
       {place === 'wall' && (kind === 'tile' || kind === 'slats') && <PartWay surface={surface as WallSurface} units={units} set={set as (p: Partial<WallSurface>) => void} />}
+      {place === 'wall' && tileGrid(surface, 'wall') && (
+        <Choice
+          physical
+          label={t('Cut tiles at')}
+          value={(surface as WallSurface).cut ?? 'right'}
+          onChange={(v) => set({ cut: v === 'right' ? undefined : v } as unknown as Partial<S>)}
+          options={[
+            { value: 'left', label: t('Left end') },
+            { value: 'both', label: t('Both ends'), title: t('The tiles centered on the wall, cut alike at both ends') },
+            { value: 'right', label: t('Right end') },
+          ]}
+        >
+          <p className="text-xs text-muted-foreground">{t('Where tiles that don’t fit the wall are cut, as seen from the room.')}</p>
+        </Choice>
+      )}
       {kind === 'tile' && onLayout && (
         <div className="space-y-1">
           <Button type="button" variant="outline" size="sm" className="w-full" onClick={onLayout}>

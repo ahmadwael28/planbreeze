@@ -370,12 +370,22 @@ export function surfaceTexture(s: Surface, place: Place = 'floor', photo?: Photo
  * A surface's own copy of its finish's texture, laid from (u0, v0) of its texture coordinates (cm) at the finish's
  * angle; disposed with it.
  */
-function laidTexture(s: Surface, place: Place, photo: Photo, u0: number, v0: number) {
+function laidTexture(s: Surface, place: Place, photo: Photo, u0: number, v0: number, grid?: TileGrid | null) {
   const tex = surfaceTexture(s, place, photo)
   if (!tex) return null
   const t = tex.texture.clone()
   t.userData.roomCopy = true
-  return lay(t, surfaceLayout(s, place)?.angle ?? 0, tex.block, u0, v0)
+  // Tiles laid from their grid's corner (on a wall, placed for its cut tiles).
+  const o = grid ? cornerInFrame(grid) : { x: 0, y: 0 }
+  return lay(t, surfaceLayout(s, place)?.angle ?? 0, tex.block, u0, v0, o.x, o.y)
+}
+
+/** Where a grid's corner is in its frame turned about the surface's start (not its own corner), as `lay` takes it. */
+function cornerInFrame(g: TileGrid) {
+  const a = (g.angle * Math.PI) / 180
+  const c = Math.cos(a)
+  const s = Math.sin(a)
+  return { x: c * g.origin.x + s * g.origin.y, y: -s * g.origin.x + c * g.origin.y }
 }
 
 /**
@@ -444,7 +454,8 @@ function mixedTexture(s: Surface, place: Place, g: TileGrid, pts: Point[], photo
   texture.wrapS = texture.wrapT = THREE.RepeatWrapping
   texture.anisotropy = 8
   texture.userData.roomCopy = true
-  return lay(texture, g.angle, [Wcm, Hcm], u0, v0, x0, y0)
+  const o = cornerInFrame(g)
+  return lay(texture, g.angle, [Wcm, Hcm], u0, v0, x0 + o.x, y0 + o.y)
 }
 
 /**
@@ -468,7 +479,9 @@ export function floorMaterial(room: Room, photo?: Photo, origin?: Point, photos?
  * so tiles start at the floor.
  */
 export function wallMaterial(s: Surface, photo?: Photo, extent?: { u0: number; u1: number; z0: number; z1: number }, photos?: Photos): THREE.MeshStandardMaterial {
-  const g = extent && photos && hasMix(s) ? tileGrid(s, 'wall') : null
+  // Tiles on a wall are laid for its cut tiles, over the stretch of wall it is (`extent`).
+  const grid = extent ? tileGrid(s, 'wall', extent) : null
+  const g = grid && photos && hasMix(s) ? grid : null
   // Surface coordinates run along the wall and down from the floor (minus the height).
   const map = g
     ? mixedTexture(s, 'wall', g, [
@@ -477,7 +490,7 @@ export function wallMaterial(s: Surface, photo?: Photo, extent?: { u0: number; u
         { x: extent!.u1, y: -extent!.z1 },
         { x: extent!.u0, y: -extent!.z1 },
       ], photos!, 0, 0)
-    : laidTexture(s, 'wall', photo, 0, 0)
+    : laidTexture(s, 'wall', photo, 0, 0, grid)
   const f = finishOf(s, 'wall')
   return new THREE.MeshStandardMaterial({ map, color: map ? '#ffffff' : f.color, roughness: f.def.roughness, metalness: 0 })
 }

@@ -56,6 +56,11 @@ export interface WallSurface extends Surface {
   height?: number
   /** The paint above them. */
   above?: string
+  /**
+   * Tiles that don't fit the wall's length are cut: at its right end (they start whole at the left, the default), at
+   * its left end, or at both ends alike (the tiles centered on the wall). As seen from the room.
+   */
+  cut?: 'left' | 'right' | 'both'
 }
 
 /** A photo the user added, to show a real tile, plank or wallpaper. */
