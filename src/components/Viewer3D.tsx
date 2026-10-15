@@ -680,9 +680,12 @@ export default function Viewer3D() {
       onWalking: () => {},
     }
     ctxRef.current = ctx
-    // Every turn the controls make (they also update from inside their own pointer handlers) goes round the selection.
+    // Every turn the controls make (they also update from inside their own pointer handlers) goes round the selection:
+    // a drag with the mouse or a finger. Turns made elsewhere (walking and looking with the keys, walking inside,
+    // framing the home) are settled first, so they're taken as they are, not swung round it.
     const update = controls.update.bind(controls)
     controls.update = (deltaTime?: number | null) => {
+      camera.lookAt(controls.target)
       _q.copy(camera.quaternion)
       const moved = update(deltaTime)
       orbitAboutSelection(ctx, _q)
