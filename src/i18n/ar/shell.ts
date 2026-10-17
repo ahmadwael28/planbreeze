@@ -95,6 +95,9 @@ export default {
   'Copied {items}': 'تم نسخ {items}',
   'Cut {items}': 'تم قص {items}',
   'Paste with Ctrl+V, on this floor or another.': 'الصق بـ Ctrl+V، في هذا الطابق أو غيره.',
+  'Copied everything on {floor}': 'تم نسخ كل ما في {floor}',
+  'Cut everything on {floor}': 'تم قص كل ما في {floor}',
+  'Paste it with Ctrl+V, or as a new floor from the floors menu, in this plan or another.': 'الصقه بـ Ctrl+V، أو كطابق جديد من قائمة الطوابق، في هذا المخطط أو غيره.',
   'Browser storage is full, so changes are not being saved. Remove a background drawing or save the project to a file.':
     'مساحة تخزين المتصفح ممتلئة، فلا يتم حفظ التغييرات. احذف صورة خلفية أو احفظ المشروع في ملف.',
   'Opening the 3D view': 'جارٍ فتح العرض ثلاثي الأبعاد',
@@ -109,6 +112,8 @@ export default {
   // Floors
   'Add floor above': 'إضافة طابق أعلى',
   'Duplicate this floor': 'تكرار هذا الطابق',
+  'Copy this floor': 'نسخ هذا الطابق',
+  'Paste as a new floor': 'لصق كطابق جديد',
   'Delete this floor': 'حذف هذا الطابق',
   'Delete “{name}”?': 'حذف «{name}»؟',
   'All rooms and symbols on this floor will be removed. You can undo this with Ctrl+Z.':

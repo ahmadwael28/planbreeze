@@ -5,7 +5,7 @@
 import { bbox } from './geometry'
 import { uid } from './project'
 import { SYMBOL_MAP } from './symbols'
-import type { Dimension, Floor, ItemKind, ItemRef, PlanSymbol, Point, Room, SavedView, Selection } from './types'
+import type { Dimension, Floor, ItemKind, ItemRef, PlanSymbol, Point, ProjectImage, Room, SavedView, Selection, Surface, Underlay } from './types'
 
 export const refKey = (r: ItemRef) => `${r.kind}:${r.id}`
 
@@ -98,22 +98,58 @@ export function refsInRect(floor: Floor, a: Point, b: Point, faded: string[] = [
   return out.filter((r) => ok.has(refKey(r)))
 }
 
-/** Copies of the selected items, detached from the floor. Rooms bring their doors, windows and cove lights. */
+/**
+ * Copies of the selected items, detached from the floor. Rooms bring their doors, windows and cove lights; switches
+ * stay wired to the lights copied with them.
+ */
 export interface Clip {
   rooms: Room[]
   symbols: PlanSymbol[]
   dimensions: Dimension[]
   views: SavedView[]
+  /** The photos (of real tiles, wallpapers) the rooms' finishes use, for pasting into another plan. */
+  images?: ProjectImage[]
+  /** A whole floor copied: its name, wall height and tracing, for pasting as a floor of its own (or onto an empty one). */
+  floor?: { name: string; height: number; underlay?: Underlay }
 }
 
-export function copyItems(floor: Floor, refs: ItemRef[]): Clip {
+/** The photos the rooms' finishes use (floors, walls, the tiles laid among them), of the plan's `images`. */
+function photosOf(rooms: Room[], images: ProjectImage[] = []): ProjectImage[] {
+  const ids = new Set<string>()
+  const add = (s?: Surface | null) => {
+    if (s?.image) ids.add(s.image)
+    for (const m of s?.mix ?? []) if (m.image) ids.add(m.image)
+  }
+  for (const r of rooms) {
+    add(r.floor)
+    add(r.walls)
+    r.wallFinishes?.forEach(add)
+  }
+  return images.filter((i) => ids.has(i.id))
+}
+
+/** A copy of everything on a floor (whether it's faded on the plan or not), with its name, wall height and tracing. */
+export function copyFloor(floor: Floor, images?: ProjectImage[]): Clip {
+  const refs: ItemRef[] = [
+    ...floor.rooms.map((r) => ({ kind: 'room' as const, id: r.id })),
+    ...floor.symbols.map((s) => ({ kind: 'symbol' as const, id: s.id })),
+    ...(floor.dimensions ?? []).map((d) => ({ kind: 'dimension' as const, id: d.id })),
+    ...(floor.views ?? []).map((v) => ({ kind: 'view' as const, id: v.id })),
+  ]
+  const clip = copyItems(floor, refs, images)
+  clip.floor = { name: floor.name, height: floor.height, ...(floor.underlay && { underlay: JSON.parse(JSON.stringify(floor.underlay)) }) }
+  return clip
+}
+
+/** Copies of these items (`images`: the plan's photos, to bring those their finishes use). */
+export function copyItems(floor: Floor, refs: ItemRef[], images?: ProjectImage[]): Clip {
   const ids = (k: ItemKind) => new Set(refs.filter((r) => r.kind === k).map((r) => r.id))
   const rooms = ids('room')
   const syms = ids('symbol')
   const dims = ids('dimension')
   const views = ids('view')
   const clone = <T>(x: T): T => JSON.parse(JSON.stringify(x))
-  return {
+  const clip: Clip = {
     rooms: floor.rooms.filter((r) => rooms.has(r.id)).map(clone),
     symbols: floor.symbols
       .filter((s) => syms.has(s.id) || (s.wall && rooms.has(s.wall.roomId)) || (s.room && rooms.has(s.room)))
@@ -121,6 +157,9 @@ export function copyItems(floor: Floor, refs: ItemRef[]): Clip {
     dimensions: (floor.dimensions ?? []).filter((d) => dims.has(d.id)).map(clone),
     views: (floor.views ?? []).filter((v) => views.has(v.id)).map(clone),
   }
+  const photos = images && photosOf(clip.rooms, images)
+  if (photos?.length) clip.images = photos
+  return clip
 }
 
 export function clipSize(c: Clip) {
@@ -133,6 +172,7 @@ export function clipSize(c: Clip) {
  */
 export function pasteItems(floor: Floor, clip: Clip, dx: number, dy: number): ItemRef[] {
   const roomIds = new Map(clip.rooms.map((r) => [r.id, uid()]))
+  const symIds = new Map(clip.symbols.map((s) => [s.id, uid()]))
   const groupIds = new Map<string, string>()
   const group = (g?: string) => {
     if (!g) return undefined
@@ -147,9 +187,10 @@ export function pasteItems(floor: Floor, clip: Clip, dx: number, dy: number): It
     added.push({ kind: 'room', id })
   }
   for (const s of clip.symbols) {
-    const copy: PlanSymbol = { ...s, id: uid(), ...move(s), groupId: group(s.groupId) }
+    const copy: PlanSymbol = { ...s, id: symIds.get(s.id)!, ...move(s), groupId: group(s.groupId) }
     if (s.modules) copy.modules = s.modules.map((m) => ({ ...m, id: uid() }))
-    copy.controls = undefined // wiring stays with the original switches
+    // Switches stay wired to the lights pasted with them (not to the ones they were copied from).
+    if (s.controls) copy.controls = s.controls.flatMap((id) => symIds.get(id) ?? [])
     if (s.room) {
       if (!roomIds.has(s.room)) continue
       copy.room = roomIds.get(s.room)

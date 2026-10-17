@@ -12,7 +12,8 @@ import {
   uid,
 } from '@/model/project'
 import { bbox, dist, dot, labelPoint, normalize, pointInPolygon, signedArea, sub } from '@/model/geometry'
-import { allRefs, clipFootprint, copyItems, deleteItems, exists, moveItems, pasteItems, refsOf, rotateItems, selectionOf, setGroup } from '@/model/items'
+import { allRefs, clipFootprint, clipSize, copyFloor, copyItems, deleteItems, exists, moveItems, pasteItems, refKey, refsOf, rotateItems, selectionOf, setGroup } from '@/model/items'
+import { newSwitchLabel, switchRoom } from '@/model/switches'
 import { arrange, arrangeable } from '@/model/arrange'
 import type { Arrangement } from '@/model/arrange'
 import { boxCenterShift, boxGaps } from '@/model/guides'
@@ -403,7 +404,8 @@ export function addSymbol(type: string, at?: Point, rotation = 0, wall?: PlanSym
   // A beam runs from wall to wall, the short way across the room it's put in.
   if (type === 'beam') Object.assign(sym, beamSpan(p, floor0.rooms) ?? {})
   if (def?.wall) sym.depth = st0.project.defaultWallThickness
-  if (def?.fixture === 'switch') sym.label = `S${floor0.symbols.filter((s) => s.type === 'switch').length + 1}`
+  // A switch is named after its room (Kitchen S1…).
+  if (def?.fixture === 'switch') sym.label = newSwitchLabel(floor0, switchRoom(sym, floor0.rooms))
   if (def?.fixture === 'cove') {
     const sel = st0.selection
     const room = roomAt(floor0, p) ?? (sel?.kind === 'room' ? floor0.rooms.find((r) => r.id === sel.id) : undefined)
@@ -498,17 +500,74 @@ export function deleteSelection() {
 // ---------------------------------------------------------------------------
 // Several items at once: clipboard, groups, select all
 
-let clipboard: { clip: Clip; floorId: string } | null = null
-let pastes = 0
+/** What was copied: the clip, the floor it's from, and when. */
+interface Copied {
+  clip: Clip
+  floorId: string
+  at: number
+}
 
-/** Copy the selection. Returns how many items were copied. */
+/**
+ * The clipboard: what was last copied, in this tab or another one open (copies are passed to the others, so they can
+ * be pasted into a plan open there). Kept in memory only: plans are saved in the browser's storage, and big copies
+ * (photos, tracings) mustn't take their room.
+ */
+export const useClipboard = create<{ copied: Copied | null }>(() => ({ copied: null }))
+const clipChannel = typeof BroadcastChannel !== 'undefined' ? new BroadcastChannel('planbreeze-clipboard') : null
+clipChannel?.addEventListener('message', (e: MessageEvent<Copied>) => {
+  if (e.data?.clip) useClipboard.setState({ copied: e.data })
+})
+
+function setClipboard(clip: Clip, floorId: string) {
+  const copied = { clip, floorId, at: Date.now() }
+  useClipboard.setState({ copied })
+  clipChannel?.postMessage(copied)
+}
+
+/** Pastes of the same copy, each shifted a little further on the floor it came from. */
+const pastes = { at: 0, n: 0 }
+
+/**
+ * Copy the selection: everything on the floor when everything's picked (Ctrl+A), what's faded on the plan too, with
+ * the floor's wall height and tracing. Returns how many items were copied.
+ */
 export function copySelection(): number {
   const st = useEditor.getState()
   const refs = refsOf(st.selection)
   if (!refs.length) return 0
-  clipboard = { clip: copyItems(currentFloor(st), refs), floorId: st.floorId }
-  pastes = 0
+  const floor = currentFloor(st)
+  const picked = new Set(refs.map(refKey))
+  if (allRefs(floor, st.settings.faded).every((r) => picked.has(refKey(r)))) return copyWholeFloor(floor.id)
+  setClipboard(copyItems(floor, refs, st.project.images), st.floorId)
   return refs.length
+}
+
+/** Copy everything on a floor, with its wall height and tracing. Returns how many items were copied. */
+export function copyWholeFloor(id: string): number {
+  const st = useEditor.getState()
+  const floor = st.project.floors.find((f) => f.id === id)
+  if (!floor) return 0
+  const clip = copyFloor(floor, st.project.images)
+  setClipboard(clip, id)
+  return clipSize(clip)
+}
+
+/** What to say about what was just copied (or cut): how much, and how to paste it. */
+export function copiedNote(n: number, cut = false) {
+  const whole = useClipboard.getState().copied?.clip.floor
+  if (whole) {
+    return {
+      title: cut ? t('Cut everything on {floor}', { floor: whole.name }) : t('Copied everything on {floor}', { floor: whole.name }),
+      description: t('Paste it with Ctrl+V, or as a new floor from the floors menu, in this plan or another.'),
+    }
+  }
+  const items = n === 1 ? t('1 item') : t('{n} items', { n })
+  return { title: cut ? t('Cut {items}', { items }) : t('Copied {items}', { items }), description: t('Paste with Ctrl+V, on this floor or another.') }
+}
+
+/** Into the plan (a draft): the photos a clip's finishes use, that it hasn't got. */
+function addPhotos(d: Project, clip: Clip) {
+  for (const img of clip.images ?? []) if (!d.images?.some((i) => i.id === img.id)) (d.images ??= []).push(img)
 }
 
 export function cutSelection(): number {
@@ -518,25 +577,57 @@ export function cutSelection(): number {
 }
 
 /**
- * Paste the clipboard onto the current floor: shifted a little each time on the floor it came
- * from, in the same place on another floor (or project). Returns how many items were added.
+ * Paste the clipboard onto the current floor: shifted a little each time on the floor it came from, in the same place
+ * on another floor (or plan), with the photos its finishes use. A whole floor pasted onto an empty one brings its wall
+ * height and tracing too. Returns how many items were added.
  */
 export function pasteClipboard(): number {
-  if (!clipboard) return 0
+  const copied = useClipboard.getState().copied
+  if (!copied) return 0
   const st = useEditor.getState()
-  const sameFloor = clipboard.floorId === st.floorId
-  pastes++
-  const off = sameFloor ? 50 * pastes : 50 * (pastes - 1)
-  const { clip } = clipboard
+  const sameFloor = copied.floorId === st.floorId
+  if (pastes.at !== copied.at) Object.assign(pastes, { at: copied.at, n: 0 })
+  pastes.n++
+  const off = sameFloor ? 50 * pastes.n : 50 * (pastes.n - 1)
+  const { clip } = copied
   let added: ReturnType<typeof pasteItems> = []
   st.commit((d) => {
-    added = pasteItems(draftFloor(d), clip, off, off)
+    const f = draftFloor(d)
+    addPhotos(d, clip)
+    if (clip.floor && !f.rooms.length && !f.symbols.length) {
+      f.height = clip.floor.height
+      if (clip.floor.underlay && !f.underlay) f.underlay = clip.floor.underlay
+    }
+    added = pasteItems(f, clip, off, off)
   })
   useEditor.setState({ selection: selectionOf(added) })
   return added.length
 }
 
-export const hasClipboard = () => !!clipboard
+/**
+ * Paste the clipboard as a floor of its own, above the others: a whole floor with its name, wall height and tracing
+ * (all of it, wiring and photos too), into this plan or another.
+ */
+export function pasteAsFloor() {
+  const copied = useClipboard.getState().copied
+  if (!copied) return
+  const st = useEditor.getState()
+  const { clip } = copied
+  const name = clip.floor?.name ?? t('Floor {n}', { n: st.project.floors.length })
+  const floor = newFloor(st.project.floors.some((f) => f.name === name) ? t('{name} copy', { name }) : name)
+  if (clip.floor) {
+    floor.height = clip.floor.height
+    if (clip.floor.underlay) floor.underlay = clip.floor.underlay
+  }
+  pasteItems(floor, clip, 0, 0)
+  st.commit((d) => {
+    addPhotos(d, clip)
+    d.floors.push(floor)
+  })
+  st.setFloor(floor.id)
+}
+
+export const hasClipboard = () => !!useClipboard.getState().copied
 
 /** Group the selected items (they're then selected and moved together), or ungroup them. */
 export function groupSelection(group: boolean) {
@@ -607,6 +698,24 @@ export function arrangeSelection(how: Arrangement) {
 export function toggleFaded(key: string) {
   const { settings, setSettings } = useEditor.getState()
   setSettings({ faded: settings.faded.includes(key) ? settings.faded.filter((k) => k !== key) : [...settings.faded, key] })
+}
+
+/** Rename a room; its switches named after it (Kitchen S1…) take the new name. */
+export function renameRoom(id: string, name: string) {
+  useEditor.getState().commit((d) => {
+    const f = draftFloor(d)
+    const room = f.rooms.find((r) => r.id === id)
+    if (!room) return
+    const old = room.name.trim()
+    room.name = name
+    const now = name.trim()
+    if (!old || old === now) return
+    for (const s of f.symbols) {
+      if (s.type !== 'switch' || !s.label?.startsWith(`${old} `) || switchRoom(s, f.rooms)?.id !== id) continue
+      const rest = s.label.slice(old.length + 1)
+      s.label = now ? `${now} ${rest}` : rest
+    }
+  })
 }
 
 export function selectAll() {

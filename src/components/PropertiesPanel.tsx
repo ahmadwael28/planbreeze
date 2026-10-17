@@ -54,6 +54,7 @@ import {
   setCeilingJoined,
   placeBehindSofa,
   updatePerson,
+  copiedNote,
   copySelection,
   rotateSelection,
   selectionBox,
@@ -64,6 +65,7 @@ import {
   duplicateSelection,
   extraCorners,
   removeVertices,
+  renameRoom,
   splitWall,
   useEditor,
   useFloor,
@@ -387,7 +389,7 @@ function RoomProps({ room, units }: { room: Room; units: Units }) {
         }
       >
         <Field label={t('Name')}>
-          {(id) => <TextInput id={id} value={room.name} onChange={(v) => updateRoom(room.id, (r) => void (r.name = v))} />}
+          {(id) => <TextInput id={id} value={room.name} onChange={(v) => renameRoom(room.id, v)} />}
         </Field>
         <Choice
           label={t('Type')}
@@ -1277,7 +1279,8 @@ function MultiProps({ items }: { items: ItemRef[] }) {
             size="sm"
             onClick={() => {
               const n = copySelection()
-              if (n) toast(t('Copied {items}', { items: n === 1 ? t('1 item') : t('{n} items', { n }) }), { description: t('Paste with Ctrl+V, on this floor or another.') })
+              const note = copiedNote(n)
+              if (n) toast(note.title, { description: note.description })
             }}
           >
             <ClipboardCopy /> {t('Copy')}

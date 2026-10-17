@@ -22,6 +22,7 @@ import { sampleProject } from '@/model/sample'
 import type { PlanLayer, Tool } from '@/model/types'
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
 import {
+  copiedNote,
   copySelection,
   currentFloor,
   cutSelection,
@@ -162,8 +163,8 @@ function useKeyboardShortcuts() {
         const n = k === 'c' ? copySelection() : cutSelection()
         if (n) {
           e.preventDefault()
-          const items = n === 1 ? t('1 item') : t('{n} items', { n })
-          toast(k === 'c' ? t('Copied {items}', { items }) : t('Cut {items}', { items }), { description: t('Paste with Ctrl+V, on this floor or another.') })
+          const note = copiedNote(n, k === 'x')
+          toast(note.title, { description: note.description })
         }
         return
       }

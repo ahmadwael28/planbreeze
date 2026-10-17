@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import type { ReactNode } from 'react'
-import { ChevronUp, Copy, Layers, Plus, Trash2 } from 'lucide-react'
+import { ChevronUp, ClipboardCopy, ClipboardPaste, Copy, Layers, Plus, Trash2 } from 'lucide-react'
+import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import {
   DropdownMenu,
@@ -15,7 +16,7 @@ import { Separator } from '@/components/ui/separator'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { useLayout } from '@/hooks/use-layout'
 import { cn } from '@/lib/utils'
-import { addFloor, deleteFloor, duplicateFloor, isViewOnly, useEditor } from '@/store/editor'
+import { addFloor, copiedNote, copyWholeFloor, deleteFloor, duplicateFloor, isViewOnly, pasteAsFloor, useClipboard, useEditor } from '@/store/editor'
 import { ConfirmDialog } from './ConfirmDialog'
 import { t } from '@/i18n'
 
@@ -28,6 +29,12 @@ export function FloorBar() {
   const { compact, touch, panel } = useLayout()
   const [confirmDelete, setConfirmDelete] = useState(false)
   const current = floors.find((f) => f.id === floorId)
+  const copied = useClipboard((s) => !!s.copied)
+  // Everything on it, to paste into another plan (or this one) as a floor of its own.
+  const copyFloor = () => {
+    const note = copiedNote(copyWholeFloor(floorId))
+    toast(note.title, { description: note.description })
+  }
 
   const confirm = (
     <ConfirmDialog
@@ -71,6 +78,14 @@ export function FloorBar() {
                 <DropdownMenuItem onSelect={() => duplicateFloor(floorId)}>
                   <Copy /> {t('Duplicate this floor')}
                 </DropdownMenuItem>
+                <DropdownMenuItem onSelect={copyFloor}>
+                  <ClipboardCopy /> {t('Copy this floor')}
+                </DropdownMenuItem>
+                {copied && (
+                  <DropdownMenuItem onSelect={pasteAsFloor}>
+                    <ClipboardPaste /> {t('Paste as a new floor')}
+                  </DropdownMenuItem>
+                )}
                 <DropdownMenuItem variant="destructive" disabled={floors.length <= 1} onSelect={() => setConfirmDelete(true)}>
                   <Trash2 /> {t('Delete this floor')}
                 </DropdownMenuItem>
@@ -116,6 +131,8 @@ export function FloorBar() {
           <Separator orientation="vertical" className="mx-0.5 h-4!" />
           {action(t('Add floor above'), addFloor, <Plus />)}
           {action(t('Duplicate this floor'), () => duplicateFloor(floorId), <Copy />)}
+          {action(t('Copy this floor'), copyFloor, <ClipboardCopy />)}
+          {copied && action(t('Paste as a new floor'), pasteAsFloor, <ClipboardPaste />)}
           {action(t('Delete this floor'), () => setConfirmDelete(true), <Trash2 />, floors.length <= 1)}
         </>
       )}

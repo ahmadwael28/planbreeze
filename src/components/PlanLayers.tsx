@@ -21,6 +21,7 @@ import { dimensionPoints, isOpen, isOutdoor, railingRuns, roomOuter, symbolPose 
 import { floorOrigin } from '@/model/divide'
 import { bottomUp } from '@/model/stacking'
 import { SYMBOL_MAP } from '@/model/symbols'
+import { shortSwitchLabel, switchRoom } from '@/model/switches'
 import type { PlanTheme } from '@/model/theme'
 import { formatArea, formatLength } from '@/model/units'
 import type { Dimension, Floor, PlanLayer, PlanSymbol, Point, ProjectImage, Room, Units } from '@/model/types'
@@ -517,7 +518,7 @@ function SwitchLabels({ floor, scale, theme, forPrint }: { floor: Floor; scale: 
               fill={WIRE_COLORS[i % WIRE_COLORS.length]}
               {...(forPrint ? {} : { stroke: theme.paper, strokeWidth: 3, paintOrder: 'stroke', vectorEffect: 'non-scaling-stroke' })}
             >
-              {s.label || `S${i + 1}`}
+              {shortSwitchLabel(s, switchRoom(s, floor.rooms)) || `S${i + 1}`}
             </text>
           )
         })}
