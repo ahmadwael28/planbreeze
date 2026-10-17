@@ -1764,7 +1764,20 @@ function SymbolProps({ sym, units }: { sym: PlanSymbol; units: Units }) {
         )}
         {def?.frames && <FramePicker sym={sym} frames={def.frames} label={def.frameLabel} />}
         {sym.type === 'shower-bench' && styleOf(sym) !== 'fold-down' && (
-          <p className="text-xs text-muted-foreground">{t("Built against the wall and finished like it (its tiles, if it's tiled), with a stone top.")}</p>
+          <Choice
+            label={t('Base')}
+            value={sym.floating ? 'floating' : 'floor'}
+            onChange={(v) => updateSymbol(sym.id, (s) => void (v === 'floating' ? (s.floating = true) : delete s.floating))}
+            options={[
+              { value: 'floor', label: t('To the floor') },
+              { value: 'floating', label: t('Floating') },
+            ]}
+          >
+            <p className="text-xs text-muted-foreground">
+              {sym.floating ? t("Held on the wall, clear of the floor, so it's easy to clean under.") : t('Built up from the floor.')}{' '}
+              {t("Finished like the wall behind it (its tiles, if it's tiled), with a stone top.")}
+            </p>
+          </Choice>
         )}
         {hasWorktop(sym) && <WorktopPicker sym={sym} label={sym.type === 'shower-bench' ? t('Top') : undefined} />}
         {def?.sill !== undefined && !NICHES.has(sym.type) && (

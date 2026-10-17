@@ -21,6 +21,8 @@ export function heightsOf(sym: PlanSymbol, floor: Floor): { top: number; bottom:
   if (def?.fixture === 'wall') return { top: bottom + sym.height, bottom }
   // Ceiling lights; pendants hang down to their height.
   if (def?.fixture) return { top: floor.height, bottom: def.elevation !== undefined ? bottom : floor.height - sym.height }
+  // Seen from above, a shower is its tray (its glass only round its edges): what stands in it is over it.
+  if (sym.type === 'shower' || sym.type === 'shower-quadrant') return { top: 5, bottom }
   // Labels are read over everything.
   if (sym.type === 'label') return { top: 1e6, bottom: 1e6 }
   if (HUNG.has(sym.type)) return { top: floor.height, bottom: floor.height - sym.height }

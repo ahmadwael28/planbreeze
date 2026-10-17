@@ -14,6 +14,7 @@ import {
 } from '@/model/geometry'
 import { finishOf, surfaceLayout, wallSurfaceAt } from '@/model/finishes'
 import { openSides } from '@/model/guides'
+import { showerRuns } from '@/model/shower'
 import { aroundColumns, developed, wallColumns } from '@/model/developed'
 import { cellRect, hasMix, parseKey, tileGrid, tileIndex, tileStyle } from '@/model/tiles'
 import { ceilingLight, ceilingRoom, ceilingZones, coveRuns, nearestOnStrip, onCeilingJoin, pocketWidth, SHADOW_GAP, WIRE_COLORS } from '@/model/lighting'
@@ -62,12 +63,15 @@ const SymbolGraphic = memo(function SymbolGraphic({
   theme,
   forPrint,
   faded,
+  columns,
 }: {
   sym: PlanSymbol
   rooms: Room[]
   theme: PlanTheme
   forPrint?: boolean
   faded?: boolean
+  /** For a shower: the columns on the floor (its glass stops at them). */
+  columns?: PlanSymbol[]
 }) {
   const def = SYMBOL_MAP.get(sym.type)
   const pose = symbolPose(sym, rooms)
@@ -84,8 +88,16 @@ const SymbolGraphic = memo(function SymbolGraphic({
     >
       {!forPrint && <rect x={-sym.width / 2} y={-depth / 2} width={sym.width} height={depth} fill="transparent" />}
       {def ? (
-        // A shower with glass where there's no wall: which sides that is, for where its head goes (see model/shower).
-        def.render(sym.width, depth, theme, sym.type === 'shower' && !sym.screens ? { ...sym, screens: openSides(sym, rooms) } : sym)
+        // A shower with glass where there's no wall: which sides that is, for where its head goes, and its glass round
+        // the columns there, for where its door is (see model/shower).
+        sym.type === 'shower' ? (
+          (() => {
+            const seenSym = sym.screens ? sym : { ...sym, screens: openSides(sym, rooms) }
+            return def.render(sym.width, depth, theme, seenSym, showerRuns(sym, seenSym.screens!, columns ?? []))
+          })()
+        ) : (
+          def.render(sym.width, depth, theme, sym)
+        )
       ) : (
         <rect x={-sym.width / 2} y={-depth / 2} width={sym.width} height={depth} fill="#f87171" />
       )}
@@ -623,6 +635,8 @@ export function PlanLayers({
   const fixtures = bottomUp(floor.symbols.filter((s) => isFixture(s) && !s.room), floor)
   const coves = floor.symbols.filter((s) => s.room)
   const boxes = floor.symbols.filter((s) => s.type === 'gypsum-box')
+  // Columns, for the showers' glass to stop at.
+  const columns = floor.symbols.filter((s) => s.type === 'column' || s.type === 'wall-post')
   const roomById = new Map(floor.rooms.map((r) => [r.id, r]))
 
   return (
@@ -685,7 +699,7 @@ export function PlanLayers({
       </g>
       <g opacity={lighting ? 0.22 : 1} pointerEvents={lighting ? 'none' : undefined}>
         {furniture.map((s) => (
-          <SymbolGraphic key={s.id} sym={s} rooms={floor.rooms} theme={theme} forPrint={forPrint} faded={fade(s)} />
+          <SymbolGraphic key={s.id} sym={s} rooms={floor.rooms} theme={theme} forPrint={forPrint} faded={fade(s)} columns={s.type === 'shower' ? columns : undefined} />
         ))}
       </g>
       {lighting && (

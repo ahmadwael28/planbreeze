@@ -273,6 +273,8 @@ export interface PlanSymbol {
    * default) or up to the ceiling, or inside the wall itself (nothing stands out, only its flush plate shows).
    */
   tankBox?: 'ledge' | 'full' | 'none'
+  /** Shower benches (built-in or across a corner): held on the wall, clear of the floor. */
+  floating?: boolean
   /** Frame / trim color (hex) for items that come in several finishes: spots, tracks, aluminium doors. */
   frame?: string
   /** Magnetic tracks: the modules clipped into them. */

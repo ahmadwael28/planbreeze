@@ -85,7 +85,6 @@ export default {
   'Wall niche': 'تجويف في الحائط',
   'Shower bench': 'مقعد الدش',
   'Built-in bench': 'مقعد مبني',
-  'Floating bench': 'مقعد معلّق',
   'Corner seat': 'مقعد ركني',
   'Fold-down seat': 'مقعد قابل للطي',
   'Towel rail': 'شماعة فوط',

@@ -2,8 +2,8 @@ import type { ReactNode } from 'react'
 import { lightHex } from './lighting'
 import type { PlanTheme } from './theme'
 import type { CeilingStyle, PlanSymbol } from './types'
-import { headInModel, headOf, headPoint, showerGlass } from './shower'
-import type { ShowerSide } from './shower'
+import { doorRun, headInModel, headOf, headPoint, showerGlass } from './shower'
+import type { GlassRun, ShowerSide } from './shower'
 
 export type SymbolCategory =
   | 'Doors & Windows'
@@ -66,8 +66,11 @@ export interface SymbolDef {
   frameLabel?: string
   /** Other library categories it's listed in as well (a washing machine: kitchens and bathrooms). */
   alsoIn?: SymbolCategory[]
-  /** Draw the symbol centered at the origin: x ∈ [-w/2, w/2], y ∈ [-d/2, d/2]. */
-  render: (w: number, d: number, t: PlanTheme, sym?: PlanSymbol) => ReactNode
+  /**
+   * Draw the symbol centered at the origin: x ∈ [-w/2, w/2], y ∈ [-d/2, d/2]. `glass`: a straight shower's glass, round
+   * the columns on its lines (see model/shower).
+   */
+  render: (w: number, d: number, t: PlanTheme, sym?: PlanSymbol, glass?: GlassRun[]) => ReactNode
 }
 
 /** Cabinets with optional glass doors and LED lighting inside; display cabinets have glass doors unless told otherwise. */
@@ -250,10 +253,12 @@ export const DRESSING_STYLES: ItemStyle[] = [
   { id: 'hollywood', name: 'Hollywood bulbs', kind: 'Modern' },
 ]
 
-/** Shower benches: built against the wall and finished like it with a stone top, or floating, across a corner, or folding down. */
+/**
+ * Shower benches: built against the wall (or across a corner) and finished like it with a stone top, from the floor or
+ * floating (see `floating`), or folding down.
+ */
 export const BENCH_STYLES: ItemStyle[] = [
   { id: 'built-in', name: 'Built-in bench', kind: 'Modern' },
-  { id: 'floating', name: 'Floating bench', kind: 'Modern' },
   { id: 'corner', name: 'Corner seat', kind: 'Modern' },
   { id: 'fold-down', name: 'Fold-down seat', kind: 'Classic' },
 ]
@@ -377,6 +382,8 @@ export function curtainLayers(sym: PlanSymbol): CurtainLayer[] {
 export function startsShut(sym: PlanSymbol) {
   if (sym.type === 'curtain') return (sym.open ?? 0.7) <= 0.05
   if (sym.type === 'blind') return (sym.open ?? 0) <= 0.05
+  // Shower doors are shut.
+  if (sym.type === 'shower' || sym.type === 'shower-quadrant') return true
   return false
 }
 
@@ -533,6 +540,37 @@ function ceilingIcon(style: CeilingStyle, t: PlanTheme) {
  * A shower's head on the plan, where it's been put (in the shower's own frame, as its flips mirror the drawing): an arm
  * out from its wall with the head on it, or a rain head over the middle (dashed: it's up at the ceiling).
  */
+/**
+ * A straight shower's door on the plan, on its stretch of glass: two panes on their tracks for a sliding one, or the
+ * door's swing out of the shower from its hinge on the fixed pane (as in 3D).
+ */
+function showerDoor(k: ReturnType<typeof kit>, run: GlassRun, w: number, d: number, doors: 'hinged' | 'sliding') {
+  // Drawn as on the front (u along x, out toward +y), then turned onto its side.
+  const at = { front: `translate(0,${d / 2})`, back: `translate(0,${-d / 2}) rotate(180)`, right: `translate(${w / 2},0) rotate(-90)`, left: `translate(${-w / 2},0) rotate(90)` }[run.side]
+  // Along the side (u) to across the drawing: turned onto the back or right, it runs the other way.
+  const x = (u: number) => (run.side === 'front' || run.side === 'left' ? u : -u)
+  const { u0, u1 } = run
+  const len = u1 - u0
+  if (doors === 'sliding') {
+    const pw = len * 0.55
+    return (
+      <g transform={at}>
+        <line x1={x(u0)} y1={-2} x2={x(u0 + pw)} y2={-2} {...k.line} />
+        <line x1={x(u1 - pw)} y1={1.5} x2={x(u1)} y2={1.5} {...k.line} />
+      </g>
+    )
+  }
+  const hinge = x(u0 + len * 0.4)
+  const free = x(u1)
+  const leaf = Math.abs(free - hinge)
+  return (
+    <g transform={at}>
+      <line x1={hinge} y1={0} x2={hinge} y2={leaf} {...k.thin} />
+      <path d={`M${free},0 A${leaf},${leaf} 0 0 ${free > hinge ? 1 : 0} ${hinge},${leaf}`} {...k.thin} strokeDasharray="4 3" />
+    </g>
+  )
+}
+
 function showerHeadMark(sym: PlanSymbol | undefined, w: number, d: number, t: PlanTheme, glass: ShowerSide[]) {
   const place = sym ? headInModel(sym, headOf(sym, glass)) : { side: 'back' as const, at: 0.5 }
   const p = headPoint(place, w, d)
@@ -1828,11 +1866,11 @@ export const SYMBOLS: SymbolDef[] = [
       const k = kit(t)
       const style = sym ? styleOf(sym) : 'built-in'
       if (style === 'corner') {
-        // Across the corner its back and left side are in: the seat's edge a little in from its front.
+        // Across the corner its back and left side are in: the seat's edge a little in from its front (dashed, floating).
         return (
           <>
             <path d={`M${-w / 2},${-d / 2} L${w / 2},${-d / 2} L${-w / 2},${d / 2} Z`} {...k.s(t.fill2)} />
-            <line x1={-w / 2 + w * 0.88} y1={-d / 2} x2={-w / 2} y2={-d / 2 + d * 0.88} {...k.thin} />
+            <line x1={-w / 2 + w * 0.88} y1={-d / 2} x2={-w / 2} y2={-d / 2 + d * 0.88} {...k.thin} strokeDasharray={sym?.floating ? '4 3' : undefined} />
           </>
         )
       }
@@ -1852,7 +1890,7 @@ export const SYMBOLS: SymbolDef[] = [
       return (
         <>
           <rect x={-w / 2} y={-d / 2} width={w} height={d} {...k.s(t.fill2)} />
-          <line x1={-w / 2} y1={d / 2 - 3} x2={w / 2} y2={d / 2 - 3} {...k.thin} strokeDasharray={style === 'floating' ? '4 3' : undefined} />
+          <line x1={-w / 2} y1={d / 2 - 3} x2={w / 2} y2={d / 2 - 3} {...k.thin} strokeDasharray={sym?.floating ? '4 3' : undefined} />
         </>
       )
     },
@@ -1931,9 +1969,10 @@ export const SYMBOLS: SymbolDef[] = [
     width: 90,
     depth: 90,
     height: 200,
-    render: (w, d, t, sym) => {
+    opens: true,
+    render: (w, d, t, sym, glass) => {
       const k = kit(t)
-      const leaf = w * 0.6
+      const door = doorRun(glass ?? [{ side: 'front', u0: -w / 2, u1: w / 2 }])
       return (
         <>
           {k.box(w, d)}
@@ -1941,14 +1980,7 @@ export const SYMBOLS: SymbolDef[] = [
           <line x1={w / 2} y1={-d / 2} x2={-w / 2} y2={d / 2} {...k.thin} />
           <circle cx={0} cy={0} r={4} {...k.s()} />
           {showerHeadMark(sym, w, d, t, sym?.screens ?? ['front'])}
-          {sym?.doors === 'sliding' ? (
-            <>
-              <line x1={-w / 2} y1={d / 2 - 2} x2={-w / 2 + w * 0.55} y2={d / 2 - 2} {...k.line} />
-              <line x1={w / 2 - w * 0.55} y1={d / 2 + 1.5} x2={w / 2} y2={d / 2 + 1.5} {...k.line} />
-            </>
-          ) : (
-            <path d={`M${w / 2},${d / 2} A${leaf},${leaf} 0 0 1 ${w / 2 - leaf},${d / 2 + leaf}`} {...k.thin} strokeDasharray="4 3" />
-          )}
+          {door && showerDoor(k, door, w, d, sym?.doors ?? 'hinged')}
         </>
       )
     },
@@ -1962,6 +1994,7 @@ export const SYMBOLS: SymbolDef[] = [
     width: 90,
     depth: 90,
     height: 200,
+    opens: true,
     render: (w, d, t, sym) => {
       const k = kit(t)
       // Walls along the back and left; a quarter-round glass front with sliding doors.

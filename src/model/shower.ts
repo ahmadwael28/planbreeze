@@ -9,7 +9,7 @@ export type ShowerSide = 'front' | 'back' | 'left' | 'right'
 const QUADRANT_GLASS: ShowerSide[] = ['front', 'right']
 
 /** A side as seen on the plan, from the shower's own frame (or back: flipping twice is no flip). */
-function seen(sym: PlanSymbol, s: ShowerSide): ShowerSide {
+export function seen(sym: PlanSymbol, s: ShowerSide): ShowerSide {
   if (sym.flipX && (s === 'left' || s === 'right')) return s === 'left' ? 'right' : 'left'
   if (sym.flipY && (s === 'front' || s === 'back')) return s === 'front' ? 'back' : 'front'
   return s
@@ -81,4 +81,94 @@ export function headPoint(place: HeadPlace, w: number, d: number): { x: number; 
       return { x: w / 2, y: along(d), nx: -1, ny: 0 }
   }
   return { x: 0, y: 0, nx: 0, ny: 0 }
+}
+
+/**
+ * A stretch of a straight shower's glass, in its own frame: along `side`, from u0 to u1 (from -len/2: left to right
+ * along the back or front, back to front along the left or right).
+ */
+export interface GlassRun {
+  side: ShowerSide
+  u0: number
+  u1: number
+}
+
+/** Columns, free-standing or in a wall, that a shower's glass stops at. */
+const COLUMNS = new Set(['column', 'wall-post'])
+
+/**
+ * Where a straight shower's glass goes, in its own frame (`sides`: its glass sides, in that frame): along each side,
+ * but not through a column standing on its line (or against it: there the column is the wall), each stretch at least
+ * a hand's width.
+ */
+export function glassRuns(sym: PlanSymbol, sides: ShowerSide[], others: PlanSymbol[]): GlassRun[] {
+  const w = sym.width
+  const d = sym.depth
+  // A plan point in the shower's frame: x across it, y from its back to its front, before its flips.
+  const r = (-sym.rotation * Math.PI) / 180
+  const local = (x: number, y: number) => {
+    const dx = x - sym.x
+    const dy = y - sym.y
+    const lx = dx * Math.cos(r) - dy * Math.sin(r)
+    const ly = dx * Math.sin(r) + dy * Math.cos(r)
+    return { x: sym.flipX ? -lx : lx, y: sym.flipY ? -ly : ly }
+  }
+  const TOUCH = 1.5
+  const boxes = others
+    .filter((c) => COLUMNS.has(c.type) && c.id !== sym.id)
+    .map((c) => {
+      const a = (c.rotation * Math.PI) / 180
+      const pts = [
+        [-1, -1],
+        [1, -1],
+        [1, 1],
+        [-1, 1],
+      ].map(([sx, sy]) => {
+        const px = (sx * c.width) / 2
+        const py = (sy * c.depth) / 2
+        return local(c.x + px * Math.cos(a) - py * Math.sin(a), c.y + px * Math.sin(a) + py * Math.cos(a))
+      })
+      const xs = pts.map((p) => p.x)
+      const ys = pts.map((p) => p.y)
+      return { x0: Math.min(...xs) - TOUCH, x1: Math.max(...xs) + TOUCH, y0: Math.min(...ys) - TOUCH, y1: Math.max(...ys) + TOUCH }
+    })
+  const out: GlassRun[] = []
+  for (const side of sides) {
+    const across = side === 'front' || side === 'back'
+    const len = across ? w : d
+    const at = side === 'front' ? d / 2 : side === 'back' ? -d / 2 : side === 'right' ? w / 2 : -w / 2
+    // What the columns on its line cover, along it.
+    const cover = boxes
+      .filter((b) => (across ? b.y0 <= at && at <= b.y1 : b.x0 <= at && at <= b.x1))
+      .map((b) => (across ? [b.x0, b.x1] : [b.y0, b.y1]))
+      .sort((p, q) => p[0] - q[0])
+    let u = -len / 2
+    for (const [c0, c1] of cover) {
+      if (c0 > u) out.push({ side, u0: u, u1: Math.min(c0, len / 2) })
+      u = Math.max(u, c1)
+    }
+    if (u < len / 2) out.push({ side, u0: u, u1: len / 2 })
+  }
+  return out.filter((g) => g.u1 - g.u0 >= 8)
+}
+
+/** Where a straight shower's door is: the first side with room for one (front, right, left, back), its longest stretch. */
+export function doorRun(runs: GlassRun[]): GlassRun | undefined {
+  const long = (g: GlassRun) => g.u1 - g.u0
+  for (const min of [50, 0]) {
+    for (const side of ['front', 'right', 'left', 'back'] as const) {
+      const on = runs.filter((g) => g.side === side && long(g) >= min)
+      if (on.length) return on.reduce((a, b) => (long(b) > long(a) ? b : a))
+    }
+  }
+  return undefined
+}
+
+/** A straight shower's glass, in its own frame: on its glass sides as seen on the plan (`seenSides`), round columns. */
+export function showerRuns(sym: PlanSymbol, seenSides: ShowerSide[], others: PlanSymbol[]): GlassRun[] {
+  return glassRuns(
+    sym,
+    seenSides.map((s) => seen(sym, s)),
+    others,
+  )
 }

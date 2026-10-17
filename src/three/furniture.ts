@@ -9,8 +9,8 @@
  * costs few draw calls.
  */
 import * as THREE from 'three'
-import { headInModel, headOf, headPoint, showerGlass } from '@/model/shower'
-import type { HeadPlace } from '@/model/shower'
+import { doorRun, headInModel, headOf, headPoint, showerGlass, showerRuns } from '@/model/shower'
+import type { GlassRun, HeadPlace } from '@/model/shower'
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js'
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js'
 import { WALL_WHITE } from '@/model/finishes'
@@ -287,6 +287,8 @@ function compactModel(g: THREE.Group): THREE.Group {
 export interface DoorPart {
   angle?: number
   slide?: number
+  /** Which way a panel slides (x unless said). */
+  slideAxis?: 'x' | 'z'
   gather?: { span: number; fabric: number; openTo: number }
   roll?: { full: number; openTo: number; bar?: boolean; y0?: number }
   /** Starts shut (curtains and blinds drawn so as designed); doors start open. */
@@ -303,7 +305,7 @@ function drapeAmp(fabric: number, width: number) {
 export function poseDoor(o: THREE.Object3D, open: number) {
   const d = o.userData.door as DoorPart
   if (d.angle !== undefined) o.rotation.y = (1 - open) * d.angle
-  if (d.slide !== undefined) o.position.x = open * d.slide
+  if (d.slide !== undefined) o.position[d.slideAxis ?? 'x'] = open * d.slide
   if (d.gather) {
     const { span, fabric, openTo } = d.gather
     const wp = panelWidth(span, open * openTo)
@@ -329,6 +331,30 @@ function hinged(hx: number, z0: number, closeAngle: number, build: (g: THREE.Gro
   pivot.add(inner)
   pivot.userData.door = { angle: closeAngle } satisfies DoorPart
   return pivot
+}
+
+/**
+ * A part built shut (a shower door, in the shower's frame) that turns `angle` about an upright axis through `at` to
+ * open, starting shut. Built open, as doors are (see DoorPart).
+ */
+function turning(part: THREE.Object3D, at: { x: number; z: number }, angle: number) {
+  const pivot = new THREE.Group()
+  pivot.position.set(at.x, 0, at.z)
+  const turn = new THREE.Group()
+  turn.rotation.y = angle
+  part.position.set(-at.x, 0, -at.z)
+  turn.add(part)
+  pivot.add(turn)
+  pivot.userData.door = { angle: -angle, startOpen: false } satisfies DoorPart
+  return pivot
+}
+
+/**
+ * Which way to turn a door hinged at a point to swing it out (`out`: away from inside, at the hinge; `leaf`: from the
+ * hinge along the door), by `deg` degrees.
+ */
+function swingOut(leaf: { x: number; z: number }, out: { x: number; z: number }, deg: number) {
+  return (Math.sign(leaf.z * out.x - leaf.x * out.z) * deg * Math.PI) / 180
 }
 
 /** A panel built in its closed position that slides `slide` along x to open. */
@@ -1961,7 +1987,7 @@ function showerHead(g: THREE.Group, chrome: Mat, head: HeadPlace, w: number, d: 
 }
 
 /** A shower with glass on the given sides (model frame: +x right, +z front); the others are walls. */
-function shower(k: Kit, w: number, d: number, h: number, glass: Mat, sides: Set<Side>, doors: 'hinged' | 'sliding', head: HeadPlace, ceilingH: number) {
+function shower(k: Kit, w: number, d: number, h: number, glass: Mat, runs: GlassRun[], doors: 'hinged' | 'sliding', head: HeadPlace, ceilingH: number) {
   const g = new THREE.Group()
   const tray = 5
   g.add(rbox(w, tray, d, 1.5, 0, 0, 0, k.q(COLORS.ceramic, 'gloss')))
@@ -1975,47 +2001,59 @@ function shower(k: Kit, w: number, d: number, h: number, glass: Mat, sides: Set<
     right: { x: w / 2, z: 0, nx: -1, nz: 0, len: d },
     left: { x: -w / 2, z: 0, nx: 1, nz: 0, len: d },
   }
-  // Glass on the open sides, in slim frames; the door in the front if it has glass.
-  const door = (['front', 'right', 'left', 'back'] as const).find((s) => sides.has(s))
-  for (const s of sides) {
-    const { x, z, nx, nz, len } = at[s]
+  // Glass along its stretches (stopping at any column on its sides) in slim frames, with posts where it ends; the
+  // door in the longest stretch of the first side with room for one (see model/shower), shut, opening when clicked.
+  const door = doorRun(runs)
+  const posts = new Set<string>()
+  for (const run of runs) {
+    const { x, z, nx, nz } = at[run.side]
     const along = nz !== 0
-    // A thing from u0 to u1 along this side (u from -len/2), `inset` in from its edge.
-    const put = (u0: number, u1: number, inset: number, y: number, hh: number, t: number, mat: Mat) => {
-      const c = (u0 + u1) / 2
+    // A point `inset` in from this side, u along it (from -len/2).
+    const pos = (u: number, inset: number) => (along ? { x: u, z: z + nz * inset } : { x: x + nx * inset, z: u })
+    // A thing from u0 to u1 along this side, `inset` in from its edge: on the shower, or on a door.
+    const put = (u0: number, u1: number, inset: number, y: number, hh: number, t: number, mat: Mat, on: THREE.Object3D = g) => {
+      const p = pos((u0 + u1) / 2, inset)
       const l = u1 - u0
-      g.add(box(along ? l : t, hh, along ? t : l, x + nx * inset + (along ? c : 0), y, z + nz * inset + (along ? 0 : c), mat))
+      on.add(box(along ? l : t, hh, along ? t : l, p.x, y, p.z, mat))
     }
-    put(-len / 2, len / 2, 1, h - 2, 2, 2, metal)
-    if (s !== door) {
-      put(-len / 2, len / 2, 1, tray, h - tray, 0.8, glass)
+    const { u0, u1 } = run
+    put(u0, u1, 1, h - 2, 2, 2, metal)
+    for (const u of [u0 + 1, u1 - 1]) {
+      const p = pos(u, 1)
+      const key = `${Math.round(p.x)},${Math.round(p.z)}`
+      if (posts.has(key)) continue
+      posts.add(key)
+      g.add(box(2, h - tray, 2, p.x, tray, p.z, metal))
+    }
+    if (run !== door) {
+      put(u0, u1, 1, tray, h - tray, 0.8, glass)
       continue
     }
+    const len = u1 - u0
     if (doors === 'sliding') {
-      // A fixed pane on the inner track and one sliding on the outer, with rollers and a long bar to pull.
+      // A fixed pane on the inner track, and one on the outer with rollers and a long bar to pull, sliding over it.
       const pw = len * 0.55
-      put(-len / 2, -len / 2 + pw, 2.2, tray, h - tray - 4, 0.8, glass)
-      put(len / 2 - pw, len / 2, 0.2, tray, h - tray - 4, 0.8, glass)
-      for (const u of [len / 2 - pw + 8, len / 2 - 8]) put(u - 2, u + 2, 0.2, h - 7, 4, 2, chrome)
-      put(len / 2 - pw + 4, len / 2 - pw + 5.5, -1.6, 70, 60, 2, chrome)
+      put(u0, u0 + pw, 2.2, tray, h - tray - 4, 0.8, glass)
+      const panel = new THREE.Group()
+      put(u1 - pw, u1, 0.2, tray, h - tray - 4, 0.8, glass, panel)
+      for (const u of [u1 - pw + 8, u1 - 8]) put(u - 2, u + 2, 0.2, h - 7, 4, 2, chrome, panel)
+      put(u1 - pw + 4, u1 - pw + 5.5, -1.6, 70, 60, 2, chrome, panel)
+      panel.userData.door = { slide: -(len - pw), slideAxis: along ? 'x' : 'z', startOpen: false } satisfies DoorPart
+      g.add(panel)
     } else {
-      // A fixed pane, and the door hinged on it, with clamps, swinging out; a pull by its free edge.
+      // A fixed pane, and the door hinged on it with clamps, swinging out of the shower; a pull by its free edge.
       const fixed = len * 0.4
-      put(-len / 2, -len / 2 + fixed - 0.4, 1, tray, h - tray - 2, 0.8, glass)
-      put(-len / 2 + fixed + 0.4, len / 2, 1, tray + 1, h - tray - 4, 0.8, glass)
-      for (const y of [30, h - 45]) put(-len / 2 + fixed - 3, -len / 2 + fixed + 3, 1, y, 8, 2.4, chrome)
-      put(len / 2 - 9, len / 2 - 7.6, -1.4, 80, 30, 2.5, chrome)
+      put(u0, u0 + fixed - 0.4, 1, tray, h - tray - 2, 0.8, glass)
+      for (const y of [30, h - 45]) put(u0 + fixed - 3, u0 + fixed + 3, 1, y, 8, 2.4, chrome)
+      const leaf = new THREE.Group()
+      put(u0 + fixed + 0.4, u1, 1, tray + 1, h - tray - 4, 0.8, glass, leaf)
+      put(u1 - 9, u1 - 7.6, -1.4, 80, 30, 2.5, chrome, leaf)
+      const along1 = along ? { x: 1, z: 0 } : { x: 0, z: 1 }
+      g.add(turning(leaf, pos(u0 + fixed, 1), swingOut(along1, { x: -nx, z: -nz }, 80)))
     }
   }
-  // Posts at the corners where glass ends.
-  const corner = (a: Side, b: Side, sx: number, sz: number) => {
-    if (sides.has(a) || sides.has(b)) g.add(box(2, h - tray, 2, sx * (w / 2 - 1), tray, sz * (d / 2 - 1), metal))
-  }
-  corner('right', 'front', 1, 1)
-  corner('left', 'front', -1, 1)
-  corner('right', 'back', 1, -1)
-  corner('left', 'back', -1, -1)
   // Rain head where it's been put, and a mixer on its wall.
+  const sides = new Set(runs.map((r) => r.side))
   const wall = (['back', 'left', 'right', 'front'] as const).find((s) => !sides.has(s))
   showerHead(g, chrome, head, w, d, h, ceilingH, wall && { side: wall, at: 0.5 })
   return g
@@ -2048,29 +2086,45 @@ function quadrantShower(k: Kit, w: number, d: number, h: number, glass: Mat, doo
   const on = (a: number, out = 1) => ({ x: -w / 2 + (w + out) * Math.sin(a), z: -d / 2 + (d + out) * Math.cos(a) })
   g.add(box(2.5, h - tray, 2.5, w / 2 - 1.25, tray, -d / 2 + 1.25, metal))
   g.add(box(2.5, h - tray, 2.5, -w / 2 + 1.25, tray, d / 2 - 1.25, metal))
+  const mid = Math.PI / 4
+  const corner = { x: -w / 2, z: -d / 2 }
   if (doors === 'hinged') {
-    // Two curved doors hinged on the end posts, meeting in the middle.
-    const mid = Math.PI / 4
-    g.add(curve(h - tray - 4, tray + 2, glass, 1.5, 0.03, mid - 0.01))
-    g.add(curve(h - tray - 4, tray + 2, glass, 1.5, mid + 0.01, Math.PI / 2 - 0.03))
+    // Two curved doors hinged on the end posts, meeting in the middle, each swinging out (shut to start with).
+    for (const [from, to, hinge, pull] of [
+      [0.03, mid - 0.01, 0.03, mid - 0.05],
+      [mid + 0.01, Math.PI / 2 - 0.03, Math.PI / 2 - 0.03, mid + 0.05],
+    ]) {
+      const leaf = new THREE.Group()
+      leaf.add(curve(h - tray - 4, tray + 2, glass, 1.5, from, to))
+      const p = on(pull, 1.5)
+      leaf.add(box(1.4, 26, 1.4, p.x, 85, p.z, chrome))
+      const at = on(hinge, -1.5)
+      const m = on((from + to) / 2, -1.5)
+      g.add(turning(leaf, at, swingOut({ x: m.x - at.x, z: m.z - at.z }, { x: at.x - corner.x, z: at.z - corner.z }, 75)))
+    }
     for (const a of [0.06, Math.PI / 2 - 0.06]) {
       for (const y of [30, h - 45]) {
         const p = on(a, 0)
         g.add(box(3, 8, 3, p.x, y, p.z, chrome))
       }
     }
-    for (const a of [mid - 0.05, mid + 0.05]) {
-      const p = on(a, 1.5)
-      g.add(box(1.4, 26, 1.4, p.x, 85, p.z, chrome))
-    }
   } else {
-    g.add(curve(h - tray - 4, tray + 2, glass, 1.5))
+    // Fixed panels at the ends, and two doors on the inner track meeting in the middle, each sliding round behind its
+    // panel to open (shut to start with).
+    const end = 0.4
+    g.add(curve(h - tray - 4, tray + 2, glass, 1.5, 0.02, end))
+    g.add(curve(h - tray - 4, tray + 2, glass, 1.5, Math.PI / 2 - end, Math.PI / 2 - 0.02))
     g.add(curve(2.5, tray, metal, 1))
     g.add(curve(2.5, h - 2.5, metal, 1))
-    // Pulls on the two sliding doors, meeting in the middle of the curve.
-    for (const a of [Math.PI / 4 - 0.12, Math.PI / 4 + 0.12]) {
-      const p = on(a)
-      g.add(box(1.4, 30, 1.4, p.x, 90, p.z, chrome))
+    for (const [from, to, pull, s] of [
+      [end - 0.04, mid + 0.01, mid - 0.12, -1],
+      [mid - 0.01, Math.PI / 2 - end + 0.04, mid + 0.12, 1],
+    ]) {
+      const panel = new THREE.Group()
+      panel.add(curve(h - tray - 6, tray + 3, glass, 4.5, from, to))
+      const p = on(pull, -3)
+      panel.add(box(1.4, 30, 1.4, p.x, 90, p.z, chrome))
+      g.add(turning(panel, corner, s * (mid - end - 0.02)))
     }
   }
   // Rain head where it's been put (from the ceiling: over the middle of the quarter), and a mixer on its wall.
@@ -2216,9 +2270,9 @@ export const BENCH_TOP = 3
 export const FLOATING_BENCH = 9
 
 /**
- * A shower bench: built of blocks against the wall up to a stone top, the same floating off the wall, a seat across a
- * corner (its back and left side against the walls), or teak slats on a frame folded down off the wall. The blocks
- * are plain here; they're finished like the wall they're against when it has a finish (see buildScene).
+ * A shower bench: built of blocks against the wall up to a stone top, or a seat across a corner (its back and left side
+ * against the walls), either from the floor or floating on the wall; or teak slats on a frame folded down off the
+ * wall. The blocks are plain here; they're finished like the wall they're against when it has a finish (see buildScene).
  */
 function showerBench(k: Kit, sym: PlanSymbol, w: number, d: number, h: number) {
   const g = new THREE.Group()
@@ -2246,6 +2300,7 @@ function showerBench(k: Kit, sym: PlanSymbol, w: number, d: number, h: number) {
   }
   const top = k.top()
   const under = h - BENCH_TOP
+  const y0 = sym.floating ? under - FLOATING_BENCH : 0
   if (style === 'corner') {
     // A triangle in the corner (seen from above: x across, -z back), drawn as a shape on its side and stood up.
     const tri = (grow: number) =>
@@ -2256,11 +2311,10 @@ function showerBench(k: Kit, sym: PlanSymbol, w: number, d: number, h: number) {
       m.position.y = y
       return m
     }
-    g.add(solid(tri(0), under, 0, body))
+    g.add(solid(tri(0), under - y0, y0, body))
     g.add(solid(tri(1.5), BENCH_TOP, under, top))
     return g
   }
-  const y0 = style === 'floating' ? under - FLOATING_BENCH : 0
   g.add(box(w, under - y0, d, 0, y0, 0, body))
   // The top, a little proud of the front.
   g.add(rbox(w, BENCH_TOP, d + 1.5, 0.4, 0, under, 0.75, top))
@@ -2756,6 +2810,7 @@ export function symbolModel(
   rooms: Room[] = [],
   ceilingH = floorH,
   wash?: CurtainWash,
+  others: PlanSymbol[] = [],
 ): THREE.Group {
   const k: Kit = {
     q: (color, finish) => mats.get(color, hl, finish),
@@ -2885,11 +2940,10 @@ export function symbolModel(
       g = bathtub(k, w, d, h)
       break
     case 'shower': {
-      // Glass where chosen, or on the sides not against a wall; the model is mirrored by flips, the sides with it.
-      const flip = (s: Side): Side =>
-        sym.flipX && (s === 'left' || s === 'right') ? (s === 'left' ? 'right' : 'left') : sym.flipY && (s === 'front' || s === 'back') ? (s === 'front' ? 'back' : 'front') : s
+      // Glass where chosen, or on the sides not against a wall, stopping at columns; the model is mirrored by flips, the
+      // glass with it (see model/shower).
       const glass = sym.screens ?? openSides(sym, rooms)
-      g = shower(k, w, d, h, k.glass(), new Set(glass.map(flip)), sym.doors ?? 'hinged', headInModel(sym, headOf(sym, glass)), ceilingH)
+      g = shower(k, w, d, h, k.glass(), showerRuns(sym, glass, others), sym.doors ?? 'hinged', headInModel(sym, headOf(sym, glass)), ceilingH)
       break
     }
     case 'shower-quadrant':

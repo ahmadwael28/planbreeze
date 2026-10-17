@@ -121,7 +121,7 @@ function builtBox(sym: PlanSymbol, ceilingH: number) {
     const style = styleOf(sym)
     if (style === 'fold-down') return null
     const y1 = sym.height - BENCH_TOP
-    return { depth: sym.depth, y0: style === 'floating' ? y1 - FLOATING_BENCH : 0, y1, corner: style === 'corner', under: style === 'floating' }
+    return { depth: sym.depth, y0: sym.floating ? y1 - FLOATING_BENCH : 0, y1, corner: style === 'corner', under: !!sym.floating }
   }
   return null
 }
@@ -136,6 +136,18 @@ function rectGeo(o: THREE.Vector3, u: THREE.Vector3, v: THREE.Vector3, lu: numbe
   geo.setAttribute('position', new THREE.Float32BufferAttribute(p.flatMap((q) => [q.x, q.y, q.z]), 3))
   geo.setAttribute('uv', new THREE.Float32BufferAttribute([u0, v0, u0 + lu, v0, u0 + lu, v0 + lv, u0, v0 + lv], 2))
   geo.setIndex([0, 1, 2, 0, 2, 3])
+  geo.computeVertexNormals()
+  return geo
+}
+
+/** A triangle facing down (an underside), with texture coordinates in cm across it from (u0, 0). */
+function undersideTri(ps: THREE.Vector3[], u0: number) {
+  const [a, b, c] = ps
+  const up = b.clone().sub(a).cross(c.clone().sub(a)).y > 0
+  const pts = up ? [a, c, b] : [a, b, c]
+  const geo = new THREE.BufferGeometry()
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(pts.flatMap((p) => [p.x, p.y, p.z]), 3))
+  geo.setAttribute('uv', new THREE.Float32BufferAttribute(pts.flatMap((p) => [u0 + p.x, p.z]), 2))
   geo.computeVertexNormals()
   return geo
 }
@@ -401,6 +413,7 @@ export function buildProjectGroup(project: Project, opts: BuildOptions): THREE.G
               floor.rooms,
               hangs ? ceilingHeightAt(floor, pose) : floor.height,
               sym.type === 'curtain' ? washFor(pose) : undefined,
+              floor.symbols,
             )
       if (!obj.children.length) continue
       const up = new THREE.Vector3(0, 1, 0)
@@ -475,9 +488,15 @@ export function buildProjectGroup(project: Project, opts: BuildOptions): THREE.G
               clad.add(mesh(rectGeo(A.addScaledVector(out, 0.3), along, up, len, z1 - z0, f.u0, z0), matAt(band.surface)))
             }
           }
-          // A floating bench's underside, in the finish it has at its bottom.
+          // A floating bench's underside, in the finish it has at its bottom (across a corner, a triangle).
           const low = built.under && (bands.find((band) => built.y0 < band.z1) ?? bands[0])
-          if (low) clad.add(mesh(rectGeo(v3(-w / 2, built.y0 - 0.3, -d / 2), v3(1, 0, 0), v3(0, 0, 1), w, built.depth, uL, 0), matAt(low.surface)))
+          if (low) {
+            const y = built.y0 - 0.3
+            const geo = built.corner
+              ? undersideTri([v3((-flip * w) / 2, y, -d / 2), v3((flip * w) / 2, y, -d / 2), v3((-flip * w) / 2, y, d / 2)], uL + w / 2)
+              : rectGeo(v3(-w / 2, y, -d / 2), v3(1, 0, 0), v3(0, 0, 1), w, built.depth, uL, 0)
+            clad.add(mesh(geo, matAt(low.surface)))
+          }
           obj.add(clad)
         }
       }
