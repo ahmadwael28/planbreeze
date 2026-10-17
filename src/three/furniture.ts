@@ -13,6 +13,7 @@ import { headInModel, headOf, headPoint, showerGlass } from '@/model/shower'
 import type { HeadPlace } from '@/model/shower'
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js'
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js'
+import { WALL_WHITE } from '@/model/finishes'
 import { inwardNormal, signedArea } from '@/model/geometry'
 import { openSides } from '@/model/guides'
 import type { Side } from '@/model/guides'
@@ -35,6 +36,8 @@ import {
   styleOf,
   vanityMirror,
   vanitySinks,
+  NICHES,
+  TANK_BOX,
   worktopOf,
 } from '@/model/symbols'
 import type { PlanSymbol, Point, Room } from '@/model/types'
@@ -601,6 +604,36 @@ function acSlot(k: Kit, w: number, d: number, top: number) {
   const g = new THREE.Group()
   g.add(box(w, 1, d, 0, top - 1, 0, k.q(AC_WHITE, 'satin')))
   for (const v of [-1, 1]) g.add(box(w - 4, 0.4, d * 0.22, 0, top - 1.2, (v * d) / 5, k.q(AC_DARK, 'satin')))
+  return g
+}
+
+/**
+ * A ceiling diffuser of a ducted system, flush in the ceiling: its cones stepping up into it, white rings with the
+ * dark slots between them as seen from below; square (4-way) or round.
+ */
+function acDiffuser(k: Kit, w: number, d: number, top: number, round: boolean) {
+  const g = new THREE.Group()
+  const white = k.q(AC_WHITE, 'satin')
+  const dark = k.q(AC_DARK, 'satin')
+  const steps = [1, 0.9, 0.8, 0.68, 0.58, 0.46, 0.36]
+  steps.forEach((f, i) => {
+    const y = top - 1 - 0.3 * i
+    const mat = i % 2 ? dark : white
+    g.add(round ? cylinder((w / 2) * f, 0.3, 0, y, 0, mat, 1, (w / 2) * f, 40) : box(w * f, 0.3, d * f, 0, y, 0, mat))
+  })
+  return g
+}
+
+/** A return air grille: a white frame flush in the ceiling over a dark duct, with a grid of thin bars. */
+function acReturn(k: Kit, w: number, d: number, top: number) {
+  const g = new THREE.Group()
+  const white = k.q(AC_WHITE, 'satin')
+  g.add(box(w, 1, d, 0, top - 1, 0, white))
+  g.add(box(w - 4, 0.3, d - 4, 0, top - 1.3, 0, k.q(AC_DARK, 'satin')))
+  const nx = Math.max(2, Math.round((w - 4) / 3))
+  const nz = Math.max(2, Math.round((d - 4) / 3))
+  for (let i = 1; i < nx; i++) g.add(box(0.35, 1.2, d - 4, -w / 2 + 2 + ((w - 4) * i) / nx, top - 1.6, 0, white))
+  for (let i = 1; i < nz; i++) g.add(box(w - 4, 1.2, 0.35, 0, top - 1.6, -d / 2 + 2 + ((d - 4) * i) / nz, white))
   return g
 }
 
@@ -1234,7 +1267,7 @@ export function cabinetLeds(sym: PlanSymbol): CabinetLeds | null {
     const z = styleOf(sym) === 'built-in' ? d / 2 - 8 : d / 6
     return { strips: xs.map((x) => ({ x, y: -0.5, z, len: 5, axis: 'x' as const })), spots: xs.map((x) => ({ x, y: -1, z, angle: 0.9, intensity: 3 })) }
   }
-  if (sym.type === 'shower-niche') {
+  if (NICHES.has(sym.type)) {
     // Along the top of the recess, lighting what stands in it.
     const r = nicheDepth(d)
     return { strips: [{ x: 0, y: h - 1.2, z: d / 2 - 1.5, len: w - 2, axis: 'x' }], spots: [{ x: 0, y: h - 2, z: d / 2 - r / 2, angle: 1.2, intensity: 2 }] }
@@ -1704,6 +1737,50 @@ function fridge(k: Kit, w: number, d: number, h: number) {
   return g
 }
 
+/** How high a wall-hung toilet's tank box comes up when it's a ledge with a shelf on top (cm). */
+export const LEDGE_HEIGHT = 110
+
+/**
+ * A wall-hung toilet: its tank concealed in a box in front of the wall (a ledge with a stone shelf, or up to the
+ * ceiling) or inside the wall, a flush plate where it can be reached, and the bowl hung clear of the floor. The box
+ * here is plain; it's finished like the wall it's against when the wall has a finish (see buildScene).
+ */
+function wallHungToilet(k: Kit, sym: PlanSymbol, w: number, d: number, top: number) {
+  const g = new THREE.Group()
+  const white = k.q(COLORS.ceramic, 'gloss')
+  const satin = k.q(COLORS.white, 'satin')
+  const boxD = sym.tankBox === 'none' ? 0 : TANK_BOX
+  const boxH = sym.tankBox === 'full' ? top : Math.min(LEDGE_HEIGHT, top)
+  const back = -d / 2 + boxD // the face the bowl hangs on
+  if (boxD) {
+    g.add(box(w, boxH, boxD, 0, 0, -d / 2 + boxD / 2, k.q(WALL_WHITE, 'satin')))
+    // A stone shelf on a ledge, a little proud of it.
+    if (sym.tankBox !== 'full') g.add(rbox(w + 2, 2, boxD + 2, 0.5, 0, boxH, -d / 2 + boxD / 2 + 1, k.q('#e8e3da', 'satin')))
+  }
+  // The flush plate, in reach above the seat, with its two buttons.
+  const plateY = Math.min(boxH - 18, 100)
+  g.add(rbox(22, 15, 1, 0.8, 0, plateY, back + 0.5, satin))
+  for (const x of [-5, 5]) g.add(rbox(8.5, 11, 0.6, 0.6, x, plateY + 2, back + 1.2, k.q(x < 0 ? '#e9e9e6' : '#dcdcd8', 'satin')))
+  // The bowl, clear of the floor: its body narrowing to the wall, a seat and a closed lid at 40 cm.
+  const bw = Math.min(w, 38)
+  const len = d / 2 - back
+  const zb = back + len * 0.52
+  const s = len / bw
+  const body = mesh(new THREE.SphereGeometry(bw * 0.5, 28, 16, 0, Math.PI * 2, 0, Math.PI / 2), white)
+  body.rotation.x = Math.PI
+  body.scale.set(1, 0.42, s * 0.92)
+  body.position.set(0, 39, zb)
+  g.add(body)
+  g.add(rbox(bw * 0.7, 14, len * 0.45, 4, 0, 25, back + len * 0.22, white)) // where it meets the wall
+  const seat = mesh(new THREE.TorusGeometry(bw * 0.35, 2.3, 10, 32), satin)
+  seat.rotation.x = Math.PI / 2
+  seat.scale.set(1, s * 1.02, 0.7)
+  seat.position.set(0, 40.5, zb + 1)
+  g.add(seat)
+  g.add(cylinder(bw * 0.44, 2, 0, 41.5, zb + 1, satin, s * 1.02))
+  return g
+}
+
 function toilet(k: Kit, w: number, d: number, h: number) {
   const g = new THREE.Group()
   const white = k.q(COLORS.ceramic, 'gloss')
@@ -2128,8 +2205,65 @@ function wallPost(k: Kit, w: number, d: number, floorH: number) {
 function showerNiche(k: Kit, sym: PlanSymbol, w: number, h: number, wallT: number) {
   const g = new THREE.Group()
   const r = nicheDepth(wallT)
-  g.add(box(w + 1, 1.5, r + 1.5, 0, -1.2, wallT / 2 - r / 2 + 0.75, k.q(COLORS.stone, 'satin')))
+  // A shower niche's sill is stone, sloping the water out; a wall niche's is just the wall's.
+  if (sym.type === 'shower-niche') g.add(box(w + 1, 1.5, r + 1.5, 0, -1.2, wallT / 2 - r / 2 + 0.75, k.q(COLORS.stone, 'satin')))
   if (sym.shelf) g.add(box(w - 0.6, 0.8, r - 0.6, 0, h / 2, wallT / 2 - r / 2, k.glass()))
+  return g
+}
+
+/** A shower bench's stone top (cm), and how thick a floating one is under it. */
+export const BENCH_TOP = 3
+export const FLOATING_BENCH = 9
+
+/**
+ * A shower bench: built of blocks against the wall up to a stone top, the same floating off the wall, a seat across a
+ * corner (its back and left side against the walls), or teak slats on a frame folded down off the wall. The blocks
+ * are plain here; they're finished like the wall they're against when it has a finish (see buildScene).
+ */
+function showerBench(k: Kit, sym: PlanSymbol, w: number, d: number, h: number) {
+  const g = new THREE.Group()
+  const style = styleOf(sym)
+  const body = k.q(WALL_WHITE, 'satin')
+  if (style === 'fold-down') {
+    const chrome = k.q(COLORS.chrome, 'chrome')
+    const teak = k.q('#9a6a3e', 'satin')
+    g.add(box(w - 6, 5, 1.5, 0, h - 22, -d / 2 + 0.75, chrome)) // the wall plate it hinges on
+    for (const s of [-1, 1]) {
+      const x = s * (w / 2 - 4)
+      g.add(box(2, 2.5, d - 2, x, h - 5, 1, chrome)) // the arms under the slats
+      // A stay from the wall up to each arm.
+      const run = d * 0.6
+      const rise = 15
+      const stay = mesh(new THREE.BoxGeometry(1.2, Math.hypot(run, rise), 1.2), chrome)
+      stay.position.set(x, h - 5 - rise / 2, -d / 2 + run / 2)
+      stay.rotation.x = Math.atan2(run, rise)
+      g.add(stay)
+    }
+    const n = Math.max(3, Math.round(d / 6))
+    const slat = (d - 2) / n
+    for (let i = 0; i < n; i++) g.add(rbox(w, 2.5, slat - 0.8, 0.5, 0, h - 2.5, -d / 2 + 1 + slat * (i + 0.5), teak))
+    return g
+  }
+  const top = k.top()
+  const under = h - BENCH_TOP
+  if (style === 'corner') {
+    // A triangle in the corner (seen from above: x across, -z back), drawn as a shape on its side and stood up.
+    const tri = (grow: number) =>
+      new THREE.Shape([new THREE.Vector2(-w / 2, d / 2), new THREE.Vector2(w / 2 + grow, d / 2), new THREE.Vector2(-w / 2, -d / 2 - grow)])
+    const solid = (shape: THREE.Shape, depth: number, y: number, mat: Mat) => {
+      const m = mesh(new THREE.ExtrudeGeometry(shape, { depth, bevelEnabled: false }), mat)
+      m.rotation.x = -Math.PI / 2
+      m.position.y = y
+      return m
+    }
+    g.add(solid(tri(0), under, 0, body))
+    g.add(solid(tri(1.5), BENCH_TOP, under, top))
+    return g
+  }
+  const y0 = style === 'floating' ? under - FLOATING_BENCH : 0
+  g.add(box(w, under - y0, d, 0, y0, 0, body))
+  // The top, a little proud of the front.
+  g.add(rbox(w, BENCH_TOP, d + 1.5, 0.4, 0, under, 0.75, top))
   return g
 }
 
@@ -2700,6 +2834,15 @@ export function symbolModel(
     case 'ac-slot':
       g = acSlot(k, w, d, ceilingH)
       break
+    case 'ac-square':
+      g = acDiffuser(k, w, d, ceilingH, false)
+      break
+    case 'ac-round':
+      g = acDiffuser(k, w, w, ceilingH, true)
+      break
+    case 'ac-return':
+      g = acReturn(k, w, d, ceilingH)
+      break
     case 'ac-floor':
       g = acFloor(k, w, d, h)
       break
@@ -2771,7 +2914,7 @@ export function symbolModel(
       g = blind(k, sym, w, d, h, ceilingH)
       break
     case 'toilet':
-      g = toilet(k, w, d, h)
+      g = sym.mount === 'wall' ? wallHungToilet(k, sym, w, d, ceilingH) : toilet(k, w, d, h)
       break
     case 'washbasin':
       g = washbasin(k, w, d, h)
@@ -2780,7 +2923,11 @@ export function symbolModel(
       g = bathVanity(k, sym, w, d, h)
       break
     case 'shower-niche':
+    case 'wall-niche':
       g = showerNiche(k, sym, w, h, wallT)
+      break
+    case 'shower-bench':
+      g = showerBench(k, sym, w, d, h)
       break
     case 'towel-rail':
       g = towelRail(k, sym, w, d, h)

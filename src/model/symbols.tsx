@@ -223,6 +223,8 @@ export function hasWorktop(sym: PlanSymbol) {
       return styleOf(sym) === 'built-in'
     case 'bath-vanity':
       return styleOf(sym) === 'vessel'
+    case 'shower-bench':
+      return styleOf(sym) !== 'fold-down'
   }
   return false
 }
@@ -248,6 +250,14 @@ export const DRESSING_STYLES: ItemStyle[] = [
   { id: 'hollywood', name: 'Hollywood bulbs', kind: 'Modern' },
 ]
 
+/** Shower benches: built against the wall and finished like it with a stone top, or floating, across a corner, or folding down. */
+export const BENCH_STYLES: ItemStyle[] = [
+  { id: 'built-in', name: 'Built-in bench', kind: 'Modern' },
+  { id: 'floating', name: 'Floating bench', kind: 'Modern' },
+  { id: 'corner', name: 'Corner seat', kind: 'Modern' },
+  { id: 'fold-down', name: 'Fold-down seat', kind: 'Classic' },
+]
+
 /** Items that come in styles, and theirs (the first is the default). */
 export const STYLES: Record<string, ItemStyle[]> = {
   pendant: PENDANT_STYLES,
@@ -257,6 +267,7 @@ export const STYLES: Record<string, ItemStyle[]> = {
   'bath-vanity': VANITY_STYLES,
   'range-hood': HOOD_STYLES,
   'washing-machine': WASHER_STYLES,
+  'shower-bench': BENCH_STYLES,
 }
 
 /** A dressing table's mirror: how wide and high, round or not, and the bottom of it above the table top (cm). */
@@ -543,6 +554,29 @@ function showerHeadMark(sym: PlanSymbol | undefined, w: number, d: number, t: Pl
     </g>
   )
 }
+
+/** Recesses in a wall (part of its depth), lined with the wall's finish. */
+export const NICHES = new Set(['shower-niche', 'wall-niche'])
+
+/** A niche on the plan: the wall cut open, the recess on the room's side, a shelf in it dashed. */
+function niche(w: number, d: number, t: PlanTheme, sym?: PlanSymbol) {
+  const k = kit(t)
+  const r = Math.max(2, Math.min(9, d - 3))
+  return (
+    <>
+      {k.opening(w, d)}
+      <rect x={-w / 2} y={-d / 2} width={w} height={d - r} fill={t.wall} stroke="none" />
+      <rect x={-w / 2} y={d / 2 - r} width={w} height={r} {...k.s()} />
+      {sym?.shelf && <line x1={-w / 2} y1={d / 2 - r / 2} x2={w / 2} y2={d / 2 - r / 2} {...k.thin} strokeDasharray="3 2" />}
+    </>
+  )
+}
+
+/** Air conditioning in the ceiling (a gypsum one, or the slab): set into it wherever they're placed. */
+export const CEILING_AC = new Set(['ac-cassette', 'ac-slot', 'ac-square', 'ac-round', 'ac-return'])
+
+/** How deep the box a wall-hung toilet's tank is concealed in stands out from the wall (cm). */
+export const TANK_BOX = 20
 
 function kit(t: PlanTheme) {
   const base = {
@@ -1679,8 +1713,27 @@ export const SYMBOLS: SymbolDef[] = [
     width: 40,
     depth: 65,
     height: 80,
-    render: (w, d, t) => {
+    render: (w, d, t, sym) => {
       const k = kit(t)
+      if (sym?.mount === 'wall') {
+        // Hung on the wall: its tank concealed in a box behind it (or in the wall), a flush plate on the front, and
+        // the bowl flat at the back, round at the front.
+        const box = sym.tankBox === 'none' ? 0 : TANK_BOX
+        const bw = Math.min(w, 38)
+        const y0 = -d / 2 + box
+        const len = d / 2 - y0
+        return (
+          <>
+            {box > 0 && <rect x={-w / 2} y={-d / 2} width={w} height={box} {...k.s(t.fill2)} />}
+            <rect x={-9} y={y0 - 1.5} width={18} height={1.5} {...k.s()} />
+            <path
+              d={`M${-bw * 0.36},${y0} L${bw * 0.36},${y0} C${bw / 2},${y0 + len * 0.35} ${bw / 2},${y0 + len} 0,${y0 + len} C${-bw / 2},${y0 + len} ${-bw / 2},${y0 + len * 0.35} ${-bw * 0.36},${y0} Z`}
+              {...k.s()}
+            />
+            <ellipse cx={0} cy={y0 + len * 0.58} rx={bw * 0.27} ry={len * 0.3} {...k.thin} />
+          </>
+        )
+      }
       return (
         <>
           <rect x={-w / 2} y={-d / 2} width={w} height={d * 0.3} rx={3} {...k.s()} />
@@ -1746,15 +1799,60 @@ export const SYMBOLS: SymbolDef[] = [
     height: 60,
     sill: 110,
     wall: true,
+    render: niche,
+  },
+  {
+    // A recess in a wall to show things in (painted, or finished like the wall), with a sill; part of the wall's depth.
+    type: 'wall-niche',
+    name: 'Wall niche',
+    keywords: 'niche recess alcove display shelf wall decor living bedroom tv feature',
+    category: 'Living',
+    alsoIn: ['Bedroom', 'Bathroom'],
+    width: 60,
+    depth: 10,
+    height: 90,
+    sill: 100,
+    wall: true,
+    render: niche,
+  },
+  {
+    // A seat in a shower: built against the wall, finished like it, with a stone top; or a teak one folding down.
+    type: 'shower-bench',
+    name: 'Shower bench',
+    keywords: 'shower seat bench built in tiled ledge corner fold down floating teak sit bathroom',
+    category: 'Bathroom',
+    width: 90,
+    depth: 40,
+    height: 45,
     render: (w, d, t, sym) => {
       const k = kit(t)
-      const r = Math.max(2, Math.min(9, d - 3))
+      const style = sym ? styleOf(sym) : 'built-in'
+      if (style === 'corner') {
+        // Across the corner its back and left side are in: the seat's edge a little in from its front.
+        return (
+          <>
+            <path d={`M${-w / 2},${-d / 2} L${w / 2},${-d / 2} L${-w / 2},${d / 2} Z`} {...k.s(t.fill2)} />
+            <line x1={-w / 2 + w * 0.88} y1={-d / 2} x2={-w / 2} y2={-d / 2 + d * 0.88} {...k.thin} />
+          </>
+        )
+      }
+      if (style === 'fold-down') {
+        // Teak slats on a frame, folded down off the wall.
+        const n = Math.max(3, Math.round(d / 6))
+        return (
+          <>
+            <rect x={-w / 2} y={-d / 2} width={w} height={d} rx={1} {...k.s()} />
+            {Array.from({ length: n - 1 }, (_, i) => {
+              const y = -d / 2 + (d * (i + 1)) / n
+              return <line key={i} x1={-w / 2 + 2} y1={y} x2={w / 2 - 2} y2={y} {...k.thin} />
+            })}
+          </>
+        )
+      }
       return (
         <>
-          {k.opening(w, d)}
-          <rect x={-w / 2} y={-d / 2} width={w} height={d - r} fill={t.wall} stroke="none" />
-          <rect x={-w / 2} y={d / 2 - r} width={w} height={r} {...k.s()} />
-          {sym?.shelf && <line x1={-w / 2} y1={d / 2 - r / 2} x2={w / 2} y2={d / 2 - r / 2} {...k.thin} strokeDasharray="3 2" />}
+          <rect x={-w / 2} y={-d / 2} width={w} height={d} {...k.s(t.fill2)} />
+          <line x1={-w / 2} y1={d / 2 - 3} x2={w / 2} y2={d / 2 - 3} {...k.thin} strokeDasharray={style === 'floating' ? '4 3' : undefined} />
         </>
       )
     },
@@ -1944,6 +2042,74 @@ export const SYMBOLS: SymbolDef[] = [
           {[-1, 1].map((v) => (
             <line key={v} x1={-w / 2 + 3} y1={(v * d) / 5} x2={w / 2 - 3} y2={(v * d) / 5} {...k.line} />
           ))}
+        </>
+      )
+    },
+  },
+  {
+    type: 'ac-square',
+    name: 'Square ceiling diffuser',
+    keywords: 'ac aircon air conditioning ducted concealed vent diffuser square 4 way ceiling gypsum supply grille hvac',
+    category: 'Electrical',
+    width: 60,
+    depth: 60,
+    height: 5,
+    render: (w, d, t) => {
+      const k = kit(t)
+      // The usual ceiling plan mark: its cones as squares inside one another, and a cross.
+      return (
+        <>
+          {k.box(w, d, 1)}
+          {[0.74, 0.48].map((f) => (
+            <rect key={f} x={(-w * f) / 2} y={(-d * f) / 2} width={w * f} height={d * f} {...k.thin} />
+          ))}
+          <line x1={-w / 2} y1={-d / 2} x2={w / 2} y2={d / 2} {...k.thin} />
+          <line x1={w / 2} y1={-d / 2} x2={-w / 2} y2={d / 2} {...k.thin} />
+        </>
+      )
+    },
+  },
+  {
+    type: 'ac-round',
+    name: 'Round ceiling diffuser',
+    keywords: 'ac aircon air conditioning ducted concealed vent diffuser round circular ceiling gypsum supply hvac',
+    category: 'Electrical',
+    width: 30,
+    depth: 30,
+    height: 5,
+    render: (w, _d, t) => {
+      const k = kit(t)
+      return (
+        <>
+          <circle cx={0} cy={0} r={w / 2} {...k.s()} />
+          {[0.7, 0.42].map((f) => (
+            <circle key={f} cx={0} cy={0} r={(w / 2) * f} {...k.thin} />
+          ))}
+          <circle cx={0} cy={0} r={w * 0.06} {...k.s(t.ink)} />
+        </>
+      )
+    },
+  },
+  {
+    type: 'ac-return',
+    name: 'Return air grille',
+    keywords: 'ac aircon air conditioning ducted return intake extract vent grille egg crate ceiling gypsum hvac',
+    category: 'Electrical',
+    width: 60,
+    depth: 30,
+    height: 5,
+    render: (w, d, t) => {
+      const k = kit(t)
+      // A grille, crossed once corner to corner as return air is on a ceiling plan.
+      const n = Math.max(2, Math.round(w / 8))
+      return (
+        <>
+          {k.box(w, d, 1)}
+          {Array.from({ length: n - 1 }, (_, i) => {
+            const x = -w / 2 + (w * (i + 1)) / n
+            return <line key={i} x1={x} y1={-d / 2 + 2} x2={x} y2={d / 2 - 2} {...k.thin} strokeOpacity={0.6} />
+          })}
+          <line x1={-w / 2} y1={d / 2} x2={w / 2} y2={-d / 2} {...k.thin} />
         </>
       )
     },

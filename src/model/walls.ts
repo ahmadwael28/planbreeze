@@ -3,7 +3,7 @@ import polygonClipping from 'polygon-clipping'
 import { add, area, bbox, dist, dot, inwardNormal, mul, normalize, pointInPolygon, projectOnSegment, signedArea, sub } from './geometry'
 import { wallBands, wallSurfaceAt } from './finishes'
 import { isOpen, isOutdoor, roomOuter, symbolPose } from './project'
-import { SYMBOL_MAP } from './symbols'
+import { NICHES, SYMBOL_MAP } from './symbols'
 import type { Floor, Point, Room, WallSurface } from './types'
 
 export interface Opening {
@@ -60,7 +60,7 @@ export function wallOpenings(floor: Floor): Opening[] {
       width: sym.width,
       bottom,
       top: bottom + sym.height,
-      ...(sym.type === 'shower-niche' && {
+      ...(NICHES.has(sym.type) && {
         recess: nicheDepth(pose.wallThickness ?? sym.depth),
         facing: { x: -Math.sin(r) * (sym.flipY ? -1 : 1), y: Math.cos(r) * (sym.flipY ? -1 : 1) },
       }),

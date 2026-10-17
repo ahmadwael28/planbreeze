@@ -1,25 +1,25 @@
 import * as THREE from 'three'
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js'
-import { add, bbox, dist, inwardNormal, labelPoint, mul, normalize, pointInPolygon, projectOnSegment, signedArea, sub } from '@/model/geometry'
+import { add, bbox, dist, dot, inwardNormal, labelPoint, mul, normalize, pointInPolygon, projectOnSegment, signedArea, sub } from '@/model/geometry'
 import { isSelected } from '@/model/items'
 import { isOpen, isOutdoor, railingRuns, roomOuter, symbolPose, wallEnds } from '@/model/project'
 import { floorOrigin } from '@/model/divide'
-import { SYMBOL_MAP } from '@/model/symbols'
+import { CEILING_AC, NICHES, styleOf, SYMBOL_MAP, TANK_BOX } from '@/model/symbols'
 import type { PlanTheme } from '@/model/theme'
-import type { Floor, Point, Project, Room, Selection, Surface } from '@/model/types'
+import type { Floor, PlanSymbol, Point, Project, Room, Selection, Surface } from '@/model/types'
 import { startsAtFloor, wallBands, wallSurfaceAt } from '@/model/finishes'
 import { cutsFor, nicheDepth, roomFaces, wallBehind, wallOpenings, wallPatches } from '@/model/walls'
 import { roomUVs } from './worktops'
 import type { Opening } from '@/model/walls'
 import { readyImage } from '@/lib/images'
-import { cabinetLeds, COLORS, Materials, personModel, railingModel, symbolModel } from './furniture'
+import { BENCH_TOP, cabinetLeds, COLORS, FLOATING_BENCH, LEDGE_HEIGHT, Materials, personModel, railingModel, symbolModel } from './furniture'
 import { personSupport } from '@/model/people'
 import type { CurtainWash } from './furniture'
 import { ceilingHeightAt, ceilingLight, ceilingRoom, coveRuns, lightHex, pocketWidth } from '@/model/lighting'
 import { floorMaterial, wallMaterial } from './finishTextures'
 import type { Photos } from './finishTextures'
 import { hasMix, tileGrid } from '@/model/tiles'
-import { aroundColumns, columnFaces, developed, wallColumns } from '@/model/developed'
+import { aroundColumns, columnFaces, developed, wallColumns, wallSign } from '@/model/developed'
 import type { WallColumn } from '@/model/developed'
 import type { Photo } from './finishTextures'
 import { bakeGlows, buildCeilings, buildFixture, cabinetLights } from './lighting3d'
@@ -106,6 +106,24 @@ function roomWalls(room: Room, openings: Opening[], height: number, base: number
     piece(cur, L, 0, height)
   }
   return geos
+}
+
+/**
+ * The box of what's built against a wall and finished like it, in the item's frame: how far out from the wall, from
+ * and to what heights, whether it's across a corner (its front the diagonal) and whether its underside shows. A
+ * wall-hung toilet's tank box (to its shelf or the ceiling) and a shower bench (to its stone top).
+ */
+function builtBox(sym: PlanSymbol, ceilingH: number) {
+  if (sym.type === 'toilet' && sym.mount === 'wall' && sym.tankBox !== 'none') {
+    return { depth: TANK_BOX, y0: 0, y1: sym.tankBox === 'full' ? ceilingH : Math.min(LEDGE_HEIGHT, ceilingH), corner: false, under: false }
+  }
+  if (sym.type === 'shower-bench') {
+    const style = styleOf(sym)
+    if (style === 'fold-down') return null
+    const y1 = sym.height - BENCH_TOP
+    return { depth: sym.depth, y0: style === 'floating' ? y1 - FLOATING_BENCH : 0, y1, corner: style === 'corner', under: style === 'floating' }
+  }
+  return null
 }
 
 /**
@@ -365,8 +383,9 @@ export function buildProjectGroup(project: Project, opts: BuildOptions): THREE.G
       if (sym.type === 'gypsum-box' || sym.type === 'beam' || def?.ceilingStyle) continue
       const pose = symbolPose(sym, floor.rooms)
       const hl = isSelected(sel, 'symbol', sym.id)
-      // Curtains and blinds hang from the ceiling above them (up in a curtain pocket if there's one).
-      const hangs = ['curtain', 'blind', 'ac-cassette', 'ac-slot', 'range-hood'].includes(sym.type)
+      // Curtains and blinds hang from the ceiling above them (up in a curtain pocket if there's one), air conditioning
+      // is set into it, and a wall-hung toilet's tank box can go up to it.
+      const hangs = ['curtain', 'blind', 'range-hood', 'toilet'].includes(sym.type) || CEILING_AC.has(sym.type)
       // People sit or lie on whatever they're on, at its height.
       const on = sym.type === 'person' ? personSupport(sym, floor.symbols) : null
       const obj =
@@ -414,8 +433,56 @@ export function buildProjectGroup(project: Project, opts: BuildOptions): THREE.G
           if (startsAtFloor(s)) obj.children.filter((o) => o.userData.skirt).forEach((o) => obj.remove(o))
         }
       }
+      // What's built against a wall (a wall-hung toilet's tank box, a shower bench) is finished like the wall behind
+      // it: its front lined up with the wall's tiles, which turn its corners onto its sides.
+      const built = builtBox(sym, ceilingHeightAt(floor, pose))
+      if (built) {
+        const at = wallBehind(pose, sym.depth, floor.rooms)
+        const s = at && wallSurfaceAt(at.room, at.edge)
+        if (s && at) {
+          const w = sym.width
+          const d = sym.depth
+          const a = at.room.points[at.edge]
+          const b = at.room.points[(at.edge + 1) % at.room.points.length]
+          const u = wallSign(at.room, at.edge) * dot(sub(pose, a), normalize(sub(b, a)))
+          const uL = developed(wallColumns(floor, at.room, at.edge), u - w / 2)
+          const zf = -d / 2 + built.depth
+          // Its faces as seen (x across, z out from the wall), each from A to B left to right: across a corner, only
+          // its front, from the side wall to the back one.
+          const flip = sym.flipX ? -1 : 1
+          const faces: { A: [number, number]; B: [number, number]; u0: number }[] = built.corner
+            ? [{ A: [-w / 2, (flip * d) / 2], B: [w / 2, (-flip * d) / 2], u0: uL }]
+            : [
+                { A: [-w / 2, -d / 2], B: [-w / 2, zf], u0: uL - built.depth },
+                { A: [-w / 2, zf], B: [w / 2, zf], u0: uL },
+                { A: [w / 2, zf], B: [w / 2, -d / 2], u0: uL + w },
+              ]
+          // Laid as seen, even when it's mirrored.
+          const clad = new THREE.Group()
+          clad.scale.x = flip
+          const bands = wallBands(s, floor.height)
+          const matAt = (surface: Surface) => wallMat(surface, walled.extents.get(`${at.room.id}|${at.edge}|${JSON.stringify(surface)}`))
+          for (const band of bands) {
+            const z0 = Math.max(band.z0, built.y0)
+            const z1 = Math.min(band.z1, built.y1)
+            if (z1 - z0 < 0.5) continue
+            for (const f of faces) {
+              const A = v3(f.A[0], z0, f.A[1])
+              const along = v3(f.B[0], z0, f.B[1]).sub(A)
+              const len = along.length()
+              along.normalize()
+              const out = along.clone().cross(up)
+              clad.add(mesh(rectGeo(A.addScaledVector(out, 0.3), along, up, len, z1 - z0, f.u0, z0), matAt(band.surface)))
+            }
+          }
+          // A floating bench's underside, in the finish it has at its bottom.
+          const low = built.under && (bands.find((band) => built.y0 < band.z1) ?? bands[0])
+          if (low) clad.add(mesh(rectGeo(v3(-w / 2, built.y0 - 0.3, -d / 2), v3(1, 0, 0), v3(0, 0, 1), w, built.depth, uL, 0), matAt(low.surface)))
+          obj.add(clad)
+        }
+      }
       // A shower niche is lined with the wall's finish (where the wall has one): its back, sides, top and sill.
-      if (sym.type === 'shower-niche' && sym.wall) {
+      if (NICHES.has(sym.type) && sym.wall) {
         const room = floor.rooms.find((r) => r.id === sym.wall!.roomId)
         const s = room && wallSurfaceAt(room, sym.wall.edge)
         if (s) {

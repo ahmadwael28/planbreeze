@@ -32,7 +32,7 @@ import { area, dist, perimeter, pointInPolygon } from '@/model/geometry'
 import { DEFAULT_RAILING, isOpen, isOutdoor, OUTDOOR, RAILING_THICKNESS, ROOM_COLORS, roomOuter, setWallLength, symbolPose } from '@/model/project'
 import { wallAcross } from '@/model/divide'
 import { beamSpan } from '@/model/beams'
-import { CABINETS, curtainLayers, frameOf, givesLight, hasGlass, SKIN_TONES, STYLES, styleOf, SYMBOL_MAP, tvInches, tvSize, WORKTOPS, worktopOf, hasWorktop } from '@/model/symbols'
+import { CABINETS, curtainLayers, frameOf, givesLight, hasGlass, NICHES, SKIN_TONES, STYLES, styleOf, SYMBOL_MAP, tvInches, tvSize, WORKTOPS, worktopOf, hasWorktop } from '@/model/symbols'
 import type { Worktop } from '@/model/symbols'
 import type { FrameColor } from '@/model/symbols'
 import { formatArea, formatLength } from '@/model/units'
@@ -158,7 +158,7 @@ function worktopSwatch(w: Worktop) {
 }
 
 /** The worktop of a kitchen unit (or island, or a vanity's stone top), and putting the same on every one in its room. */
-function WorktopPicker({ sym }: { sym: PlanSymbol }) {
+function WorktopPicker({ sym, label }: { sym: PlanSymbol; label?: string }) {
   const floor = useFloor()
   const current = worktopOf(sym)
   const room = floor.rooms.find((r) => pointInPolygon(sym, r.points))
@@ -166,7 +166,7 @@ function WorktopPicker({ sym }: { sym: PlanSymbol }) {
   const ring = 'ring-2 ring-primary ring-offset-2 ring-offset-background'
   return (
     <>
-      <Field label={t('Worktop')}>
+      <Field label={label ?? t('Worktop')}>
         {(id) => (
           <div id={id} className="flex flex-wrap items-center gap-1.5 py-1">
             {WORKTOPS.map((w) => (
@@ -796,6 +796,76 @@ const DOOR_DEFAULT: Record<string, 'hinged' | 'sliding'> = {
 }
 
 /** Which sides of a shower have glass: by default the ones not against a wall, or chosen. */
+/** A toilet's usual size (width, depth): standing on the floor, hung with its tank in a box, or in the wall. */
+const TOILET_SIZES = { floor: [40, 65], box: [60, 74], wall: [38, 54] }
+
+/**
+ * How a toilet's mounted: standing on the floor with its own tank, or hung on the wall with the tank concealed in a box
+ * in front of the wall (half height with a shelf on top, or up to the ceiling) or in the wall itself. Each is made its
+ * usual size, its back staying against the wall.
+ */
+function ToiletMount({ sym }: { sym: PlanSymbol }) {
+  const box = sym.tankBox ?? 'ledge'
+  const reshape = (s: PlanSymbol, [w, d]: number[]) => {
+    const r = (s.rotation * Math.PI) / 180
+    const f = s.flipY ? -1 : 1
+    const shift = (s.depth - d) / 2
+    s.x += Math.sin(r) * f * shift
+    s.y -= Math.cos(r) * f * shift
+    s.width = w
+    s.depth = d
+  }
+  return (
+    <>
+      <Choice
+        label={t('Mounting')}
+        value={sym.mount ?? 'floor'}
+        onChange={(v) =>
+          updateSymbol(sym.id, (s) => {
+            if (v === 'wall') {
+              s.mount = 'wall'
+              reshape(s, s.tankBox === 'none' ? TOILET_SIZES.wall : TOILET_SIZES.box)
+            } else {
+              delete s.mount
+              delete s.tankBox
+              reshape(s, TOILET_SIZES.floor)
+            }
+          })
+        }
+        options={[
+          { value: 'floor', label: t('Floor-standing') },
+          { value: 'wall', label: t('Wall-hung') },
+        ]}
+      />
+      {sym.mount === 'wall' && (
+        <Choice
+          label={t('Concealed tank')}
+          stacked
+          value={box}
+          onChange={(v) =>
+            updateSymbol(sym.id, (s) => {
+              if (v === 'ledge') delete s.tankBox
+              else s.tankBox = v
+              if ((box === 'none') !== (v === 'none')) reshape(s, v === 'none' ? TOILET_SIZES.wall : TOILET_SIZES.box)
+            })
+          }
+          options={[
+            { value: 'ledge', label: t('Box with a shelf') },
+            { value: 'full', label: t('Box to the ceiling') },
+            { value: 'none', label: t('In the wall') },
+          ]}
+        >
+          <p className="text-xs text-muted-foreground">
+            {box === 'none'
+              ? t('The tank is inside the wall: only its flush plate shows.')
+              : t("The box is finished like the wall behind it (its tiles, if it's tiled), and can be as wide as the wall.")}
+          </p>
+        </Choice>
+      )}
+    </>
+  )
+}
+
 function ShowerGlass({ sym }: { sym: PlanSymbol }) {
   const floor = useFloor()
   const auto = !sym.screens
@@ -1441,7 +1511,7 @@ function SymbolProps({ sym, units }: { sym: PlanSymbol; units: Units }) {
           ] as [Dim, string, boolean][]
         ).map(([dim, label, shown]) => {
           if (!shown || sym.type === 'person') return null
-          const rule = sizeRule(sym.type, dim)
+          const rule = sizeRule(sym, dim)
           return (
             <Field key={dim} label={label}>
               {(id) =>
@@ -1474,6 +1544,7 @@ function SymbolProps({ sym, units }: { sym: PlanSymbol; units: Units }) {
         {def?.fullHeight && <p className="text-xs text-muted-foreground">{t("Floor to ceiling, whatever the room's height.")}</p>}
         {sym.type === 'shower' && <ShowerGlass sym={sym} />}
         {(sym.type === 'shower' || sym.type === 'shower-quadrant') && <ShowerHeadPicker sym={sym} />}
+        {sym.type === 'toilet' && <ToiletMount sym={sym} />}
         {STYLES[sym.type] && (
           <Field label={t('Style')}>
             {(id) => (
@@ -1510,9 +1581,13 @@ function SymbolProps({ sym, units }: { sym: PlanSymbol; units: Units }) {
           </Field>
         )}
         {(sym.type === 'curtain' || sym.type === 'blind') && <FabricControls sym={sym} />}
-        {sym.type === 'shower-niche' && (
+        {NICHES.has(sym.type) && (
           <div className="space-y-3 rounded-lg bg-muted/60 p-3">
-            <p className="text-xs text-muted-foreground">{t("Recessed into the wall and lined with the wall's finish (its tiles, if it's tiled).")}</p>
+            <p className="text-xs text-muted-foreground">
+              {sym.type === 'shower-niche'
+                ? t("Recessed into the wall and lined with the wall's finish (its tiles, if it's tiled).")
+                : t("Recessed into the wall and finished like it: painted, or its tiles if it's tiled.")}
+            </p>
             <label className="flex items-center justify-between gap-2 text-sm">
               <span>{t('Glass shelf')}</span>
               <Switch size="sm" checked={!!sym.shelf} onCheckedChange={(on) => updateSymbol(sym.id, (s) => void (s.shelf = on || undefined))} />
@@ -1673,7 +1748,10 @@ function SymbolProps({ sym, units }: { sym: PlanSymbol; units: Units }) {
           </div>
         )}
         {def?.frames && <FramePicker sym={sym} frames={def.frames} label={def.frameLabel} />}
-        {hasWorktop(sym) && <WorktopPicker sym={sym} />}
+        {sym.type === 'shower-bench' && styleOf(sym) !== 'fold-down' && (
+          <p className="text-xs text-muted-foreground">{t("Built against the wall and finished like it (its tiles, if it's tiled), with a stone top.")}</p>
+        )}
+        {hasWorktop(sym) && <WorktopPicker sym={sym} label={sym.type === 'shower-bench' ? t('Top') : undefined} />}
         {def?.sill !== undefined && (
           <Field label={t('Sill height')}>
             {(id) => (

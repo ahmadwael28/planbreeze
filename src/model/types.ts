@@ -266,6 +266,13 @@ export interface PlanSymbol {
    * own frame); or from the ceiling (a rain shower), in the middle. By default on the first wall, in its middle.
    */
   showerHead?: { side: 'front' | 'back' | 'left' | 'right' | 'ceiling'; at?: number }
+  /** Toilets: hung on the wall with its tank concealed behind it, rather than standing on the floor with its own. */
+  mount?: 'wall'
+  /**
+   * A wall-hung toilet's concealed tank: in a box in front of the wall, half height with a shelf on top (the
+   * default) or up to the ceiling, or inside the wall itself (nothing stands out, only its flush plate shows).
+   */
+  tankBox?: 'ledge' | 'full' | 'none'
   /** Frame / trim color (hex) for items that come in several finishes: spots, tracks, aluminium doors. */
   frame?: string
   /** Magnetic tracks: the modules clipped into them. */

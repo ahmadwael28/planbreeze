@@ -6,7 +6,7 @@
  */
 import { add, area, bbox, dist, dot, inwardNormal, mul, pointInPolygon, signedArea, sub } from '../geometry'
 import { newSymbol, symbolPose } from '../project'
-import { SYMBOL_MAP } from '../symbols'
+import { NICHES, SYMBOL_MAP } from '../symbols'
 import type { Floor, PlanSymbol, Point, Room, RoomUse } from '../types'
 import { roomFaces } from '../walls'
 import type { WallFace } from '../walls'
@@ -78,7 +78,7 @@ export function analyze(room: Room, floor: Floor, fixed: PlanSymbol[], uses: Map
   const openings: Opening[] = []
   for (const sym of floor.symbols) {
     const def = SYMBOL_MAP.get(sym.type)
-    if (!def?.wall || sym.type === 'shower-niche') continue
+    if (!def?.wall || NICHES.has(sym.type)) continue
     const pose = symbolPose(sym, floor.rooms)
     const r = (pose.rotation * Math.PI) / 180
     const along = { x: Math.cos(r), y: Math.sin(r) }

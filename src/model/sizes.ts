@@ -61,11 +61,15 @@ const RULES: Record<string, Rules> = {
   'ac-split': { width: [60, 130], depth: [17, 32], height: [24, 36] },
   'ac-cassette': { width: [55, 100], depth: [55, 100], height: [20, 35] },
   'ac-slot': { width: [40, 400], depth: [6, 30] },
+  'ac-square': { width: [15, 90], depth: [15, 90] },
+  'ac-round': { width: [15, 60], round: true },
+  'ac-return': { width: [20, 150], depth: [15, 90] },
   'ac-floor': { width: [35, 65], depth: [22, 45], height: [140, 200] },
   'ac-outdoor': { width: [60, 110], depth: [25, 45], height: [45, 110] },
   // Bathroom
   'bath-vanity': { width: [40, 200], depth: [35, 60], height: [75, 95] },
   'shower-niche': { width: [15, 150], height: [20, 150] },
+  'wall-niche': { width: [15, 300], height: [20, 250] },
   'towel-rail': { width: [30, 120], depth: [6, 15], height: [3, 10] },
   'towel-radiator': { width: [35, 80], depth: [6, 15], height: [50, 180] },
   'wall-cabinet': { width: [30, 150], depth: [25, 45], height: [30, 110] },
@@ -76,6 +80,9 @@ const RULES: Record<string, Rules> = {
   'kitchen-island': { width: [100, 360], depth: [70, 140], height: [85, 110] },
   'range-hood': { width: [50, 150], depth: [30, 70], height: [5, 90] },
   toilet: { width: [35, 50], depth: [45, 75], height: [35, 110] },
+  // Hung on the wall: as wide as the box its tank is in (a ledge can run along the wall), as deep as that and the bowl.
+  'toilet-wall': { width: [35, 300], depth: [40, 90], height: [35, 110] },
+  'shower-bench': { width: [30, 250], depth: [25, 70], height: [35, 60] },
   washbasin: { width: [30, 200], depth: [30, 60], height: [60, 100] },
   bathtub: { width: [120, 200], depth: [60, 100], height: [40, 70] },
   shower: { width: [70, 200], depth: [70, 200], height: [180, 250] },
@@ -100,8 +107,9 @@ const RULES: Record<string, Rules> = {
 }
 
 /** The limits on one size of an item (fixed: always its standard size), or null if it can be anything. */
-export function sizeRule(type: string, dim: Dim): { min: number; max: number; fixed: boolean } | null {
-  const r = RULES[type]?.[dim]
+export function sizeRule(of: string | Pick<PlanSymbol, 'type' | 'mount'>, dim: Dim): { min: number; max: number; fixed: boolean } | null {
+  const type = typeof of === 'string' ? of : of.type
+  const r = RULES[typeof of !== 'string' && of.type === 'toilet' && of.mount === 'wall' ? 'toilet-wall' : type]?.[dim]
   if (!r) return null
   if (r === 'fixed') {
     const v = SYMBOL_MAP.get(type)?.[dim] ?? 0
@@ -130,7 +138,7 @@ export function resized(sym: PlanSymbol, size: Partial<Record<Dim, number>>): Pi
     width = depth = d
   }
   const fit = (dim: Dim, v: number) => {
-    const r = sizeRule(sym.type, dim)
+    const r = sizeRule(sym, dim)
     return r ? Math.min(r.max, Math.max(r.min, v)) : v
   }
   width = fit('width', width)

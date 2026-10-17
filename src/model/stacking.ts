@@ -3,11 +3,11 @@
  * TV unit below it, the upper of two switches over the lower one, a person over the sofa they sit on.
  */
 import { personSupport } from './people'
-import { styleOf, SYMBOL_MAP, vanityMirror } from './symbols'
+import { CEILING_AC, styleOf, SYMBOL_MAP, vanityMirror } from './symbols'
 import type { Floor, PlanSymbol } from './types'
 
 /** Items hung from the ceiling wherever they're placed. */
-const HUNG = new Set(['curtain', 'blind', 'ac-cassette', 'ac-slot'])
+const HUNG = new Set(['curtain', 'blind', ...CEILING_AC])
 
 /** How high an item reaches above its floor, and how high its bottom is (cm). */
 export function heightsOf(sym: PlanSymbol, floor: Floor): { top: number; bottom: number } {
