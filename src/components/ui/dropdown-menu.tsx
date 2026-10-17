@@ -1,19 +1,78 @@
 "use client"
 
 import * as React from "react"
+import { createPortal } from "react-dom"
 import { cn } from "cn"
-import { DropdownMenu as DropdownMenuPrimitive } from "radix-ui"
+import { DropdownMenu as DropdownMenuPrimitive, Slot } from "radix-ui"
 import { CheckIcon, ChevronRightIcon } from "lucide-react"
+import { nameOf, PhoneSheet, SheetToggle, usePhone } from "@/components/ui/phone-sheet"
+
+/*
+ * On a phone, a menu is a sheet up from the bottom (see phone-sheet): its items rows grouped on cards, a submenu a page
+ * of its own in the same sheet, with a way back. Elsewhere it's a menu that drops down.
+ */
+
+interface PhoneMenu {
+  open: boolean
+  setOpen: (open: boolean) => void
+  /** Its name, from what opened it. */
+  title?: string
+  setTitle: (title: string | undefined) => void
+  /** The submenus open, one in another: the last is the page showing. */
+  pages: { id: string; title: string }[]
+  push: (page: { id: string; title: string }) => void
+  pop: () => void
+  /** Where submenus' pages go. */
+  host: HTMLElement | null
+  setHost: (el: HTMLElement | null) => void
+}
+
+const PhoneMenuContext = React.createContext<PhoneMenu | null>(null)
+const PhoneSubContext = React.createContext<string | null>(null)
+const PhoneRadioContext = React.createContext<{ value?: string; onValueChange?: (value: string) => void } | null>(null)
 
 function DropdownMenu({
   ...props
 }: React.ComponentProps<typeof DropdownMenuPrimitive.Root>) {
+  const phone = usePhone()
+  if (phone) return <PhoneMenuRoot {...props} />
   return <DropdownMenuPrimitive.Root data-slot="dropdown-menu" {...props} />
+}
+
+function PhoneMenuRoot({
+  open: openProp,
+  defaultOpen,
+  onOpenChange,
+  children,
+}: React.ComponentProps<typeof DropdownMenuPrimitive.Root>) {
+  const [own, setOwn] = React.useState(defaultOpen ?? false)
+  const [title, setTitle] = React.useState<string>()
+  const [pages, setPages] = React.useState<{ id: string; title: string }[]>([])
+  const [host, setHost] = React.useState<HTMLElement | null>(null)
+  const open = openProp ?? own
+  const value: PhoneMenu = {
+    open,
+    setOpen: (o) => {
+      setOwn(o)
+      onOpenChange?.(o)
+      // Back to its first page for next time, once it's away.
+      if (!o) window.setTimeout(() => setPages([]), 350)
+    },
+    title,
+    setTitle,
+    pages,
+    push: (p) => setPages((s) => [...s, p]),
+    pop: () => setPages((s) => s.slice(0, -1)),
+    host,
+    setHost,
+  }
+  return <PhoneMenuContext.Provider value={value}>{children}</PhoneMenuContext.Provider>
 }
 
 function DropdownMenuPortal({
   ...props
 }: React.ComponentProps<typeof DropdownMenuPrimitive.Portal>) {
+  if (React.useContext(PhoneMenuContext)) return <>{props.children}</>
   return (
     <DropdownMenuPrimitive.Portal data-slot="dropdown-menu-portal" {...props} />
   )
@@ -22,6 +81,27 @@ function DropdownMenuPortal({
 function DropdownMenuTrigger({
   ...props
 }: React.ComponentProps<typeof DropdownMenuPrimitive.Trigger>) {
+  const menu = React.useContext(PhoneMenuContext)
+  if (menu) {
+    const { asChild, onClick, ...rest } = props
+    const Comp = asChild ? Slot.Root : "button"
+    return (
+      <Comp
+        data-slot="dropdown-menu-trigger"
+        aria-haspopup="menu"
+        aria-expanded={menu.open}
+        data-state={menu.open ? "open" : "closed"}
+        {...(!asChild && { type: "button" as const })}
+        {...rest}
+        onClick={(e: React.MouseEvent<HTMLButtonElement>) => {
+          onClick?.(e)
+          if (e.defaultPrevented) return
+          menu.setTitle(nameOf(e.currentTarget))
+          menu.setOpen(!menu.open)
+        }}
+      />
+    )
+  }
   return (
     <DropdownMenuPrimitive.Trigger
       data-slot="dropdown-menu-trigger"
@@ -36,6 +116,8 @@ function DropdownMenuContent({
   sideOffset = 4,
   ...props
 }: React.ComponentProps<typeof DropdownMenuPrimitive.Content>) {
+  const menu = React.useContext(PhoneMenuContext)
+  if (menu) return <PhoneMenuContent menu={menu}>{props.children}</PhoneMenuContent>
   return (
     <DropdownMenuPrimitive.Portal>
       <DropdownMenuPrimitive.Content
@@ -49,9 +131,29 @@ function DropdownMenuContent({
   )
 }
 
+/** The sheet: the menu's first page, and the page of the submenu open, if one is. */
+function PhoneMenuContent({ menu, children }: { menu: PhoneMenu; children: React.ReactNode }) {
+  const top = menu.pages.at(-1)
+  return (
+    <PhoneSheet open={menu.open} onOpenChange={menu.setOpen} title={top?.title ?? menu.title} onBack={top ? menu.pop : undefined}>
+      <div role="menu" className="pb-page" hidden={!!top}>
+        {children}
+      </div>
+      <div ref={menu.setHost} />
+    </PhoneSheet>
+  )
+}
+
 function DropdownMenuGroup({
   ...props
 }: React.ComponentProps<typeof DropdownMenuPrimitive.Group>) {
+  if (React.useContext(PhoneMenuContext)) {
+    return (
+      <div role="group" className="pb-group">
+        {props.children}
+      </div>
+    )
+  }
   return (
     <DropdownMenuPrimitive.Group data-slot="dropdown-menu-group" {...props} />
   )
@@ -66,6 +168,28 @@ function DropdownMenuItem({
   inset?: boolean
   variant?: "default" | "destructive"
 }) {
+  const menu = React.useContext(PhoneMenuContext)
+  if (menu) {
+    const { onSelect, disabled, children } = props
+    return (
+      <button
+        type="button"
+        role="menuitem"
+        className="pb-row"
+        data-variant={variant}
+        data-disabled={disabled || undefined}
+        disabled={disabled}
+        onClick={() => {
+          // As in a menu: done once chosen, unless what's chosen keeps it open.
+          const e = new Event("select", { cancelable: true })
+          onSelect?.(e)
+          if (!e.defaultPrevented) menu.setOpen(false)
+        }}
+      >
+        {children}
+      </button>
+    )
+  }
   return (
     <DropdownMenuPrimitive.Item
       data-slot="dropdown-menu-item"
@@ -89,6 +213,24 @@ function DropdownMenuCheckboxItem({
 }: React.ComponentProps<typeof DropdownMenuPrimitive.CheckboxItem> & {
   inset?: boolean
 }) {
+  if (React.useContext(PhoneMenuContext)) {
+    // A switch in a row, on or off as it's tapped; the sheet stays up for the next.
+    const on = checked === true
+    return (
+      <button
+        type="button"
+        role="menuitemcheckbox"
+        aria-checked={on}
+        className="pb-row"
+        data-disabled={props.disabled || undefined}
+        disabled={props.disabled}
+        onClick={() => props.onCheckedChange?.(!on)}
+      >
+        {children}
+        <SheetToggle on={on} />
+      </button>
+    )
+  }
   return (
     <DropdownMenuPrimitive.CheckboxItem
       data-slot="dropdown-menu-checkbox-item"
@@ -117,6 +259,15 @@ function DropdownMenuCheckboxItem({
 function DropdownMenuRadioGroup({
   ...props
 }: React.ComponentProps<typeof DropdownMenuPrimitive.RadioGroup>) {
+  if (React.useContext(PhoneMenuContext)) {
+    return (
+      <PhoneRadioContext.Provider value={{ value: props.value, onValueChange: props.onValueChange }}>
+        <div role="group" className="pb-group">
+          {props.children}
+        </div>
+      </PhoneRadioContext.Provider>
+    )
+  }
   return (
     <DropdownMenuPrimitive.RadioGroup
       data-slot="dropdown-menu-radio-group"
@@ -133,6 +284,29 @@ function DropdownMenuRadioItem({
 }: React.ComponentProps<typeof DropdownMenuPrimitive.RadioItem> & {
   inset?: boolean
 }) {
+  const menu = React.useContext(PhoneMenuContext)
+  const radio = React.useContext(PhoneRadioContext)
+  if (menu) {
+    const on = radio?.value === props.value
+    return (
+      <button
+        type="button"
+        role="menuitemradio"
+        aria-checked={on}
+        lang={props.lang}
+        className="pb-row"
+        data-disabled={props.disabled || undefined}
+        disabled={props.disabled}
+        onClick={() => {
+          radio?.onValueChange?.(props.value)
+          menu.setOpen(false)
+        }}
+      >
+        {children}
+        {on && <CheckIcon className="pb-check pb-keep size-[22px]" strokeWidth={2.5} />}
+      </button>
+    )
+  }
   return (
     <DropdownMenuPrimitive.RadioItem
       data-slot="dropdown-menu-radio-item"
@@ -164,6 +338,7 @@ function DropdownMenuLabel({
 }: React.ComponentProps<typeof DropdownMenuPrimitive.Label> & {
   inset?: boolean
 }) {
+  if (React.useContext(PhoneMenuContext)) return <div className={cn("pb-label", className)}>{props.children}</div>
   return (
     <DropdownMenuPrimitive.Label
       data-slot="dropdown-menu-label"
@@ -181,6 +356,7 @@ function DropdownMenuSeparator({
   className,
   ...props
 }: React.ComponentProps<typeof DropdownMenuPrimitive.Separator>) {
+  if (React.useContext(PhoneMenuContext)) return <div role="separator" className="pb-sep" />
   return (
     <DropdownMenuPrimitive.Separator
       data-slot="dropdown-menu-separator"
@@ -194,6 +370,8 @@ function DropdownMenuShortcut({
   className,
   ...props
 }: React.ComponentProps<"span">) {
+  // No keyboard to press them on, on a phone.
+  if (React.useContext(PhoneMenuContext)) return null
   return (
     <span
       data-slot="dropdown-menu-shortcut"
@@ -209,6 +387,8 @@ function DropdownMenuShortcut({
 function DropdownMenuSub({
   ...props
 }: React.ComponentProps<typeof DropdownMenuPrimitive.Sub>) {
+  const id = React.useId()
+  if (React.useContext(PhoneMenuContext)) return <PhoneSubContext.Provider value={id}>{props.children}</PhoneSubContext.Provider>
   return <DropdownMenuPrimitive.Sub data-slot="dropdown-menu-sub" {...props} />
 }
 
@@ -220,6 +400,24 @@ function DropdownMenuSubTrigger({
 }: React.ComponentProps<typeof DropdownMenuPrimitive.SubTrigger> & {
   inset?: boolean
 }) {
+  const menu = React.useContext(PhoneMenuContext)
+  const sub = React.useContext(PhoneSubContext)
+  if (menu && sub) {
+    // A way into the submenu's page.
+    return (
+      <button
+        type="button"
+        className="pb-row"
+        aria-haspopup="menu"
+        data-disabled={props.disabled || undefined}
+        disabled={props.disabled}
+        onClick={(e) => menu.push({ id: sub, title: e.currentTarget.textContent?.trim() ?? "" })}
+      >
+        {children}
+        <ChevronRightIcon className="pb-more rtl-flip" />
+      </button>
+    )
+  }
   return (
     <DropdownMenuPrimitive.SubTrigger
       data-slot="dropdown-menu-sub-trigger"
@@ -240,6 +438,19 @@ function DropdownMenuSubContent({
   className,
   ...props
 }: React.ComponentProps<typeof DropdownMenuPrimitive.SubContent>) {
+  const menu = React.useContext(PhoneMenuContext)
+  const sub = React.useContext(PhoneSubContext)
+  if (menu && sub) {
+    // Its page, while it's open (kept while a submenu in it is, for that one's).
+    const at = menu.pages.findIndex((p) => p.id === sub)
+    if (at < 0 || !menu.host) return null
+    return createPortal(
+      <div role="menu" className="pb-page" hidden={at !== menu.pages.length - 1}>
+        {props.children}
+      </div>,
+      menu.host
+    )
+  }
   return (
     <DropdownMenuPrimitive.SubContent
       data-slot="dropdown-menu-sub-content"

@@ -48,7 +48,7 @@ export function updateSymbol(id: string, recipe: (s: PlanSymbol) => void) {
 
 function Row({ label, children }: { label: string; children: ReactNode }) {
   return (
-    <div className="grid grid-cols-[104px_1fr] items-center gap-2">
+    <div data-field className="grid grid-cols-[104px_1fr] items-center gap-2">
       <span className="text-sm text-muted-foreground">{label}</span>
       <div className="min-w-0">{children}</div>
     </div>

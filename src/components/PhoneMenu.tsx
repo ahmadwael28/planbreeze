@@ -82,7 +82,7 @@ function Row({
   )
   const cls = 'flex min-h-[52px] w-full items-center gap-3 px-4 py-2 transition-colors'
   return onClick ? (
-    <button type="button" className={cn(cls, 'active:bg-muted')} onClick={onClick}>
+    <button type="button" className={cn(cls, 'active:bg-foreground/8')} onClick={onClick}>
       {body}
     </button>
   ) : (
@@ -95,7 +95,7 @@ function Group({ title, note, children }: { title?: string; note?: string; child
   return (
     <section className="space-y-1.5">
       {title && <h3 className="px-4 text-[13px] font-medium text-muted-foreground uppercase">{title}</h3>}
-      <div className="divide-y divide-border/70 overflow-hidden rounded-2xl bg-background">{children}</div>
+      <div className="divide-y divide-sheet-sep overflow-hidden rounded-[14px] bg-sheet-card">{children}</div>
       {note && <p className="px-4 text-[13px] leading-snug text-muted-foreground">{note}</p>}
     </section>
   )
@@ -216,7 +216,7 @@ export function PhoneMenu() {
         }}
       />
       <Dialog open={open} onOpenChange={setOpen}>
-        <DialogContent className="flex h-[min(86dvh,720px)] flex-col gap-0 overflow-hidden bg-muted p-0 pt-5" showCloseButton={false}>
+        <DialogContent className="flex h-[min(86dvh,720px)] flex-col gap-0 overflow-hidden bg-sheet p-0 pt-2" showCloseButton={false}>
           <DialogTitle className="sr-only">{t('Menu')}</DialogTitle>
           <DialogDescription className="sr-only">{t('Settings, files and your account')}</DialogDescription>
           {page === 'main' && (

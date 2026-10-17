@@ -40,6 +40,9 @@
     --color-card: var(--card);
     --color-foreground: var(--foreground);
     --color-background: var(--background);
+    --color-sheet: var(--sheet);
+    --color-sheet-card: var(--sheet-card);
+    --color-sheet-sep: var(--sheet-sep);
     --radius-sm: calc(var(--radius) * 0.6);
     --radius-md: calc(var(--radius) * 0.8);
     --radius-lg: var(--radius);
@@ -50,6 +53,10 @@
 }
 
 :root {
+    /* Sheets on a phone: their grouped background, the cards of rows on it, and the hairlines between rows. */
+    --sheet: oklch(0.965 0.003 286);
+    --sheet-card: oklch(1 0 0);
+    --sheet-sep: oklch(0.9 0.003 286);
     --background: oklch(1 0 0);
     --foreground: oklch(0.145 0 0);
     --card: oklch(1 0 0);
@@ -85,6 +92,9 @@
 }
 
 .dark {
+    --sheet: oklch(0.21 0.003 286);
+    --sheet-card: oklch(0.275 0.004 286);
+    --sheet-sep: oklch(0.34 0.004 286);
     --background: oklch(0.145 0 0);
     --foreground: oklch(0.985 0 0);
     --card: oklch(0.205 0 0);
@@ -320,85 +330,101 @@ svg {
 
 /* ---------- Phones: looking and feeling like an app (html[data-phone], see hooks/use-layout) ---------- */
 
-@keyframes pb-sheet-up {
-  from {
-    transform: translateY(100%);
-  }
-  to {
-    transform: translateY(0);
-  }
-}
-
-/* Menus, lists to choose from and small panels come up as sheets from the bottom, over a dimmed screen. */
-html[data-phone='true'] [data-radix-popper-content-wrapper]:has(> :is([data-slot='dropdown-menu-content'], [data-slot='dropdown-menu-sub-content'], [data-slot='select-content'], [data-slot='popover-content'])) {
-  position: fixed !important;
-  inset: auto 0 0 0 !important;
-  transform: none !important;
-  min-width: 0 !important;
-  width: 100% !important;
-}
-html[data-phone='true'] :is([data-slot='dropdown-menu-content'], [data-slot='dropdown-menu-sub-content'], [data-slot='select-content'], [data-slot='popover-content']) {
-  width: 100% !important;
-  min-width: 0 !important;
-  max-width: none !important;
-  max-height: min(78dvh, 680px) !important;
-  margin: 0 !important;
-  border-radius: 22px 22px 0 0 !important;
-  padding: 6px 10px calc(14px + env(safe-area-inset-bottom)) !important;
-  font-size: 16px;
-  translate: none !important;
-  box-shadow:
-    0 0 0 100vmax rgb(0 0 0 / 0.42),
-    0 -10px 30px rgb(0 0 0 / 0.2) !important;
-  animation: pb-sheet-up 260ms cubic-bezier(0.32, 0.72, 0, 1) both !important;
-  overflow-y: auto;
-  overscroll-behavior: contain;
-}
-/* The grip at the top of a sheet. */
-html[data-phone='true'] :is([data-slot='dropdown-menu-content'], [data-slot='dropdown-menu-sub-content'], [data-slot='select-content'], [data-slot='popover-content'])::before {
-  content: '';
-  display: block;
-  flex: none;
-  width: 40px;
-  height: 5px;
-  margin: 2px auto 10px;
-  border-radius: 999px;
-  background: color-mix(in oklch, var(--muted-foreground) 40%, transparent);
-}
-html[data-phone='true'] :is([data-slot='dropdown-menu-item'], [data-slot='dropdown-menu-checkbox-item'], [data-slot='dropdown-menu-radio-item'], [data-slot='dropdown-menu-sub-trigger'], [data-slot='select-item']) {
-  min-height: 3.25rem;
-  font-size: 16px;
-  border-radius: 12px;
+/*
+ * Menus, lists to choose from, small panels and dialogs are sheets up from the bottom on a phone (see
+ * components/ui/phone-sheet). In them, rows are grouped on cards with hairlines between them, as in a phone's settings:
+ * a run of rows (or a group) is one card, and a heading or a gap starts the next.
+ */
+.pb-row {
+  display: flex;
+  width: 100%;
+  min-height: 52px;
+  align-items: center;
   gap: 14px;
+  padding: 10px 16px;
+  background: var(--sheet-card);
+  color: var(--foreground);
+  font-size: 16px;
+  line-height: 1.3;
+  text-align: start;
+  -webkit-tap-highlight-color: transparent;
 }
-html[data-phone='true'] :is([data-slot='dropdown-menu-item'], [data-slot='dropdown-menu-checkbox-item'], [data-slot='dropdown-menu-radio-item'], [data-slot='dropdown-menu-sub-trigger']) svg {
-  width: 20px;
-  height: 20px;
+.pb-row:active {
+  background: color-mix(in oklch, var(--sheet-card) 88%, var(--foreground));
+  opacity: 1 !important;
 }
-html[data-phone='true'] [data-slot='dropdown-menu-label'] {
-  padding: 14px 12px 6px;
-  font-size: 13px;
-  font-weight: 500;
+.pb-row[data-disabled] {
+  opacity: 0.4;
+  pointer-events: none;
+}
+.pb-row[data-variant='destructive'] {
+  color: var(--destructive);
+}
+.pb-row svg:not(.pb-keep) {
+  width: 22px;
+  height: 22px;
+  flex: none;
   color: var(--muted-foreground);
 }
-
-/* Dialogs come up from the bottom too, full width, unless they fill the screen. */
-html[data-phone='true'] [data-slot='dialog-content']:not([data-fullscreen]) {
-  top: auto !important;
-  bottom: 0 !important;
-  left: 0 !important;
-  right: 0 !important;
-  translate: none !important;
-  transform: none !important;
-  width: 100% !important;
-  max-width: none !important;
-  max-height: 94dvh !important;
-  border-radius: 22px 22px 0 0 !important;
-  padding-bottom: calc(16px + env(safe-area-inset-bottom)) !important;
-  animation: pb-sheet-up 280ms cubic-bezier(0.32, 0.72, 0, 1) both !important;
+.pb-row[data-variant='destructive'] svg {
+  color: var(--destructive);
 }
-html[data-phone='true'] [data-slot='dialog-overlay'] {
-  background: rgb(0 0 0 / 0.42);
+/* Icons in rows go with the row's direction (unlike drawings: see svg above), so what trails a row ends it. */
+.pb-row svg {
+  direction: inherit;
+}
+.pb-row .pb-check {
+  margin-inline-start: auto;
+  color: var(--primary);
+}
+.pb-row .pb-more {
+  margin-inline-start: auto;
+  width: 20px;
+  height: 20px;
+  opacity: 0.6;
+}
+.pb-group {
+  overflow: hidden;
+  background: var(--sheet-card);
+}
+.pb-page > :is(.pb-row, .pb-group) + :is(.pb-row, .pb-group),
+.pb-group > .pb-row + .pb-row {
+  box-shadow: inset 0 1px 0 var(--sheet-sep);
+}
+.pb-page > :is(.pb-row, .pb-group):first-child,
+.pb-page > :not(.pb-row, .pb-group) + :is(.pb-row, .pb-group) {
+  border-top-left-radius: 14px;
+  border-top-right-radius: 14px;
+}
+.pb-page > :is(.pb-row, .pb-group):last-child,
+.pb-page > :is(.pb-row, .pb-group):has(+ :not(.pb-row, .pb-group)) {
+  border-bottom-left-radius: 14px;
+  border-bottom-right-radius: 14px;
+}
+.pb-label {
+  padding: 18px 16px 7px;
+  color: var(--muted-foreground);
+  font-size: 13px;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+.pb-page > .pb-label:first-child {
+  padding-top: 6px;
+}
+.pb-sep {
+  height: 22px;
+  flex: none;
+}
+.pb-page > .pb-sep:first-child,
+.pb-page > .pb-sep:last-child,
+.pb-page > .pb-sep + .pb-sep,
+.pb-page > .pb-sep + .pb-label {
+  display: none;
+}
+.pb-page {
+  display: flex;
+  flex-direction: column;
 }
 
 /* Fields, buttons and switches a thumb can work, text at a size that reads and that iOS won't zoom into. */
@@ -455,15 +481,55 @@ html[data-phone='true'] [data-slot='label'] {
 
 /* The panel as a sheet: its sections as cards on a grouped background, as in a phone's settings. */
 html[data-phone='true'] aside[data-sheet] {
-  background: var(--muted);
+  background: var(--sheet);
+  border: 0;
 }
 html[data-phone='true'] aside[data-sheet] [data-slot='tabs-content'] > * > section,
 html[data-phone='true'] aside[data-sheet] [data-slot='tabs-content'] > section {
-  margin: 12px;
-  padding: 16px;
-  border-radius: 16px;
-  background: var(--background);
+  margin: 12px 14px;
+  padding: 14px 16px;
+  border-radius: 14px;
+  background: var(--sheet-card);
   border: 0;
+}
+/*
+ * A setting in the panel is a row of a list: its name at the start, its value at the end, with nothing boxed around
+ * it (a field to type in, or what's chosen, with a chevron to choose another); hairlines between the rows.
+ */
+html[data-phone='true'] aside[data-sheet] [data-field] {
+  grid-template-columns: minmax(0, auto) minmax(0, 1fr);
+  min-height: 44px;
+  column-gap: 16px;
+}
+html[data-phone='true'] aside[data-sheet] [data-field] + [data-field] {
+  border-top: 1px solid var(--sheet-sep);
+  padding-top: 10px;
+}
+html[data-phone='true'] aside[data-sheet] [data-field] > [data-slot='label'] {
+  color: var(--foreground);
+  font-size: 16px;
+  white-space: nowrap;
+}
+html[data-phone='true'] aside[data-sheet] [data-field] :is([data-slot='input'], [data-slot='select-trigger']) {
+  width: 100%;
+  min-height: 40px;
+  padding-inline: 0;
+  border-color: transparent;
+  background: transparent;
+  box-shadow: none;
+  color: var(--muted-foreground);
+  font-size: 16px;
+  text-align: end;
+}
+html[data-phone='true'] aside[data-sheet] [data-field] [data-slot='input']:focus {
+  color: var(--foreground);
+}
+html[data-phone='true'] aside[data-sheet] [data-field] [data-slot='select-trigger'] {
+  justify-content: flex-end;
+  gap: 6px;
+}
+html[data-phone='true'] aside[data-sheet] [data-field] [data-slot='select-trigger'] > [data-slot='select-value'] {
+  justify-content: flex-end;
 }
 html[data-phone='true'] aside[data-sheet] section > h3 {
   font-size: 13px;
@@ -483,10 +549,6 @@ html[data-phone='true'] aside[data-sheet] :is(.text-sm) {
 html[data-phone='true'] :is(button, [role='button'], [role='menuitem'], [role='option']):active {
   opacity: 0.7;
 }
-/* Lists scroll with a finger: no arrows that scroll when hovered. */
-html[data-phone='true'] :is([data-slot='select-scroll-up-button'], [data-slot='select-scroll-down-button']) {
-  display: none !important;
-}
 /* Small switches are full size on a phone, and rows of them as tall as a list's. */
 html[data-phone='true'] [data-slot='switch'][data-size='sm'] {
   width: 51px !important;
@@ -500,24 +562,71 @@ html[data-phone='true'] [data-slot='switch'][data-size='sm'] [data-slot='switch-
 html[data-phone='true'] [data-slot='switch'][data-size='sm'] [data-slot='switch-thumb'][data-state='checked'] {
   translate: 20px 0;
 }
-html[data-phone='true'] [data-slot='popover-content'] label:has([data-slot='switch']) {
+html[data-phone='true'] [data-slot='phone-sheet'] label:has([data-slot='switch']) {
   min-height: 48px;
   font-size: 16px;
 }
 /* Color and photo swatches (small bordered buttons) big enough to tap. */
-html[data-phone='true'] :is(aside[data-sheet], [data-slot='popover-content']) :is(button, label):is(.size-5, .size-6, .size-7).shadow-sm {
+html[data-phone='true'] :is(aside[data-sheet], [data-slot='phone-sheet']) :is(button, label):is(.size-5, .size-6, .size-7).shadow-sm {
   width: 36px !important;
   height: 36px !important;
 }
-/* Dialogs that come up as sheets have the grip too. */
-html[data-phone='true'] [data-slot='dialog-content']:not([data-fullscreen])::before {
-  content: '';
-  position: absolute;
-  top: 7px;
-  left: 50%;
-  width: 40px;
-  height: 5px;
-  translate: -50% 0;
-  border-radius: 999px;
-  background: color-mix(in oklch, var(--muted-foreground) 40%, transparent);
+
+/* Right to left, a switch that's on has its knob at the left. */
+[dir='rtl'] [data-slot='switch-thumb'][data-state='checked'] {
+  translate: calc(-100% + 2px) 0;
+}
+html[data-phone='true'][dir='rtl'] [data-slot='switch'] [data-slot='switch-thumb'][data-state='checked'] {
+  translate: -20px 0;
+}
+
+/* An app, not a page: no tap flashes, text to select only where it's typed, no bounce off the ends, no scrollbars. */
+html[data-phone='true'] {
+  -webkit-tap-highlight-color: transparent;
+  -webkit-text-size-adjust: 100%;
+}
+html[data-phone='true'] body {
+  overscroll-behavior: none;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+}
+html[data-phone='true'] :is(input, textarea, [contenteditable='true']) {
+  -webkit-user-select: text;
+  user-select: text;
+}
+html[data-phone='true'] * {
+  scrollbar-width: none;
+}
+html[data-phone='true'] *::-webkit-scrollbar {
+  display: none;
+}
+
+/*
+ * In a sheet, settings that are a name and a switch are rows on a card, as in a phone's settings: a run of them one
+ * card, hairlines between them.
+ */
+[data-slot='phone-sheet'] label:has(> [data-slot='switch']) {
+  display: flex;
+  min-height: 52px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 0 !important;
+  padding: 8px 16px;
+  background: var(--sheet-card);
+  font-size: 16px;
+}
+[data-slot='phone-sheet'] label:has(> [data-slot='switch']) + label:has(> [data-slot='switch']) {
+  box-shadow: inset 0 1px 0 var(--sheet-sep);
+}
+[data-slot='phone-sheet'] label:has(> [data-slot='switch']):first-child,
+[data-slot='phone-sheet'] :not(label) + label:has(> [data-slot='switch']) {
+  border-top-left-radius: 14px;
+  border-top-right-radius: 14px;
+}
+[data-slot='phone-sheet'] label:has(> [data-slot='switch']):last-child,
+[data-slot='phone-sheet'] label:has(> [data-slot='switch']):has(+ :not(label)) {
+  border-bottom-left-radius: 14px;
+  border-bottom-right-radius: 14px;
 }

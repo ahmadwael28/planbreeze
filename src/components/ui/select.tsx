@@ -3,19 +3,92 @@
 import * as React from "react"
 import { cn } from "cn"
 import { Select as SelectPrimitive } from "radix-ui"
-import { useLayout } from "@/hooks/use-layout"
 import { ChevronDownIcon, CheckIcon, ChevronUpIcon } from "lucide-react"
+import { nameOf, PhoneSheet, usePhone } from "@/components/ui/phone-sheet"
+
+/*
+ * On a phone, the choices come up in a sheet from the bottom (see phone-sheet), named after the field, the one chosen
+ * ticked; elsewhere they drop down.
+ */
+
+interface PhoneSelect {
+  value?: string
+  choose: (value: string) => void
+  open: boolean
+  setOpen: (open: boolean) => void
+  disabled?: boolean
+  /** What each choice shows, by its value (for the field to show the one chosen). */
+  labels: Map<string, React.ReactNode>
+  title?: string
+  setTitle: (title: string | undefined) => void
+}
+
+const PhoneSelectContext = React.createContext<PhoneSelect | null>(null)
+
+/** The choices in a list (its items, wherever they are in it): what each shows, by its value. */
+function choicesIn(node: React.ReactNode, out = new Map<string, React.ReactNode>()) {
+  React.Children.forEach(node, (child) => {
+    if (!React.isValidElement(child)) return
+    const props = child.props as { value?: string; children?: React.ReactNode }
+    if (child.type === SelectItem && props.value !== undefined) out.set(props.value, props.children)
+    else if (props.children) choicesIn(props.children, out)
+  })
+  return out
+}
 
 function Select({
   ...props
 }: React.ComponentProps<typeof SelectPrimitive.Root>) {
+  const phone = usePhone()
+  if (phone) return <PhoneSelectRoot {...props} />
   return <SelectPrimitive.Root data-slot="select" {...props} />
+}
+
+function PhoneSelectRoot({
+  value,
+  defaultValue,
+  onValueChange,
+  open: openProp,
+  defaultOpen,
+  onOpenChange,
+  disabled,
+  children,
+}: React.ComponentProps<typeof SelectPrimitive.Root>) {
+  const [own, setOwn] = React.useState(defaultValue)
+  const [ownOpen, setOwnOpen] = React.useState(defaultOpen ?? false)
+  const [title, setTitle] = React.useState<string>()
+  const ctx: PhoneSelect = {
+    value: value ?? own,
+    choose: (v) => {
+      setOwn(v)
+      onValueChange?.(v)
+    },
+    open: openProp ?? ownOpen,
+    setOpen: (o) => {
+      setOwnOpen(o)
+      onOpenChange?.(o)
+    },
+    disabled,
+    labels: choicesIn(children),
+    title,
+    setTitle,
+  }
+  return <PhoneSelectContext.Provider value={ctx}>{children}</PhoneSelectContext.Provider>
+}
+
+/** A field's name for its sheet: its own, or its label's. */
+function fieldName(el: HTMLElement) {
+  const by = el.getAttribute("aria-labelledby")
+  const label = (el.id ? document.querySelector(`label[for="${CSS.escape(el.id)}"]`) : null) ?? (by ? document.getElementById(by.split(" ")[0]) : null)
+  return el.getAttribute("aria-label") ?? label?.textContent?.trim() ?? nameOf(el)
 }
 
 function SelectGroup({
   className,
   ...props
 }: React.ComponentProps<typeof SelectPrimitive.Group>) {
+  // Its label a heading over its choices.
+  if (React.useContext(PhoneSelectContext)) return <>{props.children}</>
   return (
     <SelectPrimitive.Group
       data-slot="select-group"
@@ -28,6 +101,11 @@ function SelectGroup({
 function SelectValue({
   ...props
 }: React.ComponentProps<typeof SelectPrimitive.Value>) {
+  const s = React.useContext(PhoneSelectContext)
+  if (s) {
+    const label = s.value !== undefined ? s.labels.get(s.value) : undefined
+    return <span data-slot="select-value">{label ?? props.placeholder}</span>
+  }
   return <SelectPrimitive.Value data-slot="select-value" {...props} />
 }
 
@@ -39,14 +117,40 @@ function SelectTrigger({
 }: React.ComponentProps<typeof SelectPrimitive.Trigger> & {
   size?: "sm" | "default"
 }) {
+  const look = cn(
+    "flex w-fit items-center justify-between gap-1.5 rounded-lg border border-input bg-transparent py-2 pr-2 pl-2.5 text-sm whitespace-nowrap transition-colors outline-none select-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-3 aria-invalid:ring-destructive/20 data-placeholder:text-muted-foreground data-[size=default]:h-8 data-[size=sm]:h-7 data-[size=sm]:rounded-[min(var(--radius-md),10px)] *:data-[slot=select-value]:line-clamp-1 *:data-[slot=select-value]:flex *:data-[slot=select-value]:items-center *:data-[slot=select-value]:gap-1.5 dark:bg-input/30 dark:hover:bg-input/50 dark:aria-invalid:border-destructive/50 dark:aria-invalid:ring-destructive/40 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
+    className
+  )
+  const s = React.useContext(PhoneSelectContext)
+  if (s) {
+    const { asChild: _asChild, onClick, disabled, ...rest } = props
+    return (
+      <button
+        type="button"
+        data-slot="select-trigger"
+        data-size={size}
+        data-placeholder={s.value === undefined ? "" : undefined}
+        aria-haspopup="listbox"
+        aria-expanded={s.open}
+        className={look}
+        disabled={disabled || s.disabled}
+        {...rest}
+        onClick={(e) => {
+          onClick?.(e)
+          s.setTitle(fieldName(e.currentTarget))
+          s.setOpen(true)
+        }}
+      >
+        {children}
+        <ChevronDownIcon className="pointer-events-none size-4 text-muted-foreground" />
+      </button>
+    )
+  }
   return (
     <SelectPrimitive.Trigger
       data-slot="select-trigger"
       data-size={size}
-      className={cn(
-        "flex w-fit items-center justify-between gap-1.5 rounded-lg border border-input bg-transparent py-2 pr-2 pl-2.5 text-sm whitespace-nowrap transition-colors outline-none select-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-3 aria-invalid:ring-destructive/20 data-placeholder:text-muted-foreground data-[size=default]:h-8 data-[size=sm]:h-7 data-[size=sm]:rounded-[min(var(--radius-md),10px)] *:data-[slot=select-value]:line-clamp-1 *:data-[slot=select-value]:flex *:data-[slot=select-value]:items-center *:data-[slot=select-value]:gap-1.5 dark:bg-input/30 dark:hover:bg-input/50 dark:aria-invalid:border-destructive/50 dark:aria-invalid:ring-destructive/40 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
-        className
-      )}
+      className={look}
       {...props}
     >
       {children}
@@ -64,9 +168,17 @@ function SelectContent({
   align = "center",
   ...props
 }: React.ComponentProps<typeof SelectPrimitive.Content>) {
-  // On a phone the list comes up as a sheet from the bottom (see index.css), so it's placed as a popper.
-  const layout = useLayout()
-  const position = layout.compact && layout.touch ? "popper" : wanted
+  const s = React.useContext(PhoneSelectContext)
+  if (s) {
+    return (
+      <PhoneSheet open={s.open} onOpenChange={s.setOpen} title={s.title}>
+        <div role="listbox" className="pb-page">
+          {children}
+        </div>
+      </PhoneSheet>
+    )
+  }
+  const position = wanted
   return (
     <SelectPrimitive.Portal>
       <SelectPrimitive.Content
@@ -97,6 +209,7 @@ function SelectLabel({
   className,
   ...props
 }: React.ComponentProps<typeof SelectPrimitive.Label>) {
+  if (React.useContext(PhoneSelectContext)) return <div className="pb-label">{props.children}</div>
   return (
     <SelectPrimitive.Label
       data-slot="select-label"
@@ -111,6 +224,8 @@ function SelectItem({
   children,
   ...props
 }: React.ComponentProps<typeof SelectPrimitive.Item>) {
+  const s = React.useContext(PhoneSelectContext)
+  if (s) return <PhoneSelectItem s={s} value={props.value} disabled={props.disabled}>{children}</PhoneSelectItem>
   return (
     <SelectPrimitive.Item
       data-slot="select-item"
@@ -130,10 +245,40 @@ function SelectItem({
   )
 }
 
+/** A choice in the sheet: a row, ticked if it's the one chosen (and scrolled to, in a long list). */
+function PhoneSelectItem({ s, value, disabled, children }: { s: PhoneSelect; value: string; disabled?: boolean; children: React.ReactNode }) {
+  const chosen = s.value === value
+  const ref = React.useRef<HTMLButtonElement>(null)
+  React.useEffect(() => {
+    if (chosen) ref.current?.scrollIntoView({ block: "center" })
+    // Only as the sheet comes up.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+  return (
+    <button
+      ref={ref}
+      type="button"
+      role="option"
+      aria-selected={chosen}
+      className="pb-row"
+      data-disabled={disabled || undefined}
+      disabled={disabled}
+      onClick={() => {
+        s.choose(value)
+        s.setOpen(false)
+      }}
+    >
+      <span className="flex min-w-0 flex-1 items-center gap-3">{children}</span>
+      {chosen && <CheckIcon className="pb-check pb-keep size-[22px]" strokeWidth={2.5} />}
+    </button>
+  )
+}
+
 function SelectSeparator({
   className,
   ...props
 }: React.ComponentProps<typeof SelectPrimitive.Separator>) {
+  if (React.useContext(PhoneSelectContext)) return <div role="separator" className="pb-sep" />
   return (
     <SelectPrimitive.Separator
       data-slot="select-separator"

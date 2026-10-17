@@ -117,7 +117,7 @@ export function Choice<T extends string>(props: Props<T>) {
   }
 
   return (
-    <div ref={rowRef} className={cn('relative min-w-0', label && fit === 'inline' ? 'grid grid-cols-[104px_1fr] items-center gap-2' : 'space-y-1.5', className)}>
+    <div ref={rowRef} data-field={(label && fit === 'inline') || undefined} className={cn('relative min-w-0', label && fit === 'inline' ? 'grid grid-cols-[104px_1fr] items-center gap-2' : 'space-y-1.5', className)}>
       {label && (
         <Label id={`${id}-label`} htmlFor={fit === 'none' && !props.multiple ? id : undefined} className="font-normal text-muted-foreground">
           {label}

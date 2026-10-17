@@ -151,6 +151,7 @@ export default {
   'Balcony (drag)': 'بلكونة (اسحب)',
   'Terrace (drag)': 'تراس (اسحب)',
   Close: 'إغلاق',
+  Options: 'خيارات',
   'Show half the panel': 'عرض نصف اللوحة',
   'Show the whole panel': 'عرض اللوحة كاملة',
   'Corner {n}': 'الركن {n}',

@@ -103,7 +103,7 @@ function Section({ title, action, children, className }: { title?: ReactNode; ac
 function Field({ label, children }: { label: string; children: (id: string) => ReactNode }) {
   const id = useId()
   return (
-    <div className="grid grid-cols-[104px_1fr] items-center gap-2">
+    <div data-field className="grid grid-cols-[104px_1fr] items-center gap-2">
       <Label htmlFor={id} className="font-normal text-muted-foreground">
         {label}
       </Label>

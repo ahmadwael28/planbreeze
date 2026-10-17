@@ -1,16 +1,66 @@
 import * as React from "react"
 import { cn } from "cn"
-import { Popover as PopoverPrimitive } from "radix-ui"
+import { Popover as PopoverPrimitive, Slot } from "radix-ui"
+import { nameOf, PhoneSheet, usePhone } from "@/components/ui/phone-sheet"
+
+/* On a phone, a popover's panel is a sheet up from the bottom (see phone-sheet), named after what opened it. */
+
+interface PhonePopover {
+  open: boolean
+  setOpen: (open: boolean) => void
+  title?: string
+  setTitle: (title: string | undefined) => void
+}
+
+const PhonePopoverContext = React.createContext<PhonePopover | null>(null)
 
 function Popover({
   ...props
 }: React.ComponentProps<typeof PopoverPrimitive.Root>) {
+  const phone = usePhone()
+  if (phone) return <PhonePopoverRoot {...props} />
   return <PopoverPrimitive.Root data-slot="popover" {...props} />
+}
+
+function PhonePopoverRoot({ open, defaultOpen, onOpenChange, children }: React.ComponentProps<typeof PopoverPrimitive.Root>) {
+  const [own, setOwn] = React.useState(defaultOpen ?? false)
+  const [title, setTitle] = React.useState<string>()
+  const ctx: PhonePopover = {
+    open: open ?? own,
+    setOpen: (o) => {
+      setOwn(o)
+      onOpenChange?.(o)
+    },
+    title,
+    setTitle,
+  }
+  return <PhonePopoverContext.Provider value={ctx}>{children}</PhonePopoverContext.Provider>
 }
 
 function PopoverTrigger({
   ...props
 }: React.ComponentProps<typeof PopoverPrimitive.Trigger>) {
+  const p = React.useContext(PhonePopoverContext)
+  if (p) {
+    const { asChild, onClick, ...rest } = props
+    const Comp = asChild ? Slot.Root : "button"
+    return (
+      <Comp
+        data-slot="popover-trigger"
+        aria-haspopup="dialog"
+        aria-expanded={p.open}
+        data-state={p.open ? "open" : "closed"}
+        {...(!asChild && { type: "button" as const })}
+        {...rest}
+        onClick={(e: React.MouseEvent<HTMLButtonElement>) => {
+          onClick?.(e)
+          if (e.defaultPrevented) return
+          p.setTitle(nameOf(e.currentTarget))
+          p.setOpen(!p.open)
+        }}
+      />
+    )
+  }
   return <PopoverPrimitive.Trigger data-slot="popover-trigger" {...props} />
 }
 
@@ -20,6 +70,16 @@ function PopoverContent({
   sideOffset = 4,
   ...props
 }: React.ComponentProps<typeof PopoverPrimitive.Content>) {
+  const p = React.useContext(PhonePopoverContext)
+  if (p) {
+    return (
+      <PhoneSheet open={p.open} onOpenChange={p.setOpen} title={p.title}>
+        <div data-slot="popover-content" className={cn("flex flex-col gap-3 text-[15px]", className, "w-auto max-w-none p-0")}>
+          {props.children}
+        </div>
+      </PhoneSheet>
+    )
+  }
   return (
     <PopoverPrimitive.Portal>
       <PopoverPrimitive.Content
@@ -39,6 +99,10 @@ function PopoverContent({
 function PopoverAnchor({
   ...props
 }: React.ComponentProps<typeof PopoverPrimitive.Anchor>) {
+  if (React.useContext(PhonePopoverContext)) {
+    const { asChild, ...rest } = props
+    return asChild ? <Slot.Root {...rest} /> : <div {...rest} />
+  }
   return <PopoverPrimitive.Anchor data-slot="popover-anchor" {...props} />
 }
 

@@ -262,7 +262,7 @@ export function ProjectsDialog() {
                   disabled={busyId !== null}
                 >
                   <span className="flex w-full min-w-0 items-center gap-2">
-                    <span className="truncate text-sm font-medium">{p.name}</span>
+                    <span dir="auto" className="truncate text-sm font-medium">{p.name}</span>
                     {busyId === p.id && <Loader className="size-4" label={t('Opening')} />}
                   </span>
                   <span className="flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
@@ -305,7 +305,7 @@ export function ProjectsDialog() {
                       disabled={busyId !== null}
                     >
                       <span className="flex w-full min-w-0 items-center gap-2">
-                        <span className="truncate text-sm font-medium">{p.name}</span>
+                        <span dir="auto" className="truncate text-sm font-medium">{p.name}</span>
                         {busyId === p.id && <Loader className="size-4" label={t('Opening')} />}
                       </span>
                       <span className="flex min-w-0 flex-wrap items-center gap-1.5 text-xs text-muted-foreground">

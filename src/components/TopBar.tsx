@@ -312,7 +312,7 @@ export function TopBar({ onToggleSidebar, sidebarOpen }: Props) {
         data-tour="projects"
       >
         <FolderOpen />
-        <span className="truncate">{name}</span>
+        <span dir="auto" className="truncate">{name}</span>
       </Button>
       <SaveStatus />
       <ShareControls inMenu={compact} />
