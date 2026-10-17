@@ -1591,6 +1591,18 @@ function SymbolProps({ sym, units }: { sym: PlanSymbol; units: Units }) {
                 ? t("Recessed into the wall and lined with the wall's finish (its tiles, if it's tiled).")
                 : t("Recessed into the wall and finished like it: painted, or its tiles if it's tiled.")}
             </p>
+            <Field label={t('Height from floor')}>
+              {(id) => (
+                <LengthInput
+                  id={id}
+                  value={sym.elevation ?? def?.sill ?? 0}
+                  units={units}
+                  min={0}
+                  onChange={(v) => updateSymbol(sym.id, (s) => void (s.elevation = v))}
+                />
+              )}
+            </Field>
+            <p className="-mt-2 text-xs text-muted-foreground">{t('To the bottom of the niche, its sill.')}</p>
             <label className="flex items-center justify-between gap-2 text-sm">
               <span>{t('Glass shelf')}</span>
               <Switch size="sm" checked={!!sym.shelf} onCheckedChange={(on) => updateSymbol(sym.id, (s) => void (s.shelf = on || undefined))} />
@@ -1755,7 +1767,7 @@ function SymbolProps({ sym, units }: { sym: PlanSymbol; units: Units }) {
           <p className="text-xs text-muted-foreground">{t("Built against the wall and finished like it (its tiles, if it's tiled), with a stone top.")}</p>
         )}
         {hasWorktop(sym) && <WorktopPicker sym={sym} label={sym.type === 'shower-bench' ? t('Top') : undefined} />}
-        {def?.sill !== undefined && (
+        {def?.sill !== undefined && !NICHES.has(sym.type) && (
           <Field label={t('Sill height')}>
             {(id) => (
               <LengthInput

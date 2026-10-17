@@ -7,6 +7,7 @@ import { dot, labelPoint, pointInPolygon, sub } from '../geometry'
 import { CEILING_STYLES } from '../lighting'
 import { isOutdoor, newSymbol } from '../project'
 import { SYMBOL_MAP } from '../symbols'
+import { roomSwitchLabel } from '../switches'
 import type { CeilingStyle, Floor, PlanSymbol, Room, RoomUse, WallSurface } from '../types'
 import { facing, local, seeded } from './geom'
 import type { Box } from './geom'
@@ -370,7 +371,7 @@ function lights(an: Analysis, use: RoomUse, style: DesignStyle, marks: Marks, op
   if (marks.bed && bedside.length) {
     const b = marks.bed.box
     const p = local(b, b.w / 2 + 12, -b.d / 2 + 10)
-    out.push(sym('switch', p, { label: 'Bedside', rotation: b.rot, height: 75, controls: [...bedside, ...main].map((s) => s.id) }))
+    out.push(sym('switch', p, { label: roomSwitchLabel(an.room, 'Bedside'), rotation: b.rot, height: 75, controls: [...bedside, ...main].map((s) => s.id) }))
   }
   return { symbols: out, patch }
 }
@@ -386,7 +387,9 @@ function switchesAt(an: Analysis, groups: [string, PlanSymbol[]][]): PlanSymbol[
     const ss = groups.map((_, k) => e.s + side * (e.w / 2 + 15 + k * 20))
     const ok = ss.every((s) => s > f.s1 + 10 && s < f.s2 - 10 && !an.openings.some((o) => o.face === e.face && o !== e && Math.abs(o.s - s) < o.w / 2 + 12))
     if (!ok) continue
-    return groups.map(([label, lights], k) => sym('switch', facePoint(f, ss[k], 10), { label, rotation: facing(f.inward), controls: lights.map((l) => l.id) }))
+    return groups.map(([label, lights], k) =>
+      sym('switch', facePoint(f, ss[k], 10), { label: roomSwitchLabel(an.room, label), rotation: facing(f.inward), controls: lights.map((l) => l.id) }),
+    )
   }
   return []
 }

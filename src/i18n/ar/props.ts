@@ -219,6 +219,8 @@ export default {
   'In the wall': 'داخل الحائط',
   'The tank is inside the wall: only its flush plate shows.': 'السيفون داخل الحائط: لا يظهر منه إلا لوح زر الطرد.',
   "The box is finished like the wall behind it (its tiles, if it's tiled), and can be as wide as the wall.": 'الصندوق مشطب مثل الحائط خلفه (ببلاطه إن كان مبلطًا)، ويمكن أن يمتد بعرض الحائط.',
+  'Height from floor': 'الارتفاع من الأرضية',
+  'To the bottom of the niche, its sill.': 'حتى أسفل التجويف، أي قاعدته.',
   'Glass shelf': 'رف زجاج',
   'LED strip': 'شريط LED',
   'In the top': 'في الرخامة',

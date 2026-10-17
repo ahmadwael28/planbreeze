@@ -349,6 +349,8 @@ export interface Project {
   floors: Floor[]
   /** Photos of real tiles and wallpapers, used as finishes. */
   images?: ProjectImage[]
+  /** Its switches have been named after their rooms (older plans' are, once, when opened: see model/switches). */
+  switchNames?: 'room'
   /** A plan someone else owns, opened because it's shared (never saved to the cloud with the plan). */
   access?: ProjectAccess
   createdAt: number

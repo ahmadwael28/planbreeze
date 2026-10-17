@@ -13,7 +13,7 @@ import {
 } from '@/model/project'
 import { bbox, dist, dot, labelPoint, normalize, pointInPolygon, signedArea, sub } from '@/model/geometry'
 import { allRefs, clipFootprint, clipSize, copyFloor, copyItems, deleteItems, exists, moveItems, pasteItems, refKey, refsOf, rotateItems, selectionOf, setGroup } from '@/model/items'
-import { newSwitchLabel, switchRoom } from '@/model/switches'
+import { nameSwitchesAfterRooms, newSwitchLabel, switchRoom } from '@/model/switches'
 import { arrange, arrangeable } from '@/model/arrange'
 import type { Arrangement } from '@/model/arrange'
 import { boxCenterShift, boxGaps } from '@/model/guides'
@@ -190,7 +190,7 @@ export const useEditor = create<EditorState>((set, get) => ({
 
   loadProject: (p) =>
     set((s) => ({
-      project: fixRoomLights(fixSizes(p)),
+      project: fixSwitchNames(fixRoomLights(fixSizes(p))),
       past: [],
       future: [],
       floorId: p.floors[0].id,
@@ -357,6 +357,15 @@ export function addLShapeRoomAtCenter() {
 /** The room under a point, if any. */
 export function roomAt(floor: Floor, p: Point): Room | undefined {
   return floor.rooms.find((r) => pointInPolygon(p, r.points))
+}
+
+/** A plan as loaded, its switches named after their rooms (an older plan's, once: see nameSwitchesAfterRooms). */
+function fixSwitchNames(p: Project): Project {
+  if (p.switchNames) return p
+  return produce(p, (d) => {
+    for (const f of d.floors) nameSwitchesAfterRooms(f)
+    d.switchNames = 'room'
+  })
 }
 
 /** A plan as loaded, with any room's extra hidden lights of a kind merged into its first (see mergeRoomLights). */
