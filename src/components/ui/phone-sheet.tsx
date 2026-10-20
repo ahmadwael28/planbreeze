@@ -39,6 +39,7 @@ export function PhoneSheet({
   children,
   className,
   modal = true,
+  onHeight,
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
@@ -48,12 +49,29 @@ export function PhoneSheet({
   children: React.ReactNode
   className?: string
   modal?: boolean
+  /** Told how tall it is (px) while it's up, and 0 once it's gone. */
+  onHeight?: (px: number) => void
 }) {
+  // Its height as it comes up and as what's in it changes.
+  const tell = React.useRef(onHeight)
+  React.useEffect(() => {
+    tell.current = onHeight
+  })
+  const measure = React.useCallback((el: HTMLDivElement | null) => {
+    if (!el) return
+    const ro = new ResizeObserver(() => tell.current?.(el.offsetHeight))
+    ro.observe(el)
+    return () => {
+      ro.disconnect()
+      tell.current?.(0)
+    }
+  }, [])
   return (
     <Drawer.Root open={open} onOpenChange={onOpenChange} modal={modal}>
       <Drawer.Portal>
         {modal && <Drawer.Overlay className="fixed inset-0 z-50 bg-black/40" />}
         <Drawer.Content
+          ref={onHeight ? measure : undefined}
           data-slot="phone-sheet"
           aria-describedby={undefined}
           className={cn(

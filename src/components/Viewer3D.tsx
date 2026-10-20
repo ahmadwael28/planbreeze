@@ -53,6 +53,12 @@ import { PhoneSheet, usePhone } from '@/components/ui/phone-sheet'
 const WORLD_SCALE = 0.01
 
 interface Ctx {
+  /**
+   * How much of the bottom of the view is covered (px: a sheet over it), and how much the view is moved up for now as
+   * it eases there (see applyInset).
+   */
+  inset: number
+  insetNow: number
   renderer: THREE.WebGLRenderer
   scene: THREE.Scene
   world: THREE.Group
@@ -266,6 +272,7 @@ function snapshot3d(ctx: Ctx): Promise<Blob> {
   const { renderer } = ctx
   const ratio = renderer.getPixelRatio()
   highlight(ctx, null)
+  ctx.camera.clearViewOffset()
   renderer.setPixelRatio(Math.min(3, Math.max(2, window.devicePixelRatio)))
   renderer.render(ctx.scene, ctx.camera)
   // The picture is taken as it's asked for, before the view goes back.
@@ -273,6 +280,7 @@ function snapshot3d(ctx: Ctx): Promise<Blob> {
     renderer.domElement.toBlob((b) => (b ? resolve(b) : reject(new Error('Could not make the picture'))), 'image/png'),
   )
   renderer.setPixelRatio(ratio)
+  applyInset(ctx)
   highlight(ctx, useEditor.getState().selection)
   ctx.dirty = true
   return blob
@@ -395,6 +403,17 @@ function applyLens(ctx: Ctx) {
   ctx.dirty = true
 }
 
+/**
+ * Where the bottom of the view is covered (a sheet over it), the picture moves up by half that (its lens shifted, the
+ * camera staying where it is), so what it's centred on, and turned about, shows in the middle of the rest of it.
+ */
+function applyInset(ctx: Ctx) {
+  const { clientWidth: w, clientHeight: h } = ctx.renderer.domElement
+  if (ctx.insetNow > 0.5 && w && h) ctx.camera.setViewOffset(w, h, 0, ctx.insetNow / 2, w, h)
+  else ctx.camera.clearViewOffset()
+  ctx.dirty = true
+}
+
 const _p = new THREE.Vector3()
 const _ray = new THREE.Raycaster()
 
@@ -465,7 +484,7 @@ function KelvinDots({ value, onChange, large }: { value: number | 'mixed'; onCha
 }
 
 /** Switches, light colors and time of day. */
-function LightingPanel({ onInside }: { onInside: () => void }) {
+function LightingPanel({ onInside, onCover }: { onInside: () => void; onCover: (px: number) => void }) {
   const floor = useFloor()
   const states = useEditor((s) => s.lightStates)
   const setLightState = useEditor((s) => s.setLightState)
@@ -475,6 +494,10 @@ function LightingPanel({ onInside }: { onInside: () => void }) {
   const setSettings = useEditor((s) => s.setSettings)
   const [open, setOpen] = useState(() => getLayout().panel === 'docked')
   const phone = usePhone()
+  // Put away: the view goes back down at once, not when the sheet's gone.
+  useEffect(() => {
+    if (!open) onCover(0)
+  }, [open, onCover])
 
   const switches = floor.symbols.filter((s) => s.type === 'switch')
   const lights = floor.symbols.filter((s) => {
@@ -501,7 +524,7 @@ function LightingPanel({ onInside }: { onInside: () => void }) {
     return (
       <>
         {!open && opener}
-        <PhoneSheet open={open} onOpenChange={setOpen} title={t('Lighting')} modal={false}>
+        <PhoneSheet open={open} onOpenChange={setOpen} title={t('Lighting')} modal={false} onHeight={(px) => onCover(open ? px : 0)}>
           <div className="space-y-5">
             <div className="space-y-3.5 rounded-[14px] bg-sheet-card p-4">
               <div className="flex items-center gap-3">
@@ -543,7 +566,7 @@ function LightingPanel({ onInside }: { onInside: () => void }) {
                       <div className="flex items-center gap-3">
                         <span className="size-3 shrink-0 rounded-full" style={{ background: WIRE_COLORS[i % WIRE_COLORS.length] }} />
                         <span className="min-w-0 flex-1">
-                          <span dir="auto" className="block font-medium">
+                          <span dir="auto" className="block font-medium rtl:text-right">
                             {sw.label || t('Switch {n}', { n: i + 1 })}
                           </span>
                           <span className="block text-[13px] text-muted-foreground">{ids.length === 1 ? t('1 light') : t('{n} lights', { n: ids.length })}</span>
@@ -795,6 +818,8 @@ export default function Viewer3D() {
       movedAt: 0,
       frameMs: 0,
       slow: false,
+      inset: 0,
+      insetNow: 0,
       nearDoor: null,
       onNearDoor: () => {},
       walking: false,
@@ -841,6 +866,7 @@ export default function Viewer3D() {
       renderer.setSize(w, h)
       camera.aspect = w / h
       applyLens(ctx)
+      applyInset(ctx)
     }
     const ro = new ResizeObserver(resize)
     ro.observe(host)
@@ -899,6 +925,12 @@ export default function Viewer3D() {
       if (renderer.getPixelRatio() !== ratio) {
         renderer.setPixelRatio(ratio)
         ctx.dirty = true
+      }
+      // A sheet coming up over the bottom of the view, or going: the view eases up above it, or back.
+      if (ctx.insetNow !== ctx.inset) {
+        const d = ctx.inset - ctx.insetNow
+        ctx.insetNow = Math.abs(d) < 0.5 ? ctx.inset : ctx.insetNow + d * Math.min(1, dt * 9)
+        applyInset(ctx)
       }
       if (ctx.dirty) {
         ctx.dirty = false
@@ -1275,6 +1307,15 @@ export default function Viewer3D() {
     ctx.dirty = true
   }, [built])
 
+  // What covers the bottom of the view (the lights sheet, on a phone): it centres itself above that.
+  const cover = useCallback((px: number) => {
+    const ctx = ctxRef.current
+    const host = hostRef.current
+    if (!ctx || !host) return
+    const r = host.getBoundingClientRect()
+    ctx.inset = px > 0 ? Math.min(r.height * 0.75, Math.max(0, px - (window.innerHeight - r.bottom))) : 0
+  }, [])
+
   /** Swing or slide these doors open or shut. */
   const moveDoors = (ids: string[], closed: boolean) => swingDoors(ctxRef.current, ids, closed)
   const doorsClosed = useEditor((s) => s.doorsClosed)
@@ -1420,6 +1461,7 @@ export default function Viewer3D() {
       )}
       {tour && <ViewpointMarkers points={viewpoints} onGo={goTo} register={registerMarker} />}
       <LightingPanel
+        onCover={cover}
         onInside={() => {
           exitTour()
           walkInside()
@@ -1595,7 +1637,7 @@ export default function Viewer3D() {
                 : t('WASD / arrows to walk · numpad to look around · Q / E down / up · Shift faster')}
             </div>
           )}
-          <div className="absolute right-3 bottom-3 flex items-center gap-2">
+          <div className="absolute end-3 bottom-3 flex items-center gap-2">
             <Tooltip>
               <TooltipTrigger asChild>
                 <Button variant="secondary" size="icon-lg" className="rounded-full shadow-lg" onClick={savedActions.onSave} aria-label={t('Save this view')}>
