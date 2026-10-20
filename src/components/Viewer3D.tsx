@@ -47,6 +47,7 @@ import type { PoolRoom, VirtualLight } from '@/three/lightPool'
 import { computeViewpoints, floorBase, LENSES, planFlight, stepFlight, verticalFov } from '@/three/viewpoints'
 import type { Flight, Lens, Viewpoint } from '@/three/viewpoints'
 import { setCapture3d } from '@/utils/snapshot'
+import { PhoneSheet, usePhone } from '@/components/ui/phone-sheet'
 
 /** The scene is modeled in cm and shown in meters, so light falloff is physically plausible. */
 const WORLD_SCALE = 0.01
@@ -434,9 +435,9 @@ function setLightKelvin(ids: string[], kelvin: number) {
 }
 
 /** Color temperatures to pick for a group of lights (`mixed`: theirs differ). */
-function KelvinDots({ value, onChange }: { value: number | 'mixed'; onChange: (k: number) => void }) {
+function KelvinDots({ value, onChange, large }: { value: number | 'mixed'; onChange: (k: number) => void; large?: boolean }) {
   return (
-    <div className="flex gap-1.5">
+    <div className={cn('flex', large ? 'gap-2.5' : 'gap-1.5')}>
       {KELVINS.map(({ kelvin, name }) => (
         <Tooltip key={kelvin}>
           <TooltipTrigger asChild>
@@ -445,8 +446,10 @@ function KelvinDots({ value, onChange }: { value: number | 'mixed'; onChange: (k
               aria-label={`${name}, ${kelvin} K`}
               aria-pressed={value === kelvin}
               className={cn(
-                'size-4.5 rounded-full border border-black/15 transition-transform hover:scale-110',
+                'rounded-full border border-black/15 transition-transform hover:scale-110',
+                large ? 'size-7' : 'size-4.5',
                 value === kelvin && 'ring-2 ring-primary ring-offset-1 ring-offset-background',
+                value === kelvin && large && 'ring-offset-2 ring-offset-sheet-card',
               )}
               style={{ background: kelvinHex(kelvin) }}
             />
@@ -471,6 +474,7 @@ function LightingPanel({ onInside }: { onInside: () => void }) {
   const showCeilings = useEditor((s) => s.settings.showCeilings)
   const setSettings = useEditor((s) => s.setSettings)
   const [open, setOpen] = useState(() => getLayout().panel === 'docked')
+  const phone = usePhone()
 
   const switches = floor.symbols.filter((s) => s.type === 'switch')
   const lights = floor.symbols.filter((s) => {
@@ -483,13 +487,109 @@ function LightingPanel({ onInside }: { onInside: () => void }) {
     return ks.size === 1 ? [...ks][0] : 'mixed'
   }
 
-  if (!open) {
+  const tip = getLayout().touch
+    ? t('Tip: tap a switch on a wall to flip it, or a door to open or close it.')
+    : t('Tip: click a switch on a wall to flip it, or a door to open or close it.')
+  const opener = (
+    <Button variant="secondary" size="sm" className="absolute top-3 left-3 z-10 shadow-md" onClick={() => setOpen(true)} data-tour="lights3d">
+      <Lightbulb /> {t('Lights')}
+    </Button>
+  )
+
+  // On a phone: a sheet that leaves the view above it to watch the lights change in; its switches as rows of a list.
+  if (phone) {
     return (
-      <Button variant="secondary" size="sm" className="absolute top-3 left-3 z-10 shadow-md" onClick={() => setOpen(true)} data-tour="lights3d">
-        <Lightbulb /> {t('Lights')}
-      </Button>
+      <>
+        {!open && opener}
+        <PhoneSheet open={open} onOpenChange={setOpen} title={t('Lighting')} modal={false}>
+          <div className="space-y-5">
+            <div className="space-y-3.5 rounded-[14px] bg-sheet-card p-4">
+              <div className="flex items-center gap-3">
+                <Moon className="size-5 text-muted-foreground" />
+                <Slider min={0} max={1} step={0.01} value={[daylight]} onValueChange={([v]) => setSettings({ daylight: v })} />
+                <Sun className="size-5 text-muted-foreground" />
+              </div>
+              <div className="grid grid-cols-4 gap-2">
+                {(
+                  [
+                    [t('Evening'), () => setSettings({ daylight: 0.03 }), <Moon key="m" />],
+                    [t('Day'), () => setSettings({ daylight: 1 }), <Sun key="s" />],
+                    [t('All on'), () => setAllLights(true), <Lightbulb key="on" />],
+                    [t('All off'), () => setAllLights(false), <LightbulbOff key="off" />],
+                  ] as const
+                ).map(([label, act, icon]) => (
+                  <button
+                    key={label}
+                    type="button"
+                    onClick={act}
+                    className="flex flex-col items-center gap-1 rounded-xl bg-foreground/8 px-1 py-2 text-[12px] font-medium active:opacity-60 [&_svg]:size-5"
+                  >
+                    {icon}
+                    <span className="max-w-full truncate">{label}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+            {switches.length === 0 && other.length === 0 ? (
+              <p className="px-4 text-[15px] text-muted-foreground">
+                {t('No lights on this floor yet. Add spots, pendants or a cove light from the Library, then switches to control them.')}
+              </p>
+            ) : (
+              <div className="pb-page">
+                {switches.map((sw, i) => {
+                  const ids = sw.controls ?? []
+                  return (
+                    <div key={sw.id} className="pb-row block! space-y-2.5">
+                      <div className="flex items-center gap-3">
+                        <span className="size-3 shrink-0 rounded-full" style={{ background: WIRE_COLORS[i % WIRE_COLORS.length] }} />
+                        <span className="min-w-0 flex-1">
+                          <span dir="auto" className="block font-medium">
+                            {sw.label || t('Switch {n}', { n: i + 1 })}
+                          </span>
+                          <span className="block text-[13px] text-muted-foreground">{ids.length === 1 ? t('1 light') : t('{n} lights', { n: ids.length })}</span>
+                        </span>
+                        <Switch checked={states[sw.id] ?? true} onCheckedChange={(v) => setLightState(sw.id, v)} aria-label={t('Switch {name}', { name: sw.label ?? '' })} />
+                      </div>
+                      {ids.length > 0 && (
+                        <div className="ps-6">
+                          <KelvinDots large value={kelvinOfGroup(ids)} onChange={(k) => setLightKelvin(ids, k)} />
+                        </div>
+                      )}
+                    </div>
+                  )
+                })}
+                {other.length > 0 && (
+                  <div className="pb-row block! space-y-2.5">
+                    <div className="flex items-center gap-3">
+                      <span className="min-w-0 flex-1">
+                        <span className="block font-medium">{t('Not on a switch')}</span>
+                        <span className="block text-[13px] text-muted-foreground">{other.length === 1 ? t('1 light') : t('{n} lights', { n: other.length })}</span>
+                      </span>
+                      <Switch checked={states[OTHER_LIGHTS] ?? true} onCheckedChange={(v) => setLightState(OTHER_LIGHTS, v)} aria-label={t('Lights without a switch')} />
+                    </div>
+                    <KelvinDots large value={kelvinOfGroup(other.map((o) => o.id))} onChange={(k) => setLightKelvin(other.map((o) => o.id), k)} />
+                  </div>
+                )}
+              </div>
+            )}
+            <div className="pb-page">
+              <label className="pb-row">
+                <span className="flex-1">{t('Ceilings')}</span>
+                <Switch checked={showCeilings} onCheckedChange={(v) => setSettings({ showCeilings: v })} />
+              </label>
+              <button type="button" className="pb-row" onClick={onInside}>
+                <DoorOpen />
+                <span className="flex-1 text-start">{t('Walk inside')}</span>
+              </button>
+            </div>
+            <p className="px-4 text-[13px] leading-snug text-muted-foreground">{tip}</p>
+          </div>
+        </PhoneSheet>
+      </>
     )
   }
+
+  if (!open) return opener
 
   return (
     <div
@@ -582,7 +682,7 @@ function LightingPanel({ onInside }: { onInside: () => void }) {
           <DoorOpen /> {t('Walk inside')}
         </Button>
       </div>
-      <p className="border-t px-3 py-1.5 text-[11px] text-muted-foreground">Tip: click a switch on a wall to flip it, or a door to open or close it.</p>
+      <p className="border-t px-3 py-1.5 text-[11px] text-muted-foreground">{tip}</p>
     </div>
   )
 }

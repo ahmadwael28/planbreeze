@@ -7,24 +7,26 @@ import { Input } from '@/components/ui/input'
 import { usePlanTheme } from '@/hooks/use-plan-theme'
 import { findWallSnap, newSymbol } from '@/model/project'
 import { CATEGORIES, SYMBOLS } from '@/model/symbols'
-import type { SymbolDef } from '@/model/symbols'
+import type { SymbolCategory, SymbolDef } from '@/model/symbols'
 import type { PlanTheme } from '@/model/theme'
 import { addSymbol, currentFloor, toggleFaded, useEditor, viewCenter } from '@/store/editor'
 import { useUi } from '@/store/ui'
 import { getLayout } from '@/hooks/use-layout'
 import { SYMBOL_DRAG_MIME } from './Canvas'
 import { isRtl, t } from '@/i18n'
+import { usePhone } from '@/components/ui/phone-sheet'
+import { cn } from '@/lib/utils'
 import { labelPoint } from '@/model/geometry'
 import type { Point } from '@/model/types'
 
-function Preview({ def, theme }: { def: SymbolDef; theme: PlanTheme }) {
+function Preview({ def, theme, className }: { def: SymbolDef; theme: PlanTheme; className?: string }) {
   const pad = 14
   const w = def.width
   const d = def.wall ? 10 : def.depth
   const extra = def.wall ? def.width : def.type.includes('table') || def.type === 'desk' ? 40 : 0
   const vb = `${-w / 2 - pad} ${-d / 2 - pad - (def.wall ? 0 : extra / 2)} ${w + pad * 2} ${d + pad * 2 + extra}`
   return (
-    <svg viewBox={vb} className="h-12 w-full" preserveAspectRatio="xMidYMid meet" aria-hidden>
+    <svg viewBox={vb} className={cn('h-12 w-full', className)} preserveAspectRatio="xMidYMid meet" aria-hidden>
       {def.wall && <rect x={-w / 2 - pad} y={-d / 2} width={w + pad * 2} height={d} fill={theme.wall} />}
       {def.render(w, d, theme, { ...newSymbol(def.type, 0, 0), label: 'Abc' })}
     </svg>
@@ -76,16 +78,100 @@ function placeAtCenter(def: SymbolDef) {
   return addSymbol(def.type, c)
 }
 
+/** The categories in the order they're shown: lights and ceilings first while lighting's being worked on. */
+function categories(layer: string) {
+  return layer === 'lighting'
+    ? [...CATEGORIES.filter((c) => c === 'Lighting' || c === 'Ceilings'), ...CATEGORIES.filter((c) => c !== 'Lighting' && c !== 'Ceilings')]
+    : CATEGORIES
+}
+
+/** A piece's names (in either language) and the other words it goes by, to find it by. */
+const found = (s: SymbolDef, q: string) => !s.hidden && (!q || `${s.name} ${t(s.name)} ${s.keywords ?? ''}`.toLowerCase().includes(q))
+
+const categoryName = (c: string) => t(c === 'Ceilings' ? 'Gypsum ceilings' : c)
+
 export function LibraryPanel() {
+  return usePhone() ? <PhoneLibrary /> : <WideLibrary />
+}
+
+/**
+ * The library on a phone, as an app's: a search field and the categories as chips along the top (staying there as the
+ * pieces scroll under them), and the pieces in a roomy grid, named in full; a tap adds one.
+ */
+function PhoneLibrary() {
   const theme = usePlanTheme()
   const layer = useEditor((s) => s.layer)
-  const order =
-    layer === 'lighting'
-      ? [
-          ...CATEGORIES.filter((c) => c === 'Lighting' || c === 'Ceilings'),
-          ...CATEGORIES.filter((c) => c !== 'Lighting' && c !== 'Ceilings'),
-        ]
-      : CATEGORIES
+  const order = categories(layer)
+  const [query, setQuery] = useState('')
+  const [cat, setCat] = useState<string>(() => (useEditor.getState().layer === 'lighting' ? 'Lighting' : 'all'))
+  const q = query.trim().toLowerCase()
+  // Searching looks through all of them.
+  const shown = (q || cat === 'all' ? order : [cat])
+    .map((c) => [c, SYMBOLS.filter((s) => (s.category === c || s.alsoIn?.includes(c as SymbolCategory)) && found(s, q))] as const)
+    .filter(([, items]) => items.length)
+  return (
+    <div className="pb-6">
+      <div className="sticky top-0 z-10 space-y-2.5 bg-sheet px-4 pt-3 pb-2.5">
+        <div className="relative">
+          <Search className="pointer-events-none absolute start-3 top-1/2 size-[18px] -translate-y-1/2 text-muted-foreground" />
+          <Input
+            type="search"
+            placeholder={t('Search symbols…')}
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            className="h-10 rounded-xl border-0 bg-foreground/8 ps-10 dark:bg-foreground/10"
+          />
+        </div>
+        {!q && (
+          <div className="-mx-4 flex gap-2 overflow-x-auto px-4">
+            {['all', ...order].map((c) => (
+              <button
+                key={c}
+                type="button"
+                onClick={() => setCat(c)}
+                className={cn(
+                  'h-8 shrink-0 rounded-full px-3.5 text-[14px] font-medium whitespace-nowrap transition-colors',
+                  c === cat ? 'bg-foreground text-background' : 'bg-foreground/8 text-foreground dark:bg-foreground/10',
+                )}
+              >
+                {c === 'all' ? t('All') : categoryName(c)}
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+      <div className="space-y-5 px-4 pt-1">
+        {!q && <p className="px-1 text-[13px] text-muted-foreground">{t('Tap one to add it to the plan.')}</p>}
+        {shown.map(([c, items]) => (
+          <div key={c} className="space-y-2">
+            {shown.length > 1 && <h3 className="px-1 text-[13px] font-medium tracking-wide text-muted-foreground uppercase">{categoryName(c)}</h3>}
+            {c === 'Ceilings' && <p className="px-1 text-[13px] text-muted-foreground">{t('Tap a style to apply it to the selected room, or drag it onto a room.')}</p>}
+            <div className="grid grid-cols-3 gap-2.5">
+              {items.map((def) => (
+                <button
+                  key={def.type}
+                  type="button"
+                  onClick={() => place(def)}
+                  className="flex flex-col items-center gap-1.5 rounded-2xl bg-sheet-card p-2.5 pb-2 text-foreground transition-transform active:scale-[0.97]"
+                >
+                  <Preview def={def} theme={theme} className="h-14" />
+                  <span className="line-clamp-2 min-h-[2lh] text-center text-[12px] leading-tight">{t(def.name)}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        ))}
+        {!shown.length && <p className="py-10 text-center text-[15px] text-muted-foreground">{t('Nothing matches “{q}”', { q: query.trim() })}</p>}
+      </div>
+    </div>
+  )
+}
+
+/** The library beside the plan (or over it on a tablet): a search, and the pieces by category, each folding away. */
+function WideLibrary() {
+  const theme = usePlanTheme()
+  const layer = useEditor((s) => s.layer)
+  const order = categories(layer)
   const [query, setQuery] = useState('')
   const q = query.trim().toLowerCase()
   // Folded categories live in the UI store, so they survive switching sidebar tabs.
@@ -113,9 +199,7 @@ export function LibraryPanel() {
       )}
       {order.map((cat) => {
         // Found by its name in either language, or the other words it goes by.
-        const items = SYMBOLS.filter(
-          (s) => (s.category === cat || s.alsoIn?.includes(cat)) && !s.hidden && (!q || `${s.name} ${t(s.name)} ${s.keywords ?? ''}`.toLowerCase().includes(q)),
-        )
+        const items = SYMBOLS.filter((s) => (s.category === cat || s.alsoIn?.includes(cat)) && found(s, q))
         if (!items.length) return null
         // While searching, every category with a match is shown open.
         const open = searching || !collapsed.includes(cat)
@@ -128,7 +212,7 @@ export function LibraryPanel() {
                   className="group flex min-w-0 flex-1 items-center gap-1.5 rounded-md py-1 text-xs font-medium tracking-wide text-muted-foreground uppercase outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring disabled:hover:text-muted-foreground"
                 >
                   <ChevronRight className="rtl-flip size-3.5 transition-transform group-data-[state=open]:rotate-90" />
-                  <span className="flex-1 text-start">{t(cat === 'Ceilings' ? 'Gypsum ceilings' : cat)}</span>
+                  <span className="flex-1 text-start">{categoryName(cat)}</span>
                   <span className="font-normal tabular-nums normal-case">{items.length}</span>
                 </CollapsibleTrigger>
                 <button

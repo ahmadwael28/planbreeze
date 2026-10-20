@@ -206,7 +206,7 @@ function Wizard() {
                 const c = rooms[r.id]
                 const furnished = isFurnished(floor, r)
                 return (
-                  <div key={r.id} className={cn('flex items-center gap-3 rounded-lg border px-3 py-2', !c.on && 'opacity-60')}>
+                  <div key={r.id} className={cn('flex flex-wrap items-center gap-x-3 gap-y-2 rounded-lg border px-3 py-2', !c.on && 'opacity-60')}>
                     <Switch size="sm" checked={c.on} onCheckedChange={(on) => useDesign.getState().setRoom(r.id, { on })} aria-label={t('Design {room}', { room: r.name })} />
                     <div className="min-w-0 flex-1">
                       <div dir="auto" className="truncate text-start text-sm font-medium">{r.name}</div>
@@ -217,7 +217,7 @@ function Wizard() {
                       </div>
                     </div>
                     <Select value={c.use} onValueChange={(v) => useDesign.getState().setRoom(r.id, { use: v as RoomUse })}>
-                      <SelectTrigger size="sm" className="w-40" aria-label={t('What {room} is for', { room: r.name })}>
+                      <SelectTrigger size="sm" className="w-40 max-sm:w-full max-sm:basis-full" aria-label={t('What {room} is for', { room: r.name })}>
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>

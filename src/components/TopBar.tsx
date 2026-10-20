@@ -28,6 +28,7 @@ import {
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { takeSnapshot } from '@/utils/snapshot'
+import { usePhone } from '@/components/ui/phone-sheet'
 import { Button } from '@/components/ui/button'
 import {
   DropdownMenu,
@@ -301,6 +302,7 @@ export function TopBar({ onToggleSidebar, sidebarOpen }: Props) {
   const layout = useLayout()
   const full = layout.topBar === 'full'
   const compact = layout.topBar === 'compact'
+  const phone = usePhone()
   const openFile = () => fileRef.current?.click()
 
   return (
@@ -338,19 +340,28 @@ export function TopBar({ onToggleSidebar, sidebarOpen }: Props) {
       <div className="flex flex-1 justify-center">
         <ToggleGroup
           type="single"
-          variant="outline"
+          variant={phone ? 'default' : 'outline'}
           size="sm"
           value={viewMode}
           onValueChange={(v) => v && setViewMode(v as ViewMode)}
           aria-label={t('View mode')}
           data-tour="view-mode"
+          className={cn(phone && 'gap-0 rounded-[11px] bg-foreground/8 p-[3px] dark:bg-foreground/12')}
         >
-          <ToggleGroupItem value="2d" className={cn('font-semibold data-[state=on]:bg-primary data-[state=on]:text-primary-foreground', compact ? 'px-2.5' : 'px-3')}>
-            2D
-          </ToggleGroupItem>
-          <ToggleGroupItem value="3d" className={cn('font-semibold data-[state=on]:bg-primary data-[state=on]:text-primary-foreground', compact ? 'px-2.5' : 'px-3')}>
-            3D
-          </ToggleGroupItem>
+          {(['2d', '3d'] as const).map((m) => (
+            <ToggleGroupItem
+              key={m}
+              value={m}
+              className={cn(
+                'font-semibold',
+                phone
+                  ? 'h-[30px] min-h-0! rounded-[9px]! border-0 px-4 text-[14px] text-muted-foreground data-[state=on]:bg-background data-[state=on]:text-foreground data-[state=on]:shadow-[0_1px_4px_rgb(0_0_0/0.18)] dark:data-[state=on]:bg-foreground/25'
+                  : cn('data-[state=on]:bg-primary data-[state=on]:text-primary-foreground', compact ? 'px-2.5' : 'px-3'),
+              )}
+            >
+              {m.toUpperCase()}
+            </ToggleGroupItem>
+          ))}
         </ToggleGroup>
       </div>
 

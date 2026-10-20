@@ -552,13 +552,13 @@ export function CutTiles({ grid, span, cut, units, onChange }: { grid: TileGrid;
 
 function Header({ title, onClose, extra }: { title: string; onClose: () => void; extra?: ReactNode }) {
   return (
-    <DialogHeader className="flex-row items-center gap-2 space-y-0 border-b px-4 py-2.5 text-start">
-      <div className="min-w-0 flex-1">
+    <DialogHeader className="flex-row flex-wrap items-center gap-2 space-y-0 border-b px-4 py-2.5 text-start">
+      <div className="min-w-0 flex-1 max-sm:basis-full">
         <DialogTitle className="truncate text-base">{title}</DialogTitle>
         <DialogDescription className="sr-only">{t('Choose which tile goes where.')}</DialogDescription>
       </div>
       {extra}
-      <Button onClick={onClose}>
+      <Button onClick={onClose} className="max-sm:ms-auto">
         <Check /> {t('Done')}
       </Button>
     </DialogHeader>

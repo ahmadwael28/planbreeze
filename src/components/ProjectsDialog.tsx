@@ -1,4 +1,16 @@
 import { t } from '@/i18n'
+
+/** When a plan was last changed: today or yesterday and the time, else the date (no seconds). */
+function when(at: number) {
+  const lang = document.documentElement.lang || undefined
+  const d = new Date(at)
+  const day = (x: Date) => new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime()
+  const days = Math.round((day(new Date()) - day(d)) / 86400000)
+  const time = d.toLocaleTimeString(lang, { hour: 'numeric', minute: '2-digit' })
+  if (days === 0) return t('Today, {time}', { time })
+  if (days === 1) return t('Yesterday, {time}', { time })
+  return d.toLocaleDateString(lang, { day: 'numeric', month: 'short', year: days > 300 ? 'numeric' : undefined })
+}
 import { useState } from 'react'
 import { Check, Cloud, CloudUpload, Eye, FilePlus2, HardDrive, Pencil, Trash2, UserMinus, Users } from 'lucide-react'
 import { Loader } from '@/components/ui/loader'
@@ -267,7 +279,7 @@ export function ProjectsDialog() {
                   </span>
                   <span className="flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
                     {p.id === current.id ? `${t('Open now')} · ` : ''}
-                    {new Date(p.updatedAt).toLocaleString()}
+                    {when(p.updatedAt)}
                     {user && (
                       <Badge variant="secondary" className="h-4.5 gap-1 px-1.5 text-[10px]">
                         {p.cloud ? <Cloud className="size-3" /> : <HardDrive className="size-3" />}

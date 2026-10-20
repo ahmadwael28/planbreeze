@@ -28,7 +28,8 @@ export function SheetGrip({ className }: { className?: string }) {
 /**
  * A sheet up from the bottom of a phone's screen, over a dimmed screen: a grip, a header (its title, a way back to the
  * page before, and closing it) and what's in it, scrolling if it's long. Dragged down, or a tap on the screen behind
- * it, puts it away.
+ * it, puts it away. Not `modal`: the screen behind it isn't dimmed and can still be used (to see what it changes),
+ * and it comes up less high.
  */
 export function PhoneSheet({
   open,
@@ -37,6 +38,7 @@ export function PhoneSheet({
   onBack,
   children,
   className,
+  modal = true,
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
@@ -45,15 +47,19 @@ export function PhoneSheet({
   onBack?: () => void
   children: React.ReactNode
   className?: string
+  modal?: boolean
 }) {
   return (
-    <Drawer.Root open={open} onOpenChange={onOpenChange}>
+    <Drawer.Root open={open} onOpenChange={onOpenChange} modal={modal}>
       <Drawer.Portal>
-        <Drawer.Overlay className="fixed inset-0 z-50 bg-black/40" />
+        {modal && <Drawer.Overlay className="fixed inset-0 z-50 bg-black/40" />}
         <Drawer.Content
           data-slot="phone-sheet"
           aria-describedby={undefined}
-          className="fixed inset-x-0 bottom-0 z-50 flex max-h-[88dvh] flex-col rounded-t-[22px] bg-sheet text-foreground outline-none"
+          className={cn(
+            'fixed inset-x-0 bottom-0 z-50 flex flex-col rounded-t-[22px] bg-sheet text-foreground outline-none',
+            modal ? 'max-h-[88dvh]' : 'max-h-[60dvh] shadow-[0_-8px_30px_rgb(0_0_0/0.25)]',
+          )}
         >
           <SheetGrip className="mt-2" />
           <div className="relative flex min-h-12 shrink-0 items-center justify-center px-24">

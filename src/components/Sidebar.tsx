@@ -130,7 +130,13 @@ export function Sidebar({ open }: { open: boolean }) {
             <TabsTrigger value="summary">{t('Summary')}</TabsTrigger>
           </TabsList>
           {overlay && (
-            <Button variant="ghost" size="icon" className="shrink-0" onClick={() => setOpen(false)} aria-label={t('Close')}>
+            <Button
+              variant="ghost"
+              size="icon"
+              className={cn('shrink-0', sheet && 'size-[30px]! min-h-0! min-w-0! rounded-full bg-foreground/8 text-muted-foreground [&_svg]:size-[18px]')}
+              onClick={() => setOpen(false)}
+              aria-label={t('Close')}
+            >
               <X />
             </Button>
           )}

@@ -14,6 +14,7 @@ import { Switch } from '@/components/ui/switch'
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
 import { usePlanTheme } from '@/hooks/use-plan-theme'
 import { cn } from '@/lib/utils'
+import { getLayout } from '@/hooks/use-layout'
 import { buildFloorContent, tidyRooms } from '@/import/convert'
 import type { ImportResult } from '@/import/convert'
 import { eraseMarks, imageForAi, loadImage } from '@/import/image'
@@ -825,7 +826,9 @@ export function ImportWizard() {
                 {loading ? <Loader className="size-8" label={t('Opening your drawing')} /> : <ImageUp className="size-7" />}
               </div>
               <div>
-                <p className="font-medium">{t('Drop an image here, paste it, or choose a file')}</p>
+                <p className="font-medium">
+                  {getLayout().touch ? t('Choose a picture of your plan, or take a photo of it') : t('Drop an image here, paste it, or choose a file')}
+                </p>
                 <p className="mt-1 text-sm text-muted-foreground">{t('JPEG or PNG · photo, scan or screenshot')}</p>
               </div>
               <div className="flex flex-wrap justify-center gap-2">
