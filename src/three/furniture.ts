@@ -35,12 +35,15 @@ import {
   startsShut,
   styleOf,
   vanityMirror,
+  vanityLight,
+  vanityMirrors,
   vanitySinks,
+  WASHER_BAY,
   NICHES,
   TANK_BOX,
   worktopOf,
 } from '@/model/symbols'
-import type { PlanSymbol, Point, Room } from '@/model/types'
+import type { MirrorShape, PlanSymbol, Point, Room } from '@/model/types'
 
 export const COLORS = {
   wall: '#f4f4f5',
@@ -1279,9 +1282,54 @@ function coffeeCorner(k: Kit, sym: PlanSymbol, w: number, d: number, h: number) 
 export interface CabinetLeds {
   strips: { x: number; y: number; z: number; len: number; axis: 'x' | 'y' }[]
   spots: { x: number; y: number; z: number; angle: number; intensity: number }[]
+  /** Glowing parts of other shapes (a band in a mirror's glass). */
+  lenses?: THREE.BufferGeometry[]
+  /** Soft glows on what's behind them (a backlit mirror's halo on the wall): where, and how they fade. */
+  halos?: { geo: THREE.BufferGeometry; map: THREE.Texture }[]
 }
 
-export function cabinetLeds(sym: PlanSymbol): CabinetLeds | null {
+/** Halos' fades, by the mirror's shape and size. */
+const haloMaps = new Map<string, THREE.Texture>()
+
+/**
+ * The halo of light round a backlit mirror on the wall: w × h grown by `spread` all round, white where it's brightest
+ * (just round the mirror), fading out from it.
+ */
+function haloMap(shape: MirrorShape, w: number, h: number, spread: number) {
+  const key = `${shape}:${Math.round(w)}:${Math.round(h)}:${spread}`
+  const known = haloMaps.get(key)
+  if (known) return known
+  const W = w + 2 * spread
+  const H = h + 2 * spread
+  const px = 256 / Math.max(W, H)
+  const canvas = document.createElement('canvas')
+  canvas.width = Math.round(W * px)
+  canvas.height = Math.round(H * px)
+  const c = canvas.getContext('2d')!
+  // On black (it's the light added, by its color), faded out well before the edges (a shadow's blur reaches about
+  // twice its size).
+  c.fillStyle = '#000'
+  c.fillRect(0, 0, canvas.width, canvas.height)
+  c.fillStyle = c.shadowColor = 'rgb(150,150,150)'
+  c.shadowBlur = spread * px * 0.42
+  c.beginPath()
+  mirrorOutline(shape, w, h, 0.5)
+    .getPoints(64)
+    .forEach((p, i) => {
+      const x = (p.x + W / 2) * px
+      const y = (H / 2 - p.y) * px
+      if (i) c.lineTo(x, y)
+      else c.moveTo(x, y)
+    })
+  c.closePath()
+  c.fill()
+  const map = new THREE.CanvasTexture(canvas)
+  map.colorSpace = THREE.SRGBColorSpace
+  haloMaps.set(key, map)
+  return map
+}
+
+export function cabinetLeds(sym: PlanSymbol, wallGap = 0): CabinetLeds | null {
   const { width: w, depth: d, height: h } = sym
   if (sym.type === 'wall-cabinet') {
     // Under it, along the front, lighting the counter.
@@ -1299,21 +1347,33 @@ export function cabinetLeds(sym: PlanSymbol): CabinetLeds | null {
     return { strips: [{ x: 0, y: h - 1.2, z: d / 2 - 1.5, len: w - 2, axis: 'x' }], spots: [{ x: 0, y: h - 2, z: d / 2 - r / 2, angle: 1.2, intensity: 2 }] }
   }
   if (sym.type === 'bath-vanity') {
-    // Under the mirror cabinet onto the basin, around a mirror, or (with nothing above) under a wall-hung vanity.
-    const above = sym.mirror ?? 'cabinet'
-    if (above === 'cabinet') return { strips: [{ x: 0, y: h + 29.5, z: -d / 2 + 11, len: w - 8, axis: 'x' }], spots: [{ x: 0, y: h + 29, z: -d / 2 + 10, angle: 1.2, intensity: 5 }] }
-    if (above === 'plain') {
-      const mw = Math.min(w, 140)
+    // On the wall over it (where it's really hung: see bathVanity): a halo round the mirror or cabinet, a band in the
+    // mirror's glass, a bar over it, or a strip under the cabinet; with nothing there, under a wall-hung vanity.
+    const wallZ = -d / 2 - wallGap
+    const mirrors = vanityMirrors(sym)
+    const light = vanityLight(sym)
+    const face = mirrors.map((m) => ({ x: m.x, y: m.y + m.h * 0.55, z: wallZ + 12, angle: 1.3, intensity: 3 / mirrors.length + 1 }))
+    if (light === 'back') {
+      const spread = 26
       return {
-        strips: [
-          { x: 0, y: h + 108.5, z: -d / 2 + 1, len: mw, axis: 'x' },
-          { x: -mw / 2 - 0.5, y: h + 68, z: -d / 2 + 1, len: 80, axis: 'y' },
-          { x: mw / 2 + 0.5, y: h + 68, z: -d / 2 + 1, len: 80, axis: 'y' },
-        ],
-        spots: [{ x: 0, y: h + 100, z: -d / 2 + 6, angle: 1.3, intensity: 3 }],
+        strips: [],
+        spots: face,
+        halos: mirrors.map((m) => ({
+          geo: new THREE.PlaneGeometry(m.w + 2 * spread, m.h + 2 * spread).translate(m.x, m.y + m.h / 2, wallZ + 0.6),
+          map: haloMap(m.shape, m.w, m.h, spread),
+        })),
       }
     }
-    const bottom = sym.onFloor ? 10 : 30
+    if (light === 'front') {
+      const z = wallZ + mirrorOff(sym) + 0.7
+      return { strips: [], spots: face, lenses: mirrors.map((m) => new THREE.ShapeGeometry(mirrorRing(m.shape, m.w, m.h, -3, -4.6), 48).translate(m.x, m.y + m.h / 2, z)) }
+    }
+    if (light === 'bar') return { strips: mirrors.map((m) => ({ x: m.x, y: m.y + m.h + 3.8, z: wallZ + 5, len: Math.min(m.w * 0.75, 70) - 4, axis: 'x' as const })), spots: face }
+    if (mirrors.length) {
+      const [m] = mirrors
+      return { strips: [{ x: m.x, y: m.y - 0.5, z: wallZ + 11, len: m.w - 8, axis: 'x' }], spots: [{ x: m.x, y: m.y - 1, z: wallZ + 10, angle: 1.2, intensity: 5 }] }
+    }
+    const bottom = styleOf(sym) === 'open' ? 18 : sym.onFloor ? 10 : 30
     return { strips: [{ x: 0, y: bottom - 0.5, z: d / 2 - 6, len: w - 8, axis: 'x' }], spots: [{ x: 0, y: bottom - 1, z: 0, angle: 1.3, intensity: 2 }] }
   }
   if (sym.type === 'dressing-table') {
@@ -1855,92 +1915,292 @@ function washbasin(k: Kit, w: number, d: number, h: number) {
 }
 
 /** A slab t thick, w × d, with oval holes cut through it (a countertop with built-in basins). */
-function slabWithHoles(w: number, d: number, t: number, holes: { x: number; z: number; rx: number; rz: number }[], mat: Mat) {
+/**
+ * A slab's outline seen from above, w × d centered on (0, 0), in a shape's frame (x across, y = -z: its front at
+ * y = -d/2), its front corners rounded by r.
+ */
+function plan(w: number, d: number, r = 0) {
   const shape = new THREE.Shape()
-  shape.moveTo(-w / 2, -d / 2)
-  shape.lineTo(w / 2, -d / 2)
+  const y0 = -d / 2
+  shape.moveTo(-w / 2 + r, y0)
+  shape.lineTo(w / 2 - r, y0)
+  if (r) shape.absarc(w / 2 - r, y0 + r, r, -Math.PI / 2, 0, false)
   shape.lineTo(w / 2, d / 2)
   shape.lineTo(-w / 2, d / 2)
-  shape.closePath()
+  shape.lineTo(-w / 2, y0 + r)
+  if (r) shape.absarc(-w / 2 + r, y0 + r, r, Math.PI, Math.PI * 1.5, false)
+  return shape
+}
+
+/** A shape seen from above (see `plan`) stood up t tall, from y at (x, z). */
+function prism(shape: THREE.Shape, t: number, x: number, y: number, z: number, mat: Mat) {
+  const geo = new THREE.ExtrudeGeometry(shape, { depth: t, bevelEnabled: false, curveSegments: 24 })
+  geo.rotateX(-Math.PI / 2) // extruded up; the shape's y becomes -z
+  const m = mesh(geo, mat)
+  m.position.set(x, y, z)
+  return m
+}
+
+function slabWithHoles(w: number, d: number, t: number, holes: { x: number; z: number; rx: number; rz: number }[], mat: Mat, r = 0) {
+  const shape = plan(w, d, r)
   for (const o of holes) {
     const p = new THREE.Path()
     p.absellipse(o.x, -o.z, o.rx, o.rz, 0, Math.PI * 2, false, 0)
     shape.holes.push(p)
   }
-  const geo = new THREE.ExtrudeGeometry(shape, { depth: t, bevelEnabled: false, curveSegments: 32 })
-  geo.rotateX(-Math.PI / 2) // extruded up; the shape's y becomes -z
-  return mesh(geo, mat)
+  return prism(shape, t, 0, 0, 0, mat)
 }
 
+/** A mirror's outline, w × h centered on (0, 0), grown all round by `grow` (shrunk, if that's less than 0). */
+export function mirrorOutline(shape: MirrorShape, w: number, h: number, grow = 0): THREE.Shape {
+  const W = w + 2 * grow
+  const H = h + 2 * grow
+  const s = new THREE.Shape()
+  const rounded = (r: number) => {
+    const x = -W / 2
+    const y = -H / 2
+    r = Math.max(0.05, Math.min(r, W / 2, H / 2))
+    s.moveTo(x + r, y)
+    s.lineTo(x + W - r, y)
+    s.absarc(x + W - r, y + r, r, -Math.PI / 2, 0, false)
+    s.lineTo(x + W, y + H - r)
+    s.absarc(x + W - r, y + H - r, r, 0, Math.PI / 2, false)
+    s.lineTo(x + r, y + H)
+    s.absarc(x + r, y + H - r, r, Math.PI / 2, Math.PI, false)
+    s.lineTo(x, y + r)
+    s.absarc(x + r, y + r, r, Math.PI, Math.PI * 1.5, false)
+  }
+  switch (shape) {
+    case 'round':
+      s.absarc(0, 0, Math.min(W, H) / 2, 0, Math.PI * 2, false)
+      break
+    case 'oval':
+      s.absellipse(0, 0, W / 2, H / 2, 0, Math.PI * 2, false, 0)
+      break
+    case 'arch': {
+      const r = W / 2
+      s.moveTo(-W / 2, -H / 2)
+      s.lineTo(W / 2, -H / 2)
+      s.lineTo(W / 2, H / 2 - r)
+      s.absarc(0, H / 2 - r, r, 0, Math.PI, false)
+      s.lineTo(-W / 2, -H / 2)
+      break
+    }
+    case 'pill':
+      rounded(Math.min(W, H) / 2)
+      break
+    case 'rounded':
+      rounded(Math.min(w, h) * 0.12 + grow)
+      break
+    default:
+      rounded(0.6 + Math.max(grow, 0))
+  }
+  return s
+}
+
+/** A mirror outline's ring: from `outer` in to `inner` (grown by, as in mirrorOutline). */
+function mirrorRing(shape: MirrorShape, w: number, h: number, outer: number, inner: number) {
+  const ring = mirrorOutline(shape, w, h, outer)
+  ring.holes.push(new THREE.Path(mirrorOutline(shape, w, h, inner).getPoints(64)))
+  return ring
+}
+
+/** Frames round vanity mirrors: their color and finish. */
+const MIRROR_FRAMES: Record<NonNullable<PlanSymbol['mirrorFrame']>, [string, Finish]> = {
+  black: ['#1f1f22', 'metal'],
+  brass: ['#b8913f', 'metal'],
+  wood: ['#a07850', 'wood'],
+  white: ['#f4f3ef', 'satin'],
+}
+
+/** How far a mirror stands off the wall: a backlit one, its light going out round it onto the wall, further. */
+const mirrorOff = (sym: PlanSymbol) => (sym.led && vanityLight(sym) === 'back' ? 3 : 0.5)
+
 /**
- * A bathroom vanity: hung on the wall or standing on a plinth, drawers in its finish, one or two basins (built into
- * the top, or bowls on it) with their taps, and above it a mirror cabinet, a mirror or nothing.
+ * A bathroom vanity, left to right as seen from the front: hung on the wall or standing on the floor, its cabinet in
+ * one of its styles (drawers, handleless ones, a fluted door, rounded ends, shaker doors, or an open frame with a
+ * shelf), one or two basins (built into a ceramic top, bowls on a stone top, or under it) with their taps, in the middle
+ * or to one side, maybe a washing machine under the top at one end; and over it on the wall (`gap` behind its back:
+ * where it's really hung, wherever the vanity stands) a mirror cabinet, mirrors in their shape and frame, or nothing.
  */
-function bathVanity(k: Kit, sym: PlanSymbol, w: number, d: number, h: number) {
+function bathVanity(k: Kit, sym: PlanSymbol, w: number, d: number, h: number, gap = 0) {
   const g = new THREE.Group()
   const color = frameOf(sym)?.hex ?? '#f4f3ef'
   const wood = ['#c19a6b', '#6e4b33'].includes(color.toLowerCase())
   const body = k.q(color, wood ? 'wood' : 'satin')
+  const dark = k.q('#2a2a2a', 'satin')
   const ceramic = k.q(COLORS.ceramic, 'ceramic')
   const chrome = k.q(COLORS.chrome, 'chrome')
-  const bottom = sym.onFloor ? 10 : 30
-  const top = 3
-  const vessel = styleOf(sym) === 'vessel'
+  const style = styleOf(sym)
   const s = vanitySinks(sym)
-  // Built-in basins dip into the cabinet: its top stops under them, its sides and back carry on up to the top.
-  const sunk = vessel ? 0 : 15
-  g.add(rbox(w, h - top - bottom - sunk, d - 2, 1, 0, bottom, -1, body))
-  if (sunk) {
-    for (const sx of [-1, 1]) g.add(box(1.8, sunk, d - 2, sx * (w / 2 - 0.9), h - top - sunk, -1, body))
-    g.add(box(w, sunk, 1.8, 0, h - top - sunk, -d / 2 + 0.9, body))
-  }
-  if (sym.onFloor) g.add(box(w - 6, bottom, d - 8, 0, 0, -4, k.q('#2a2a2a', 'satin'))) // recessed plinth
-  // Drawers: a column under each basin (or two on a wide single), two drawers each.
-  const cols = s.xs.length === 2 || w >= 90 ? 2 : 1
-  const fw = w / cols
-  const fh = (h - top - bottom - 2) / 2
-  for (let i = 0; i < cols; i++) {
-    const x = -w / 2 + fw * (i + 0.5)
-    for (let j = 0; j < 2; j++) front(k, g, fw - 0.8, fh - 0.8, x, bottom + 1 + j * fh, d / 2 - 2.1, color, 'bar', 'top')
-  }
-  // The top, and the basins in or on it.
-  if (vessel) {
-    g.add(rbox(w, top, d, 0.6, 0, h - top, 0, k.top()))
-    for (const x of s.xs) {
-      const r = Math.min(s.rx, s.rz) * 1.15
-      g.add(lathe([[0.1, 0.5], [r * 0.45, 0], [r * 0.9, 5], [r, 12], [r - 1.2, 12], [r * 0.82, 6], [r * 0.38, 1.6], [0.1, 1.6]], x, h, s.z, ceramic))
+  const basin = sym.basin ?? (s.washer ? 'undermount' : 'integrated')
+  const open = style === 'open'
+  const top = 3
+  const bottom = open ? 0 : sym.onFloor ? (style === 'shaker' ? 14 : 10) : 30
+  const cx = (s.x0 + s.x1) / 2
+  const cw = s.x1 - s.x0
+  const r = style === 'curved' ? Math.min(d * 0.45, 22, w / 4) : 0
+  // Built-in basins dip into the cabinet: its top stops under them, its sides and back carry on up to the top (with
+  // rounded ends, all of it, round them).
+  const sunk = basin === 'integrated' && !open && !r ? 15 : 0
+  const ch = h - top - bottom - sunk
+  if (!open) {
+    if (r) {
+      // Rounded ends: the cabinet a slab rounded at its front corners, seen from above.
+      g.add(prism(plan(cw, d - 2, Math.min(r, cw / 2 - 1)), ch, cx, bottom, -1, body))
+    } else {
+      g.add(rbox(cw, ch, d - 2, 1, cx, bottom, -1, body))
     }
+    if (sunk) {
+      for (const sx of [-1, 1]) g.add(box(1.8, sunk, d - 2 - r, cx + sx * (cw / 2 - 0.9), h - top - sunk, -1 - r / 2, body))
+      g.add(box(cw, sunk, 1.8, cx, h - top - sunk, -d / 2 + 0.9, body))
+    }
+    if (sym.onFloor) {
+      if (style === 'shaker') {
+        for (const sx of [-1, 1]) for (const sz of [-1, 1]) g.add(leg(cx + sx * (cw / 2 - 4), sz * (d / 2 - 6), bottom, body, 2.2, 1.6))
+      } else {
+        g.add(box(cw - 6, bottom, d - 8, cx, 0, -4, dark)) // recessed plinth
+      }
+    }
+  }
+  // Its front, in its style.
+  const fy0 = bottom + 1
+  const fh = h - top - bottom - 2
+  const fz = d / 2 - 2.1
+  const cols = s.xs.length === 2 || cw >= 90 ? 2 : 1
+  const fw = cw / cols
+  const colX = (i: number) => s.x0 + fw * (i + 0.5)
+  switch (style) {
+    case 'open': {
+      // A metal frame from the floor up to the top, a shelf low down with towels on it.
+      const metal = k.q('#1f1f22', 'metal')
+      for (const sx of [-1, 1]) {
+        for (const sz of [-1, 1]) g.add(box(2.5, h - top, 2.5, cx + sx * (cw / 2 - 1.25), 0, -1 + sz * (d / 2 - 2.25), metal))
+        g.add(box(2.5, 2.5, d - 2, cx + sx * (cw / 2 - 1.25), h - top - 2.5, -1, metal))
+      }
+      for (const sz of [-1, 1]) g.add(box(cw, 2.5, 2.5, cx, h - top - 2.5, -1 + sz * (d / 2 - 2.25), metal))
+      g.add(box(cw - 5, 2.5, d - 7, cx, 16, -1, body))
+      const towel = k.q('#f2efe8', 'cloth')
+      for (let i = 0; i < Math.min(3, Math.floor((cw - 10) / 26)); i++) {
+        for (let j = 0; j < 2; j++) g.add(rbox(22, 6, d * 0.55, 2.5, s.x0 + 18 + i * 26, 18.5 + j * 6, 0, towel))
+      }
+      break
+    }
+    case 'shaker':
+      // A door in each column: a frame round a sunk panel, and a knob by the middle.
+      for (let i = 0; i < cols; i++) {
+        const x = colX(i)
+        const dw = fw - 0.8
+        g.add(rbox(dw, fh, 1.2, 0.3, x, fy0, fz - 0.3, body))
+        for (const sx of [-1, 1]) g.add(box(6, fh, 1.2, x + sx * (dw / 2 - 3), fy0, fz + 0.8, body))
+        for (const y of [fy0, fy0 + fh - 6]) g.add(box(dw - 12, 6, 1.2, x, y, fz + 0.8, body))
+        const side = cols === 2 ? (i === 0 ? 1 : -1) : 1
+        g.add(mesh(new THREE.SphereGeometry(1.5, 12, 8), k.q('#b8913f', 'metal')).translateX(x + side * (dw / 2 - 6)).translateY(fy0 + fh * 0.72).translateZ(fz + 2.6))
+      }
+      break
+    case 'fluted':
+      // A door in each column, ribbed from top to bottom, opened from a groove under the top.
+      for (let i = 0; i < cols; i++) {
+        const x = colX(i)
+        const dw = fw - 0.8
+        g.add(rbox(dw, fh - 3, 1.2, 0.3, x, fy0, fz - 0.3, body))
+        const n = Math.max(4, Math.floor((dw - 2) / 2.6))
+        for (let j = 0; j < n; j++) g.add(cylinder(1.05, fh - 5, x - dw / 2 + 1 + ((dw - 2) * (j + 0.5)) / n, fy0 + 1, fz + 0.4, body, 0.6, 1.05, 8))
+      }
+      g.add(box(cw - 1, 1.6, 1, cx, fy0 + fh - 2.6, fz - 0.4, dark))
+      break
+    case 'handleless':
+    case 'curved': {
+      // Two drawers, no handles: grooves to open them by, under the top and between them.
+      const x0 = s.x0 + (r ? r : 0)
+      const span = cw - 2 * (r ? r : 0)
+      const n = style === 'curved' ? 1 : cols
+      const dw = span / n
+      const dh = (fh - 3) / 2
+      for (let i = 0; i < n; i++) for (let j = 0; j < 2; j++) front(k, g, dw - 0.8, dh - 0.8, x0 + dw * (i + 0.5), fy0 + j * (dh + 1.5), r ? d / 2 - 1.2 : fz, color, 'none')
+      for (const y of [fy0 + dh - 0.2, fy0 + fh - 2]) g.add(box(span - 1, 1.3, 1, x0 + span / 2, y, (r ? d / 2 - 1.2 : fz) - 0.6, dark))
+      break
+    }
+    default: {
+      // Drawers: two in each column, bar handles.
+      const dh = fh / 2
+      for (let i = 0; i < cols; i++) for (let j = 0; j < 2; j++) front(k, g, fw - 0.8, dh - 0.8, colX(i), fy0 + j * dh, fz, color, 'bar', 'top')
+    }
+  }
+  // A washing machine under the top at one end, a side panel at that end bearing the top.
+  if (s.washer) {
+    const bx = s.washer === 'left' ? -w / 2 + WASHER_BAY / 2 : w / 2 - WASHER_BAY / 2
+    const wd = Math.min(58, d - 4)
+    const machine = washingMachine(k, { ...sym, type: 'washing-machine', style: undefined, frame: undefined }, 60, wd, 85)
+    machine.position.set(bx, 0, d / 2 - wd / 2 - 2)
+    g.add(machine)
+    const end = s.washer === 'left' ? -w / 2 + 0.9 : w / 2 - 0.9
+    if (!open) g.add(box(1.8, h - top, d - 2, end, 0, -1, body))
+  }
+  // The top, and the basins in, on or under it.
+  const holes = s.xs.map((x) => ({ x, z: s.z, rx: s.rx, rz: s.rz }))
+  if (basin === 'integrated') {
+    const slab = slabWithHoles(cw, d, top, holes.map((o) => ({ ...o, x: o.x - cx })), k.q(COLORS.ceramic, 'gloss'), r)
+    slab.position.set(cx, h - top, 0)
+    g.add(slab)
+    // Over a washing machine beside it, a stone top.
+    if (s.washer) g.add(rbox(w - cw, top, d, 0.6, s.washer === 'left' ? (-w / 2 + s.x0) / 2 : (w / 2 + s.x1) / 2, h - top, 0, k.top()))
   } else {
-    const slab = slabWithHoles(w, d, top, s.xs.map((x) => ({ x, z: s.z, rx: s.rx, rz: s.rz })), k.q(COLORS.ceramic, 'gloss'))
+    const slab = slabWithHoles(w, d, top, basin === 'undermount' ? holes : [], k.top(), r)
     slab.position.y = h - top
     g.add(slab)
-    for (const x of s.xs) {
+  }
+  for (const x of s.xs) {
+    if (basin === 'vessel') {
+      const rr = Math.min(s.rx, s.rz) * 1.15
+      g.add(lathe([[0.1, 0.5], [rr * 0.45, 0], [rr * 0.9, 5], [rr, 12], [rr - 1.2, 12], [rr * 0.82, 6], [rr * 0.38, 1.6], [0.1, 1.6]], x, h, s.z, ceramic))
+    } else {
       const bowl = mesh(new THREE.SphereGeometry(1, 32, 12, 0, Math.PI * 2, Math.PI / 2, Math.PI / 2), ceramic)
       bowl.scale.set(s.rx, 13, s.rz)
-      bowl.position.set(x, h - 0.4, s.z)
+      bowl.position.set(x, h - (basin === 'undermount' ? top : 0.4), s.z)
       g.add(bowl)
-      g.add(cylinder(1.6, 0.4, x, h - 13.2, s.z, chrome)) // drain
+      g.add(cylinder(1.6, 0.4, x, h - 13.2 - (basin === 'undermount' ? top : 0), s.z, chrome)) // drain
     }
   }
   // A tap behind each basin.
-  const tall = vessel ? 26 : 15
+  const tall = basin === 'vessel' ? 26 : 15
   for (const x of s.xs) {
     const tz = s.z - s.rz - 4
     g.add(cylinder(1.6, tall, x, h, tz, chrome, 1, 2, 16))
     g.add(box(2.2, 2.2, 11, x, h + tall - 3, tz + 5.5, chrome))
     g.add(box(1, 1, 6, x + 2.4, h + tall - 2, tz + 1.5, chrome)) // lever
   }
-  // Above it.
+  // On the wall over it.
+  const wallZ = -d / 2 - gap
   const above = sym.mirror ?? 'cabinet'
+  const mirrorMat = k.q(COLORS.mirror, 'gloss')
   if (above === 'cabinet') {
-    const cy = h + 30
-    const ch = 70
+    const [m] = vanityMirrors(sym)
     const cd = 14
-    g.add(rbox(w, ch, cd, 1, 0, cy, -d / 2 + cd / 2, k.q('#e7e7e4', 'satin')))
-    const n = w < 70 ? 1 : w < 130 ? 2 : 3
-    for (let i = 0; i < n; i++) g.add(box(w / n - 0.8, ch - 1, 0.8, -w / 2 + (w / n) * (i + 0.5), cy + 0.5, -d / 2 + cd + 0.4, k.q(COLORS.mirror, 'gloss')))
+    g.add(rbox(m.w, m.h, cd, 1, m.x, m.y, wallZ + cd / 2, k.q('#e7e7e4', 'satin')))
+    const n = m.w < 70 ? 1 : m.w < 130 ? 2 : 3
+    for (let i = 0; i < n; i++) g.add(box(m.w / n - 0.8, m.h - 1, 0.8, m.x - m.w / 2 + (m.w / n) * (i + 0.5), m.y + 0.5, wallZ + cd + 0.4, mirrorMat))
   } else if (above === 'plain') {
-    g.add(rbox(Math.min(w, 140), 80, 2, 1, 0, h + 28, -d / 2 + 1, k.q(COLORS.mirror, 'gloss')))
+    const frame = sym.mirrorFrame && MIRROR_FRAMES[sym.mirrorFrame]
+    const off = mirrorOff(sym)
+    const flat = (shape: THREE.Shape, depth: number, m: { x: number; y: number; h: number }, z: number, mat: Mat) => {
+      const geo = new THREE.ExtrudeGeometry(shape, { depth, bevelEnabled: false, curveSegments: 48 })
+      geo.translate(m.x, m.y + m.h / 2, z)
+      return mesh(geo, mat)
+    }
+    for (const m of vanityMirrors(sym)) {
+      // A backlit one on a dark spacer behind it, out from the wall.
+      if (off > 1) g.add(flat(mirrorOutline(m.shape, m.w, m.h, -5), off, m, wallZ, dark))
+      g.add(flat(mirrorOutline(m.shape, m.w, m.h), 0.6, m, wallZ + off, mirrorMat))
+      if (frame) g.add(flat(mirrorRing(m.shape, m.w, m.h, 2.5, -0.4), 2.4, m, wallZ + off - 0.6, k.q(frame[0], frame[1])))
+      if (sym.led && vanityLight(sym) === 'bar') {
+        // A light bar over it, on a short arm.
+        const bw = Math.min(m.w * 0.75, 70)
+        const bar = k.q(frame ? frame[0] : COLORS.chrome, frame ? frame[1] : 'chrome')
+        g.add(rbox(bw, 2.6, 8, 1, m.x, m.y + m.h + 4, wallZ + 4, bar))
+        g.add(box(4, 4, 1, m.x, m.y + m.h + 3.3, wallZ + 0.5, bar))
+      }
+    }
   }
   return g
 }
@@ -2811,6 +3071,8 @@ export function symbolModel(
   ceilingH = floorH,
   wash?: CurtainWash,
   others: PlanSymbol[] = [],
+  /** How far its back is from the wall behind it (into the wall if less than 0): for what hangs on the wall over it. */
+  wallGap = 0,
 ): THREE.Group {
   const k: Kit = {
     q: (color, finish) => mats.get(color, hl, finish),
@@ -2974,7 +3236,7 @@ export function symbolModel(
       g = washbasin(k, w, d, h)
       break
     case 'bath-vanity':
-      g = bathVanity(k, sym, w, d, h)
+      g = bathVanity(k, sym, w, d, h, wallGap)
       break
     case 'shower-niche':
     case 'wall-niche':

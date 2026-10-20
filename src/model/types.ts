@@ -63,6 +63,9 @@ export interface WallSurface extends Surface {
   cut?: 'left' | 'right' | 'both'
 }
 
+/** The shapes a mirror comes in. */
+export type MirrorShape = 'rect' | 'rounded' | 'round' | 'oval' | 'arch' | 'pill'
+
 /** A photo the user added, to show a real tile, plank or wallpaper. */
 export interface ProjectImage {
   id: string
@@ -299,6 +302,21 @@ export interface PlanSymbol {
   onFloor?: boolean
   /** Bathroom vanities: what's above them, a mirror cabinet (default), a mirror or nothing. */
   mirror?: 'cabinet' | 'plain' | 'none'
+  /** Bathroom vanities: their basins, built into a ceramic top (if left out), bowls on a stone top, or under one. */
+  basin?: 'vessel' | 'undermount'
+  /** Bathroom vanities with one sink: it's to the left or right (as seen from the front), else in the middle. */
+  sinkAt?: 'left' | 'right'
+  /** Bathroom vanities: a washing machine under the top at this end (as seen from the front). */
+  washer?: 'left' | 'right'
+  /** A vanity's mirror: its shape (a rectangle if left out). */
+  mirrorShape?: MirrorShape
+  /** A vanity's mirror: a frame round it (frameless if left out). */
+  mirrorFrame?: 'black' | 'brass' | 'wood' | 'white'
+  /**
+   * A vanity's mirror light (with `led`): behind it (a halo on the wall), in its glass (a glowing band), or a bar over it;
+   * under a mirror cabinet, or behind it. Behind a mirror, under a cabinet, if left out.
+   */
+  mirrorLight?: 'back' | 'front' | 'bar' | 'under'
   /** Kitchen upper cabinets: glass doors or open shelves instead of solid doors. */
   fronts?: 'glass' | 'open'
   /** People: standing (default), sitting or lying down (see model/people). */

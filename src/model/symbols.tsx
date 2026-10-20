@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react'
 import { lightHex } from './lighting'
 import type { PlanTheme } from './theme'
-import type { CeilingStyle, PlanSymbol } from './types'
+import type { CeilingStyle, MirrorShape, PlanSymbol } from './types'
 import { doorRun, headInModel, headOf, headPoint, showerGlass } from './shower'
 import type { GlassRun, ShowerSide } from './shower'
 
@@ -113,9 +113,14 @@ export const COFFEE_STYLES: ItemStyle[] = [
   { id: 'cart', name: 'Bar cart', kind: 'Classic' },
 ]
 
+/** Bathroom vanities: how the cabinet looks (its basin is chosen apart, see `basin`). */
 export const VANITY_STYLES: ItemStyle[] = [
-  { id: 'integrated', name: 'Built-in basin', kind: 'Modern' },
-  { id: 'vessel', name: 'Bowl on top', kind: 'Modern' },
+  { id: 'drawers', name: 'Drawers', kind: 'Modern' },
+  { id: 'handleless', name: 'Handleless', kind: 'Modern' },
+  { id: 'fluted', name: 'Fluted', kind: 'Modern' },
+  { id: 'curved', name: 'Rounded ends', kind: 'Modern' },
+  { id: 'shaker', name: 'Shaker doors', kind: 'Classic' },
+  { id: 'open', name: 'Open shelf', kind: 'Industrial' },
 ]
 
 /** Finishes bathroom vanities come in. */
@@ -225,7 +230,8 @@ export function hasWorktop(sym: PlanSymbol) {
     case 'washing-machine':
       return styleOf(sym) === 'built-in'
     case 'bath-vanity':
-      return styleOf(sym) === 'vessel'
+      // A stone top: under bowls on it, round sinks under it, over a washing machine.
+      return !!sym.basin || !!vanitySinks(sym).washer
     case 'shower-bench':
       return styleOf(sym) !== 'fold-down'
   }
@@ -241,10 +247,66 @@ export const TOWELS: FrameColor[] = [
   { name: 'Navy', hex: '#34435e' },
 ]
 
-/** A bathroom vanity's sinks: how many (two only on wide ones), where along it, and their size (cm). */
-export function vanitySinks(sym: Pick<PlanSymbol, 'width' | 'depth' | 'sinks'>) {
-  const n = sym.sinks === 2 && sym.width >= 110 ? 2 : 1
-  return { xs: n === 2 ? [-sym.width / 4, sym.width / 4] : [0], rx: Math.min((sym.width / n) * 0.32, 25), rz: Math.min(sym.depth * 0.3, 17), z: 2 }
+/** The bay a washing machine stands in under a vanity's top (cm), and the room a vanity needs besides, for a sink. */
+export const WASHER_BAY = 64
+const BESIDE_WASHER = 40
+
+/**
+ * A bathroom vanity's layout, left to right as seen from the front: a washing machine's bay at one end (if it has one
+ * and is wide enough), the cabinet along the rest of it (x0 to x1), and its sinks on that (two only if it's wide), in
+ * the middle or to one side, and their size (cm).
+ */
+export function vanitySinks(sym: Pick<PlanSymbol, 'width' | 'depth' | 'sinks' | 'sinkAt' | 'washer'>) {
+  const w = sym.width
+  const washer = sym.washer && w >= WASHER_BAY + BESIDE_WASHER ? sym.washer : undefined
+  const x0 = washer === 'left' ? -w / 2 + WASHER_BAY : -w / 2
+  const x1 = washer === 'right' ? w / 2 - WASHER_BAY : w / 2
+  const cw = x1 - x0
+  const cx = (x0 + x1) / 2
+  const n = sym.sinks === 2 && cw >= 110 ? 2 : 1
+  const rx = Math.min((cw / n) * 0.32, 25)
+  const off = n === 1 && sym.sinkAt ? Math.max(0, cw / 2 - rx - 10) * (sym.sinkAt === 'left' ? -1 : 1) : 0
+  return { xs: n === 2 ? [cx - cw / 4, cx + cw / 4] : [cx + off], rx, rz: Math.min(sym.depth * 0.3, 17), z: 2, washer, x0, x1 }
+}
+
+/** A vanity's mirror light: as chosen, or behind a mirror and under a mirror cabinet (with its light on). */
+export function vanityLight(sym: PlanSymbol): 'back' | 'front' | 'bar' | 'under' {
+  const above = sym.mirror ?? 'cabinet'
+  if (above === 'none') return 'under'
+  const l = sym.mirrorLight
+  if (above === 'cabinet') return l === 'back' ? 'back' : 'under'
+  return l === 'front' || l === 'bar' ? l : 'back'
+}
+
+/** Mirror shapes that come one over each basin (on a double vanity), rather than one across it. */
+const EACH_BASIN: MirrorShape[] = ['round', 'oval', 'arch', 'pill']
+
+/**
+ * What hangs on the wall over a vanity, in its frame (x across, y up from the floor, each a box from x - w/2 to x + w/2
+ * and from y up h): its mirror cabinet, or its mirrors (one across it, or one over each basin for the shapes that come
+ * so), over its sinks; and their shape.
+ */
+export function vanityMirrors(sym: PlanSymbol): { x: number; y: number; w: number; h: number; shape: MirrorShape }[] {
+  const above = sym.mirror ?? 'cabinet'
+  if (above === 'none') return []
+  const s = vanitySinks(sym)
+  const cw = s.x1 - s.x0
+  const bottom = sym.height + (above === 'cabinet' ? 30 : 25)
+  if (above === 'cabinet') return [{ x: (s.x0 + s.x1) / 2, y: bottom, w: cw, h: 70, shape: 'rect' }]
+  const shape = sym.mirrorShape ?? 'rect'
+  const each = cw / s.xs.length
+  if (EACH_BASIN.includes(shape)) {
+    const [w, h] =
+      shape === 'round' ? [Math.min(each - 12, 70), Math.min(each - 12, 70)]
+      : shape === 'oval' ? [Math.min(each * 0.62, 60), 85]
+      : shape === 'arch' ? [Math.min(each * 0.72, 70), 95]
+      : [Math.min(each * 0.55, 55), 95]
+    return s.xs.map((x) => ({ x, y: bottom, w, h, shape }))
+  }
+  // One across: over the sink (or the two), within the cabinet.
+  const w = s.xs.length === 2 ? Math.min(cw - 6, 150) : Math.min(cw - 6, 100)
+  const x = Math.min(s.x1 - w / 2, Math.max(s.x0 + w / 2, s.xs.reduce((a, b) => a + b, 0) / s.xs.length))
+  return [{ x, y: bottom, w, h: 80, shape }]
 }
 
 export const DRESSING_STYLES: ItemStyle[] = [
@@ -1811,11 +1873,28 @@ export const SYMBOLS: SymbolDef[] = [
     frameLabel: 'Finish',
     render: (w, d, t, sym) => {
       const k = kit(t)
-      const s = vanitySinks({ width: w, depth: d, sinks: sym?.sinks })
+      const s = vanitySinks({ width: w, depth: d, sinks: sym?.sinks, sinkAt: sym?.sinkAt, washer: sym?.washer })
+      // Rounded ends: its front corners round.
+      const r = sym && styleOf(sym) === 'curved' ? Math.min(d * 0.45, 22, w / 4) : 0
+      const bay = s.washer === 'left' ? -w / 2 : s.washer === 'right' ? s.x1 : null
       return (
         <>
-          {k.box(w, d, 2)}
-          {(sym?.mirror ?? 'cabinet') === 'cabinet' && <rect x={-w / 2 + 1} y={-d / 2 + 1} width={w - 2} height={14} {...k.thin} strokeDasharray="4 3" />}
+          {r ? (
+            <path
+              d={`M${-w / 2},${-d / 2} L${w / 2},${-d / 2} L${w / 2},${d / 2 - r} A${r},${r} 0 0 1 ${w / 2 - r},${d / 2} L${-w / 2 + r},${d / 2} A${r},${r} 0 0 1 ${-w / 2},${d / 2 - r} Z`}
+              {...k.s()}
+            />
+          ) : (
+            k.box(w, d, 2)
+          )}
+          {(sym?.mirror ?? 'cabinet') === 'cabinet' && <rect x={s.x0 + 1} y={-d / 2 + 1} width={s.x1 - s.x0 - 2} height={14} {...k.thin} strokeDasharray="4 3" />}
+          {bay !== null && (
+            // The washing machine under the top: its outline and its round door, dashed.
+            <g>
+              <rect x={bay + 2} y={-d / 2 + 2} width={WASHER_BAY - 4} height={d - 4} {...k.thin} strokeDasharray="4 3" />
+              <circle cx={bay + WASHER_BAY / 2} cy={d / 2 - Math.min(d * 0.32, 18) - 3} r={Math.min(d * 0.32, 18)} {...k.thin} strokeDasharray="4 3" />
+            </g>
+          )}
           {s.xs.map((x) => (
             <g key={x}>
               <ellipse cx={x} cy={s.z} rx={s.rx} ry={s.rz} {...k.s(t.fill2)} />

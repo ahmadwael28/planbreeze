@@ -1,6 +1,7 @@
 import { useRef, useState } from 'react'
 import type { ComponentType, ReactNode } from 'react'
 import {
+  Camera,
   Check,
   ChevronRight,
   CircleHelp,
@@ -38,6 +39,7 @@ import { currentFloor, isViewOnly, useEditor } from '@/store/editor'
 import type { Settings } from '@/store/editor'
 import { useUi } from '@/store/ui'
 import { share } from './ShareControls'
+import { takeSnapshot } from '@/utils/snapshot'
 import { startTour } from './tour'
 import { LANGS, setLang, t, useLang } from '@/i18n'
 import type { Lang } from '@/i18n'
@@ -228,6 +230,7 @@ export function PhoneMenu() {
                 </Group>
               )}
               <Group title={t('Plan')}>
+                <Row icon={Camera} tint="bg-pink-500" label={t('Snapshot')} onClick={act(takeSnapshot)} />
                 <Row icon={Eye} tint="bg-emerald-500" label={t('View options')} onClick={() => go('view')} more />
                 <Row icon={Ruler} tint="bg-amber-500" label={t('Units')} detail={unitName} onClick={() => go('units')} more />
                 <Row icon={Download} tint="bg-blue-500" label={t('Export & files')} onClick={() => go('files')} more />

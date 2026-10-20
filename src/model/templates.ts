@@ -383,7 +383,7 @@ function example(): Floor {
   // Bathroom.
   b.item('bathtub', 1040, 1062.5, { rotation: 180 })
   b.item('toilet', 1117.5, 800, { rotation: 90 })
-  b.item('bath-vanity', 954, 900, { rotation: 270, width: 120, sinks: 2, style: 'vessel' })
+  b.item('bath-vanity', 954, 900, { rotation: 270, width: 120, sinks: 2, basin: 'vessel' })
   b.item('towel-rail', 1145, 1000, { rotation: 90 })
   b.item('towel-radiator', 935, 1000, { rotation: 270 })
 

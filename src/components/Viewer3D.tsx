@@ -46,6 +46,7 @@ import { LightPool } from '@/three/lightPool'
 import type { PoolRoom, VirtualLight } from '@/three/lightPool'
 import { computeViewpoints, floorBase, LENSES, planFlight, stepFlight, verticalFov } from '@/three/viewpoints'
 import type { Flight, Lens, Viewpoint } from '@/three/viewpoints'
+import { setCapture3d } from '@/utils/snapshot'
 
 /** The scene is modeled in cm and shown in meters, so light falloff is physically plausible. */
 const WORLD_SCALE = 0.01
@@ -254,6 +255,26 @@ function updatePool(ctx: Ctx, instant = false) {
     for (const d of g.userData.details as THREE.Object3D[]) d.visible = near
   }
   ctx.dirty = true
+}
+
+/**
+ * A picture of the view as it is (for a snapshot: see utils/snapshot), sharper than the screen and with nothing
+ * highlighted; the view is then as it was.
+ */
+function snapshot3d(ctx: Ctx): Promise<Blob> {
+  const { renderer } = ctx
+  const ratio = renderer.getPixelRatio()
+  highlight(ctx, null)
+  renderer.setPixelRatio(Math.min(3, Math.max(2, window.devicePixelRatio)))
+  renderer.render(ctx.scene, ctx.camera)
+  // The picture is taken as it's asked for, before the view goes back.
+  const blob = new Promise<Blob>((resolve, reject) =>
+    renderer.domElement.toBlob((b) => (b ? resolve(b) : reject(new Error('Could not make the picture'))), 'image/png'),
+  )
+  renderer.setPixelRatio(ratio)
+  highlight(ctx, useEditor.getState().selection)
+  ctx.dirty = true
+  return blob
 }
 
 /** Show the selected items highlighted, by swapping in highlighted copies of their materials (no rebuild needed). */
@@ -709,6 +730,7 @@ export default function Viewer3D() {
     })
     ctx.nav = nav
     if (import.meta.env.DEV) Object.assign(window, { __viewer: { ctx, nav } })
+    setCapture3d(() => snapshot3d(ctx))
     const clock = new THREE.Clock()
 
     const resize = () => {
@@ -786,6 +808,7 @@ export default function Viewer3D() {
     })
 
     return () => {
+      setCapture3d(null)
       renderer.setAnimationLoop(null)
       ro.disconnect()
       controls.dispose()

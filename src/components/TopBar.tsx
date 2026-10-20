@@ -4,6 +4,7 @@ import { useTheme } from '@/components/theme-provider'
 import type { Theme } from '@/components/theme-provider'
 import {
   CircleHelp,
+  Camera,
   Download,
   Ellipsis,
   Eye,
@@ -26,6 +27,7 @@ import {
   Undo2,
 } from 'lucide-react'
 import { toast } from 'sonner'
+import { takeSnapshot } from '@/utils/snapshot'
 import { Button } from '@/components/ui/button'
 import {
   DropdownMenu,
@@ -242,6 +244,9 @@ function MoreMenu({ compact, openFile }: { compact: boolean; openFile: () => voi
             <UnitItems />
           </DropdownMenuSubContent>
         </DropdownMenuSub>
+        <DropdownMenuItem onSelect={takeSnapshot}>
+          <Camera /> {t('Snapshot')}
+        </DropdownMenuItem>
         <DropdownMenuSub>
           <DropdownMenuSubTrigger>
             <Download /> {t('Export / import')}
@@ -383,6 +388,11 @@ export function TopBar({ onToggleSidebar, sidebarOpen }: Props) {
                 <ViewOptionItems />
               </DropdownMenuContent>
             </DropdownMenu>
+            <Tip label={t('Snapshot: copy a picture of the view')}>
+              <Button variant="ghost" size="icon" aria-label={t('Snapshot')} onClick={takeSnapshot}>
+                <Camera />
+              </Button>
+            </Tip>
             <DropdownMenu>
               <Tip label={t('Export / import')}>
                 <DropdownMenuTrigger asChild>

@@ -24,7 +24,7 @@ export interface LightHandle {
   id: string
   /** Its lights: virtual ones, lent a real light by the viewer's light pool when they matter (see lightPool). */
   lights: VirtualLight[]
-  emissive: THREE.MeshStandardMaterial[]
+  emissive: (THREE.MeshStandardMaterial | THREE.MeshLambertMaterial)[]
   /** Glow halos while building; `bakeGlows` then turns them into points of one shared cloud (`glowAt`, with colors). */
   glows: THREE.Sprite[]
   glowAt: number[]
@@ -225,6 +225,25 @@ function lens(ctx: Ctx, geo: THREE.BufferGeometry) {
   m.userData.lens = true // lit by the light state, so it's left alone when highlighting a selection
   ctx.handle.emissive.push(m)
   return new THREE.Mesh(geo, m)
+}
+
+/** A soft glow (`map`: where, and how it fades) on what's behind it, adding light, lit and coloured with the fixture. */
+function halo(ctx: Ctx, geo: THREE.BufferGeometry, map: THREE.Texture) {
+  // Not shiny (only its glow adds to what's behind).
+  const m = new THREE.MeshLambertMaterial({
+    color: '#000000',
+    emissive: ctx.color,
+    emissiveMap: map,
+    emissiveIntensity: 0,
+    transparent: true,
+    blending: THREE.AdditiveBlending,
+    depthWrite: false,
+  })
+  m.userData.lens = true
+  ctx.handle.emissive.push(m)
+  const mesh = new THREE.Mesh(geo, m)
+  mesh.renderOrder = 1
+  return mesh
 }
 
 function glow(ctx: Ctx, size: number, x: number, y: number, z: number) {
@@ -665,7 +684,12 @@ export function buildFixture(
  */
 export function cabinetLights(
   sym: PlanSymbol,
-  leds: { strips: { x: number; y: number; z: number; len: number; axis: 'x' | 'y' }[]; spots: { x: number; y: number; z: number; angle: number; intensity: number }[] },
+  leds: {
+    strips: { x: number; y: number; z: number; len: number; axis: 'x' | 'y' }[]
+    spots: { x: number; y: number; z: number; angle: number; intensity: number }[]
+    lenses?: THREE.BufferGeometry[]
+    halos?: { geo: THREE.BufferGeometry; map: THREE.Texture }[]
+  },
   floor: Floor,
   room: string | undefined,
   handles: { lights: LightHandle[] },
@@ -678,6 +702,8 @@ export function cabinetLights(
     const geo = s.axis === 'x' ? new THREE.BoxGeometry(s.len, 0.6, 1) : new THREE.BoxGeometry(1, s.len, 0.6)
     g.add(lens(ctx, geo).translateX(s.x).translateY(s.y).translateZ(s.z))
   }
+  for (const geo of leds.lenses ?? []) g.add(lens(ctx, geo))
+  for (const h of leds.halos ?? []) g.add(halo(ctx, h.geo, h.map))
   for (const p of leds.spots) spotLight(ctx, g, p.x, p.y, p.z, p.intensity, p.angle)
   return g
 }

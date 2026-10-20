@@ -1,5 +1,5 @@
 /** Design styles: the floors, walls, cabinets, curtains and light fittings that go together in each. */
-import type { RoomFloor, WallSurface } from '../types'
+import type { PlanSymbol, RoomFloor, WallSurface } from '../types'
 
 export type StyleId = 'modern' | 'scandinavian' | 'japandi' | 'classic' | 'industrial'
 
@@ -37,6 +37,9 @@ export interface DesignStyle {
   chandelier: string
   dressing: string
   vanity: string
+  /** Its bathroom vanities' cabinets (one of VANITY_STYLES), and the mirrors over them. */
+  vanityStyle: string
+  mirror: Pick<PlanSymbol, 'mirrorShape' | 'mirrorFrame' | 'mirrorLight'>
 }
 
 const WOOD_LOOK: RoomFloor = { finish: 'porcelain', color: '#b48a62', size: [20, 120] }
@@ -70,6 +73,8 @@ export const DESIGN_STYLES: DesignStyle[] = [
     chandelier: 'led-rings',
     dressing: 'round',
     vanity: 'integrated',
+    vanityStyle: 'handleless',
+    mirror: { mirrorShape: 'rounded', mirrorLight: 'back' },
   },
   {
     id: 'scandinavian',
@@ -99,6 +104,8 @@ export const DESIGN_STYLES: DesignStyle[] = [
     chandelier: 'sputnik',
     dressing: 'round',
     vanity: 'vessel',
+    vanityStyle: 'drawers',
+    mirror: { mirrorShape: 'round', mirrorFrame: 'wood', mirrorLight: 'bar' },
   },
   {
     id: 'japandi',
@@ -128,6 +135,8 @@ export const DESIGN_STYLES: DesignStyle[] = [
     chandelier: 'led-rings',
     dressing: 'classic',
     vanity: 'vessel',
+    vanityStyle: 'fluted',
+    mirror: { mirrorShape: 'pill', mirrorFrame: 'wood', mirrorLight: 'back' },
   },
   {
     id: 'classic',
@@ -157,6 +166,8 @@ export const DESIGN_STYLES: DesignStyle[] = [
     chandelier: 'crystal',
     dressing: 'classic',
     vanity: 'integrated',
+    vanityStyle: 'shaker',
+    mirror: { mirrorShape: 'arch', mirrorFrame: 'brass', mirrorLight: 'bar' },
   },
   {
     id: 'industrial',
@@ -186,6 +197,8 @@ export const DESIGN_STYLES: DesignStyle[] = [
     chandelier: 'sputnik',
     dressing: 'hollywood',
     vanity: 'vessel',
+    vanityStyle: 'open',
+    mirror: { mirrorShape: 'rect', mirrorFrame: 'black', mirrorLight: 'bar' },
   },
 ]
 

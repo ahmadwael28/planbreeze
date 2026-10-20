@@ -29,15 +29,15 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import { usePlanTheme } from '@/hooks/use-plan-theme'
 import { cn } from '@/lib/utils'
 import { area, dist, perimeter, pointInPolygon } from '@/model/geometry'
-import { DEFAULT_RAILING, isOpen, isOutdoor, OUTDOOR, RAILING_THICKNESS, ROOM_COLORS, roomOuter, setWallLength, symbolPose } from '@/model/project'
+import { DEFAULT_RAILING, isOpen, isOutdoor, keepBack, OUTDOOR, RAILING_THICKNESS, ROOM_COLORS, roomOuter, setWallLength, symbolPose } from '@/model/project'
 import { wallAcross } from '@/model/divide'
 import { beamSpan } from '@/model/beams'
-import { CABINETS, curtainLayers, frameOf, givesLight, hasGlass, NICHES, SKIN_TONES, STYLES, styleOf, SYMBOL_MAP, tvInches, tvSize, WORKTOPS, worktopOf, hasWorktop } from '@/model/symbols'
+import { CABINETS, curtainLayers, frameOf, givesLight, hasGlass, NICHES, SKIN_TONES, vanityLight, vanitySinks, WASHER_BAY, STYLES, styleOf, SYMBOL_MAP, tvInches, tvSize, WORKTOPS, worktopOf, hasWorktop } from '@/model/symbols'
 import type { Worktop } from '@/model/symbols'
 import type { FrameColor } from '@/model/symbols'
 import { formatArea, formatLength } from '@/model/units'
 import { PERSON, PERSON_PRESETS, personLook, personSupport, POSE_NAMES } from '@/model/people'
-import type { Dimension, ItemRef, OutdoorKind, PlanSymbol, Project, RailingStyle, Room, RoomUse, SavedView, Units } from '@/model/types'
+import type { Dimension, ItemRef, MirrorShape, OutdoorKind, PlanSymbol, Project, RailingStyle, Room, RoomUse, SavedView, Units } from '@/model/types'
 import {
   arrangeSelection,
   autoDimension,
@@ -868,6 +868,210 @@ function ToiletMount({ sym }: { sym: PlanSymbol }) {
   )
 }
 
+/** A mirror's shape as a small icon, for choosing it. */
+function MirrorIcon({ shape }: { shape: MirrorShape }) {
+  const p = { fill: 'none', stroke: 'currentColor', strokeWidth: 1.6 }
+  return (
+    <svg viewBox="0 0 20 20" className="size-5">
+      {shape === 'rect' && <rect x={4} y={3} width={12} height={14} rx={0.5} {...p} />}
+      {shape === 'rounded' && <rect x={4} y={3} width={12} height={14} rx={3} {...p} />}
+      {shape === 'round' && <circle cx={10} cy={10} r={7} {...p} />}
+      {shape === 'oval' && <ellipse cx={10} cy={10} rx={5.5} ry={7.5} {...p} />}
+      {shape === 'arch' && <path d="M4.5 17.5 V9 A5.5 5.5 0 0 1 15.5 9 V17.5 Z" {...p} />}
+      {shape === 'pill' && <rect x={5.5} y={2.5} width={9} height={15} rx={4.5} {...p} />}
+    </svg>
+  )
+}
+
+const MIRROR_SHAPES: [MirrorShape, string][] = [
+  ['rect', 'Rectangle'],
+  ['rounded', 'Rounded'],
+  ['round', 'Round'],
+  ['oval', 'Oval'],
+  ['arch', 'Arch'],
+  ['pill', 'Pill'],
+]
+
+const MIRROR_FRAME_COLORS: [NonNullable<PlanSymbol['mirrorFrame']> | 'none', string, string][] = [
+  ['none', 'Frameless', 'linear-gradient(135deg, #e9eef3, #b9c4cf)'],
+  ['black', 'Black', '#1f1f22'],
+  ['brass', 'Brass', 'linear-gradient(135deg, #e3c27a, #a37b2c)'],
+  ['wood', 'Wood', '#a07850'],
+  ['white', 'White', '#f4f3ef'],
+]
+
+/**
+ * A bathroom vanity's options: its basins (built in, bowls on top or under the top), one or two, where a single one
+ * is, a washing machine under the top at one end, how it's mounted; what's on the wall over it (a mirror cabinet, a
+ * mirror in its shape and frame, or nothing) and the light there.
+ */
+function VanityOptions({ sym, units }: { sym: PlanSymbol; units: Units }) {
+  const lay = vanitySinks(sym)
+  const above = sym.mirror ?? 'cabinet'
+  const light = sym.led ? vanityLight(sym) : 'off'
+  const ring = 'ring-2 ring-primary ring-offset-2 ring-offset-background'
+  const lights: { value: string; label: string }[] =
+    above === 'plain'
+      ? [
+          { value: 'back', label: t('Backlit') },
+          { value: 'front', label: t('Front') },
+          { value: 'bar', label: t('Bar above') },
+        ]
+      : above === 'cabinet'
+        ? [
+            { value: 'under', label: t('Under it') },
+            { value: 'back', label: t('Backlit') },
+          ]
+        : [{ value: 'under', label: t('Under it') }]
+  return (
+    <div className="space-y-3 rounded-lg bg-muted/60 p-3">
+      <Choice
+        label={t('Basin')}
+        value={sym.basin ?? 'integrated'}
+        onChange={(v) => updateSymbol(sym.id, (s) => void (v === 'integrated' ? delete s.basin : (s.basin = v)))}
+        options={[
+          { value: 'integrated', label: t('Built in') },
+          { value: 'vessel', label: t('Bowl on top') },
+          { value: 'undermount', label: t('Under the top') },
+        ]}
+      />
+      {lay.x1 - lay.x0 >= 110 && (
+        <Choice
+          label={t('Sinks')}
+          value={sym.sinks === 2 ? 'two' : 'one'}
+          onChange={(v) => updateSymbol(sym.id, (s) => void (v === 'two' ? (s.sinks = 2) : delete s.sinks))}
+          options={[
+            { value: 'one', label: t('One') },
+            { value: 'two', label: t('Two') },
+          ]}
+        />
+      )}
+      {lay.xs.length === 1 && (
+        <Choice
+          physical
+          label={t('Sink')}
+          value={sym.sinkAt ?? 'middle'}
+          onChange={(v) => updateSymbol(sym.id, (s) => void (v === 'middle' ? delete s.sinkAt : (s.sinkAt = v)))}
+          options={[
+            { value: 'left', label: t('Left') },
+            { value: 'middle', label: t('Middle') },
+            { value: 'right', label: t('Right') },
+          ]}
+        />
+      )}
+      <Choice
+        physical
+        label={t('Washing machine')}
+        value={sym.washer ?? 'none'}
+        onChange={(v) =>
+          updateSymbol(sym.id, (s) => {
+            if (v === 'none') return void delete s.washer
+            s.washer = v
+            // Room for it: a bay beside the cabinet, deep and high enough to go under the top.
+            const next = resized(s, { width: Math.max(s.width, WASHER_BAY + 60), depth: Math.max(s.depth, 55), height: Math.max(s.height, 90) })
+            if (!s.wall) keepBack(s, next.depth)
+            Object.assign(s, next)
+          })
+        }
+        options={[
+          { value: 'left', label: t('Left') },
+          { value: 'none', label: t('None') },
+          { value: 'right', label: t('Right') },
+        ]}
+      >
+        {lay.washer && <p className="text-xs text-muted-foreground">{t('A front-loading washing machine under the top, the basin beside it.')}</p>}
+      </Choice>
+      {styleOf(sym) !== 'open' && (
+        <Choice
+          label={t('Mounted')}
+          value={sym.onFloor ? 'floor' : 'wall'}
+          onChange={(v) => updateSymbol(sym.id, (s) => void (v === 'floor' ? (s.onFloor = true) : delete s.onFloor))}
+          options={[
+            { value: 'wall', label: t('On the wall') },
+            { value: 'floor', label: t('On the floor') },
+          ]}
+        />
+      )}
+      <Choice
+        label={t('Above it')}
+        value={above}
+        onChange={(v) => updateSymbol(sym.id, (s) => void (v === 'cabinet' ? delete s.mirror : (s.mirror = v)))}
+        options={[
+          { value: 'cabinet', label: t('Mirror cabinet') },
+          { value: 'plain', label: t('Mirror') },
+          { value: 'none', label: t('Nothing') },
+        ]}
+      />
+      {above === 'plain' && (
+        <>
+          <Field label={t('Shape')}>
+            {(id) => (
+              <div id={id} role="radiogroup" className="flex flex-wrap gap-1.5">
+                {MIRROR_SHAPES.map(([shape, name]) => {
+                  const on = (sym.mirrorShape ?? 'rect') === shape
+                  return (
+                    <button
+                      key={shape}
+                      type="button"
+                      role="radio"
+                      aria-checked={on}
+                      title={t(name)}
+                      aria-label={t(name)}
+                      onClick={() => updateSymbol(sym.id, (s) => void (shape === 'rect' ? delete s.mirrorShape : (s.mirrorShape = shape)))}
+                      className={cn(
+                        'grid size-8 place-items-center rounded-md border text-muted-foreground transition-colors hover:text-foreground',
+                        on && 'border-primary bg-primary/10 text-primary hover:text-primary',
+                      )}
+                    >
+                      <MirrorIcon shape={shape} />
+                    </button>
+                  )
+                })}
+              </div>
+            )}
+          </Field>
+          <Field label={t('Frame')}>
+            {(id) => (
+              <div id={id} role="radiogroup" className="flex flex-wrap items-center gap-1.5 py-1">
+                {MIRROR_FRAME_COLORS.map(([frame, name, look]) => {
+                  const on = (sym.mirrorFrame ?? 'none') === frame
+                  return (
+                    <button
+                      key={frame}
+                      type="button"
+                      role="radio"
+                      aria-checked={on}
+                      title={t(name)}
+                      aria-label={t(name)}
+                      onClick={() => updateSymbol(sym.id, (s) => void (frame === 'none' ? delete s.mirrorFrame : (s.mirrorFrame = frame)))}
+                      className={cn('size-6 rounded-full border shadow-sm outline-none focus-visible:ring-2 focus-visible:ring-ring', on && ring)}
+                      style={{ background: look }}
+                    />
+                  )
+                })}
+              </div>
+            )}
+          </Field>
+        </>
+      )}
+      <Choice
+        label={above === 'none' ? t('Light under it') : t('Mirror light')}
+        value={light}
+        onChange={(v) =>
+          updateSymbol(sym.id, (s) => {
+            if (v === 'off') return void delete s.led
+            s.led = true
+            if (v === 'under' && above !== 'cabinet') delete s.mirrorLight
+            else s.mirrorLight = v as NonNullable<PlanSymbol['mirrorLight']>
+          })
+        }
+        options={[{ value: 'off', label: t('Off') }, ...lights]}
+      />
+      {sym.led && <LightSection sym={sym} units={units} />}
+    </div>
+  )
+}
+
 function ShowerGlass({ sym }: { sym: PlanSymbol }) {
   const floor = useFloor()
   const auto = !sym.screens
@@ -1536,7 +1740,12 @@ function SymbolProps({ sym, units }: { sym: PlanSymbol; units: Units }) {
                           description: t('Kept to a size it comes in.'),
                         })
                       }
-                      updateSymbol(sym.id, (s) => void Object.assign(s, resized(s, { [dim]: v })))
+                      updateSymbol(sym.id, (s) => {
+                        const next = resized(s, { [dim]: v })
+                        // Against a wall, it keeps its back there as it's made deeper or shallower.
+                        if (dim === 'depth' && !s.wall && (def?.wallMount || BACK_TO_WALL.has(s.type))) keepBack(s, next.depth)
+                        Object.assign(s, next)
+                      })
                     }}
                   />
                 )
@@ -1685,47 +1894,7 @@ function SymbolProps({ sym, units }: { sym: PlanSymbol; units: Units }) {
             <Switch size="sm" checked={sym.towel !== false} onCheckedChange={(on) => updateSymbol(sym.id, (s) => void (on ? delete s.towel : (s.towel = false)))} />
           </label>
         )}
-        {sym.type === 'bath-vanity' && (
-          <div className="space-y-3 rounded-lg bg-muted/60 p-3">
-            {sym.width >= 110 && (
-              <Choice
-                label={t('Sinks')}
-                value={sym.sinks === 2 ? 'two' : 'one'}
-                onChange={(v) => updateSymbol(sym.id, (s) => void (v === 'two' ? (s.sinks = 2) : delete s.sinks))}
-                options={[
-                  { value: 'one', label: t('One') },
-                  { value: 'two', label: t('Two') },
-                ]}
-              />
-            )}
-            <Choice
-              label={t('Mounted')}
-              value={sym.onFloor ? 'floor' : 'wall'}
-              onChange={(v) => updateSymbol(sym.id, (s) => void (v === 'floor' ? (s.onFloor = true) : delete s.onFloor))}
-              options={[
-                { value: 'wall', label: t('On the wall') },
-                { value: 'floor', label: t('On the floor') },
-              ]}
-            />
-            <Choice
-              label={t('Above it')}
-              value={sym.mirror ?? 'cabinet'}
-              onChange={(v) => updateSymbol(sym.id, (s) => void (v === 'cabinet' ? delete s.mirror : (s.mirror = v)))}
-              options={[
-                { value: 'cabinet', label: t('Mirror cabinet') },
-                { value: 'plain', label: t('Mirror') },
-                { value: 'none', label: t('Nothing') },
-              ]}
-            />
-            <label className="flex items-center justify-between gap-2 text-sm">
-              <span className="flex items-center gap-1.5">
-                <Lightbulb className="size-4" /> {(sym.mirror ?? 'cabinet') === 'none' ? 'Light under it' : 'Mirror light'}
-              </span>
-              <Switch size="sm" checked={!!sym.led} onCheckedChange={(on) => updateSymbol(sym.id, (s) => void (s.led = on || undefined))} />
-            </label>
-            {sym.led && <LightSection sym={sym} units={units} />}
-          </div>
-        )}
+        {sym.type === 'bath-vanity' && <VanityOptions sym={sym} units={units} />}
         {sym.type === 'dressing-table' && (
           <div className="space-y-3 rounded-lg bg-muted/60 p-3">
             <label className="flex items-center justify-between gap-2 text-sm">

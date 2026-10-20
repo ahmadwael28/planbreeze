@@ -109,6 +109,24 @@ function roomWalls(room: Room, openings: Opening[], height: number, base: number
 }
 
 /**
+ * How far an item's back is from the wall behind it (less than 0: into the wall), if there's one within reach; else
+ * nothing (0).
+ */
+function gapToWall(sym: PlanSymbol, pose: { x: number; y: number; rotation: number }, rooms: Room[]) {
+  const at = wallBehind(pose, sym.depth, rooms)
+  if (!at) return 0
+  const pts = at.room.points
+  const a = pts[at.edge]
+  const b = pts[(at.edge + 1) % pts.length]
+  const n = inwardNormal(a, b, signedArea(pts))
+  const r = (pose.rotation * Math.PI) / 180
+  const f = sym.flipY ? -1 : 1
+  const back = { x: pose.x + Math.sin(r) * f * (sym.depth / 2), y: pose.y - Math.cos(r) * f * (sym.depth / 2) }
+  const gap = dot(sub(back, a), n)
+  return Math.abs(gap) < 30 ? gap : 0
+}
+
+/**
  * The box of what's built against a wall and finished like it, in the item's frame: how far out from the wall, from
  * and to what heights, whether it's across a corner (its front the diagonal) and whether its underside shows. A
  * wall-hung toilet's tank box (to its shelf or the ceiling) and a shower bench (to its stone top).
@@ -400,6 +418,8 @@ export function buildProjectGroup(project: Project, opts: BuildOptions): THREE.G
       const hangs = ['curtain', 'blind', 'range-hood', 'toilet'].includes(sym.type) || CEILING_AC.has(sym.type)
       // People sit or lie on whatever they're on, at its height.
       const on = sym.type === 'person' ? personSupport(sym, floor.symbols) : null
+      // A vanity's mirror goes on the wall behind it, however far its back is from it.
+      const wallGap = sym.type === 'bath-vanity' ? gapToWall(sym, pose, floor.rooms) : 0
       const obj =
         sym.type === 'person'
           ? personModel(sym, mats, hl, on ? { height: on.height, type: on.item.type } : undefined)
@@ -414,6 +434,7 @@ export function buildProjectGroup(project: Project, opts: BuildOptions): THREE.G
               hangs ? ceilingHeightAt(floor, pose) : floor.height,
               sym.type === 'curtain' ? washFor(pose) : undefined,
               floor.symbols,
+              wallGap,
             )
       if (!obj.children.length) continue
       const up = new THREE.Vector3(0, 1, 0)
@@ -537,7 +558,7 @@ export function buildProjectGroup(project: Project, opts: BuildOptions): THREE.G
       obj.traverse((o) => (o.userData.pick = pick))
       group.add(obj)
       // Cabinets with LEDs inside: their lights, placed like the cabinet.
-      const leds = sym.led ? cabinetLeds(sym) : null
+      const leds = sym.led ? cabinetLeds(sym, wallGap) : null
       if (leds) {
         const lit = cabinetLights(sym, leds, floor, floor.rooms.find((r) => pointInPolygon(pose, r.points))?.id, handles)
         lit.position.copy(obj.position)

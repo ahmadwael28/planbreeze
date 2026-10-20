@@ -290,6 +290,18 @@ export function columnIntoWall(sym: PlanSymbol, rooms: Room[], reach = 150): Pic
 }
 
 /** Pose flat against the inside face of the nearest wall (switches, wall lights). */
+/**
+ * Make an item (a draft) `depth` deep with its back where it was: against its wall, if it's on one (the middle moves,
+ * not the back).
+ */
+export function keepBack(sym: PlanSymbol, depth: number) {
+  const r = (sym.rotation * Math.PI) / 180
+  const f = sym.flipY ? -1 : 1
+  const shift = (sym.depth - depth) / 2
+  sym.x += Math.sin(r) * f * shift
+  sym.y -= Math.cos(r) * f * shift
+}
+
 export function wallMountPose(p: Point, rooms: Room[], maxDist: number, depth: number): Pose | null {
   let best: Pose | null = null
   let bestD = maxDist

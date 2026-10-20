@@ -190,7 +190,7 @@ export const useEditor = create<EditorState>((set, get) => ({
 
   loadProject: (p) =>
     set((s) => ({
-      project: fixBenches(fixSwitchNames(fixRoomLights(fixSizes(p)))),
+      project: fixVanities(fixBenches(fixSwitchNames(fixRoomLights(fixSizes(p))))),
       past: [],
       future: [],
       floorId: p.floors[0].id,
@@ -357,6 +357,21 @@ export function addLShapeRoomAtCenter() {
 /** The room under a point, if any. */
 export function roomAt(floor: Floor, p: Point): Room | undefined {
   return floor.rooms.find((r) => pointInPolygon(p, r.points))
+}
+
+/** A plan as loaded, its vanities' basins (once their style) chosen apart from their style. */
+function fixVanities(p: Project): Project {
+  const old = (s: PlanSymbol) => s.type === 'bath-vanity' && (s.style === 'vessel' || s.style === 'integrated')
+  if (!p.floors.some((f) => f.symbols.some(old))) return p
+  return produce(p, (d) => {
+    for (const f of d.floors) {
+      for (const s of f.symbols) {
+        if (!old(s)) continue
+        if (s.style === 'vessel') s.basin = 'vessel'
+        delete s.style
+      }
+    }
+  })
 }
 
 /** A plan as loaded, its floating shower benches (once a style of their own) built-in ones that float. */

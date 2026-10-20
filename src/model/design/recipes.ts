@@ -1091,7 +1091,7 @@ function bathroom(ctx: Ctx) {
         return
       }
       const v = L.tryPlace(
-        wallCands(L, 'bath-vanity', w, 48, 0, 190, { clear: 60, reach: true, extra: { sinks: w >= 120 ? 2 : undefined, style: style.vanity, frame: style.cabinets, top: style.worktop, led: true, light: LIT } }),
+        wallCands(L, 'bath-vanity', w, 48, 0, 190, { clear: 60, reach: true, extra: { sinks: w >= 120 ? 2 : undefined, style: style.vanityStyle, basin: style.vanity === 'vessel' ? 'vessel' : undefined, mirror: 'plain', ...style.mirror, frame: style.cabinets, top: style.worktop, led: true, light: LIT } }),
         (c) => (entry ? -dist(c.box, entry) / 40 : 0) + (marks.wet && c.face === marks.wet.face ? 4 : 0),
       )
       if (v) {
