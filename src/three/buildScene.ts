@@ -417,7 +417,7 @@ export function buildProjectGroup(project: Project, opts: BuildOptions): THREE.G
       const hl = isSelected(sel, 'symbol', sym.id)
       // Curtains and blinds hang from the ceiling above them (up in a curtain pocket if there's one), air conditioning
       // is set into it, and a wall-hung toilet's tank box can go up to it.
-      const hangs = ['curtain', 'blind', 'range-hood', 'toilet', 'partition'].includes(sym.type) || CEILING_AC.has(sym.type)
+      const hangs = ['curtain', 'blind', 'range-hood', 'toilet', 'partition', 'shower'].includes(sym.type) || CEILING_AC.has(sym.type)
       // People sit or lie on whatever they're on, at its height.
       const on = sym.type === 'person' ? personSupport(sym, floor.symbols) : null
       // A vanity's mirror goes on the wall behind it, however far its back is from it.

@@ -297,17 +297,18 @@ export interface Stretch {
 
 /**
  * A shower's own half walls, if its fixed glass stands on one (see its halfWall): under its fixed glass, a walk-in's
- * panel and a hinged door's fixed pane (not a sliding door's, which slides over it). Where they are along its sides.
+ * panel and a door's fixed pane. Where they are along its sides.
  */
 export function ownWalls(sym: PlanSymbol, runs: GlassRun[]): Stretch[] {
   if (!sym.halfWall) return []
   const out: Stretch[] = runs.filter((g) => g.own).map(({ side, u0, u1 }) => ({ side, u0, u1 }))
   const door = doorRun(runs)
   const doors = sym.walkIn ? 'walk-in' : (sym.doors ?? 'hinged')
-  if (door && doors !== 'sliding') {
+  if (door) {
     const len = door.u1 - door.u0
-    // As far as the panel goes, or the fixed pane (two fifths of it) the door's hinged on.
-    out.push({ side: door.side, u0: door.u0, u1: door.u0 + (doors === 'walk-in' ? walkInPanel(len) : len * 0.4) })
+    // As far as the panel goes, or the fixed pane: the two fifths a door's hinged on, or a little over half a sliding
+    // door slides past (outside it: see the 3D model).
+    out.push({ side: door.side, u0: door.u0, u1: door.u0 + (doors === 'walk-in' ? walkInPanel(len) : len * (doors === 'sliding' ? 0.55 : 0.4)) })
   }
   // Where two meet round a corner, the one on the left or right stops at the other (the front's or back's) inside face.
   return out.map((s) => {

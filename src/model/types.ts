@@ -251,6 +251,10 @@ export interface PlanSymbol {
    * floor: a walk-in's panel, a hinged door's fixed pane and the glass on their other sides.
    */
   halfWall?: number
+  /** Showers: their glass up to the ceiling (their door as tall as they're made, fixed glass over it), not `height` tall. */
+  glassToCeiling?: boolean
+  /** Walk-in showers: a bar holding their glass panel, from its free top corner across to the wall or up to the ceiling. */
+  brace?: 'wall' | 'ceiling'
   /** Showers and wardrobes: hinged or sliding doors (each has its default). */
   doors?: 'hinged' | 'sliding'
   /** Wardrobes and cabinets: glass doors. */

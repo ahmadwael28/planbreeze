@@ -2265,9 +2265,12 @@ function shower(
   columns: ColumnBox[] = [],
   walls: Stretch[] = [],
   halfWall = 0,
+  fit: { toCeiling?: boolean; brace?: 'wall' | 'ceiling' } = {},
 ) {
   const g = new THREE.Group()
   const tray = 5
+  // How high its glass goes: as tall as it's made, or up to the ceiling (a door then as tall as it's made, glass over it).
+  const top = fit.toCeiling ? Math.max(h, ceilingH) : h
   g.add(rbox(w, tray, d, 1.5, 0, 0, 0, k.q(COLORS.ceramic, 'gloss')))
   g.add(cylinder(4, 0.3, 0, tray, 0, k.q(COLORS.metal, 'metal')))
   const metal = k.q(COLORS.metal, 'metal')
@@ -2315,7 +2318,7 @@ function shower(
     // A walk-in's way in: open, beside its panel, with no rail over it or post at its end.
     const walkIn = run === door && doors === 'walk-in'
     const pl = walkIn ? walkInPanel(u1 - u0) : 0
-    put(a, walkIn ? u0 + pl : b, inset, h - 2, 2, 2, metal)
+    put(a, walkIn ? u0 + pl : b, inset, top - 2, 2, 2, metal)
     const ends = [ta === undefined ? u0 + 1 : a, tb === undefined ? u1 - 1 : b]
     for (const u of walkIn ? [ends[0]] : ends) {
       const p = pos(u, inset)
@@ -2323,31 +2326,46 @@ function shower(
       if (posts.has(key)) continue
       posts.add(key)
       const from = own && u < own.u1 ? crown : foot
-      g.add(box(2, h - from, 2, p.x, from, p.z, metal))
+      g.add(box(2, top - from, 2, p.x, from, p.z, metal))
     }
     // Where the fixed part of its door's stretch stands: on its half wall, or on the tray.
     const fixedFoot = own ? crown : tray
     if (run !== door) {
-      put(a, b, inset, foot, h - foot, 0.8, glass)
+      put(a, b, inset, foot, top - foot, 0.8, glass)
       continue
     }
     const len = u1 - u0
     if (walkIn) {
-      // A fixed panel from the wall, and a bar from its free top corner across to the wall behind it, holding it.
-      put(a, u0 + pl, inset, fixedFoot, h - fixedFoot - 2, 0.8, glass)
-      const across = along ? d : w
-      const p = pos(u0 + pl - 2, 1 + (across - 2) / 2)
-      g.add(box(along ? 1.4 : across - 2, 1.4, along ? across - 2 : 1.4, p.x, h - 8, p.z, chrome))
+      // A fixed panel from the wall; held, if it's chosen, by a bar from its free top corner across to the wall behind
+      // it or up to the ceiling.
+      put(a, u0 + pl, inset, fixedFoot, top - fixedFoot - 2, 0.8, glass)
+      if (fit.brace === 'wall' && !fit.toCeiling) {
+        const across = along ? d : w
+        const p = pos(u0 + pl - 2, inset + (across - inset) / 2)
+        g.add(box(along ? 1.4 : across - inset, 1.4, along ? across - inset : 1.4, p.x, top - 8, p.z, chrome))
+      } else if (fit.brace === 'ceiling' && ceilingH - top > 2) {
+        const p = pos(u0 + pl - 2, inset)
+        g.add(cylinder(0.7, ceilingH - top, p.x, top, p.z, chrome))
+      }
       continue
     }
+    // Up to the ceiling: a bar along the top of the door, and fixed glass over it.
+    if (top > h + 4) {
+      put(a, b, inset, h - 2, 2, 2.4, metal)
+      put(a, b, inset, h, top - h - 2, 0.8, glass)
+    }
     if (doors === 'sliding') {
-      // A fixed pane on the inner track, and one on the outer with rollers and a long bar to pull, sliding over it.
+      // A fixed pane on the inner track (on the half wall, if there's one), and one on the outer with rollers and a long
+      // bar to pull, sliding over it (outside the half wall's shelf, on a track of its own).
       const pw = len * 0.55
-      put(u0, u0 + pw, 2.2, tray, h - tray - 4, 0.8, glass)
+      const fixedIn = own ? inset : 2.2
+      const slideIn = own ? -2.5 : 0.2
+      if (own) put(a, b, slideIn, h - 2, 2, 2, metal)
+      put(a, u0 + pw, fixedIn, fixedFoot, h - fixedFoot - 4, 0.8, glass)
       const panel = new THREE.Group()
-      put(u1 - pw, u1, 0.2, tray, h - tray - 4, 0.8, glass, panel)
-      for (const u of [u1 - pw + 8, u1 - 8]) put(u - 2, u + 2, 0.2, h - 7, 4, 2, chrome, panel)
-      put(u1 - pw + 4, u1 - pw + 5.5, -1.6, 70, 60, 2, chrome, panel)
+      put(u1 - pw, u1, slideIn, tray, h - tray - 4, 0.8, glass, panel)
+      for (const u of [u1 - pw + 8, u1 - 8]) put(u - 2, u + 2, slideIn, h - 7, 4, 2, chrome, panel)
+      put(u1 - pw + 4, u1 - pw + 5.5, slideIn - 1.8, 70, 60, 2, chrome, panel)
       panel.userData.door = { slide: -(len - pw), slideAxis: along ? 'x' : 'z', startOpen: false } satisfies DoorPart
       g.add(panel)
     } else {
@@ -3292,6 +3310,7 @@ export function symbolModel(
         columnBoxes(sym, others),
         ownWalls(sym, runs),
         sym.halfWall,
+        { toCeiling: sym.glassToCeiling, brace: sym.brace },
       )
       break
     }

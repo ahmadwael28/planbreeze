@@ -2,7 +2,7 @@ import type { ReactNode } from 'react'
 import { lightHex } from './lighting'
 import type { PlanTheme } from './theme'
 import type { CeilingStyle, MirrorShape, PlanSymbol } from './types'
-import { doorRun, headInModel, headOf, headPoint, ownWalls, showerGlass, stretchBox, walkInPanel } from './shower'
+import { doorRun, HALF_WALL_THICKNESS, headInModel, headOf, headPoint, ownWalls, showerGlass, stretchBox, walkInPanel } from './shower'
 import type { ColumnBox, GlassRun, ShowerSide } from './shower'
 
 export type SymbolCategory =
@@ -611,9 +611,12 @@ function ceilingIcon(style: CeilingStyle, t: PlanTheme) {
  * A straight shower's door on the plan, on its stretch of glass: two panes on their tracks for a sliding one, or the
  * door's swing out of the shower from its hinge on the fixed pane (as in 3D).
  */
-function showerDoor(k: ReturnType<typeof kit>, run: GlassRun, w: number, d: number, doors: 'hinged' | 'sliding' | 'walk-in') {
-  // Drawn as on the front (u along x, out toward +y), then turned onto its side.
-  const at = { front: `translate(0,${d / 2})`, back: `translate(0,${-d / 2}) rotate(180)`, right: `translate(${w / 2},0) rotate(-90)`, left: `translate(${-w / 2},0) rotate(90)` }[run.side]
+function showerDoor(k: ReturnType<typeof kit>, run: GlassRun, w: number, d: number, doors: 'hinged' | 'sliding' | 'walk-in', onWall = false) {
+  // Drawn as on the front (u along x, out toward +y), then turned onto its side; on a half wall, along its middle (a
+  // sliding door's outer pane outside it).
+  const side = { front: `translate(0,${d / 2})`, back: `translate(0,${-d / 2}) rotate(180)`, right: `translate(${w / 2},0) rotate(-90)`, left: `translate(${-w / 2},0) rotate(90)` }[run.side]
+  const mid = HALF_WALL_THICKNESS / 2
+  const at = onWall && doors !== 'sliding' ? `${side} translate(0,${-mid})` : side
   // Along the side (u) to across the drawing: turned onto the back or right, it runs the other way.
   const x = (u: number) => (run.side === 'front' || run.side === 'left' ? u : -u)
   const { u0, u1 } = run
@@ -633,8 +636,8 @@ function showerDoor(k: ReturnType<typeof kit>, run: GlassRun, w: number, d: numb
     const pw = len * 0.55
     return (
       <g transform={at}>
-        <line x1={x(u0)} y1={-2} x2={x(u0 + pw)} y2={-2} {...k.line} />
-        <line x1={x(u1 - pw)} y1={1.5} x2={x(u1)} y2={1.5} {...k.line} />
+        <line x1={x(u0)} y1={onWall ? -mid : -2} x2={x(u0 + pw)} y2={onWall ? -mid : -2} {...k.line} />
+        <line x1={x(u1 - pw)} y1={onWall ? 2.5 : 1.5} x2={x(u1)} y2={onWall ? 2.5 : 1.5} {...k.line} />
       </g>
     )
   }
@@ -2143,7 +2146,7 @@ export const SYMBOLS: SymbolDef[] = [
             })}
           <circle cx={0} cy={0} r={4} {...k.s()} />
           {showerHeadMark(sym, w, d, t, sym?.screens ?? ['front'], around?.columns)}
-          {door && showerDoor(k, door, w, d, sym?.walkIn ? 'walk-in' : (sym?.doors ?? 'hinged'))}
+          {door && showerDoor(k, door, w, d, sym?.walkIn ? 'walk-in' : (sym?.doors ?? 'hinged'), !!sym?.halfWall)}
         </>
       )
     },

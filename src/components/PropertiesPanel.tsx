@@ -1267,6 +1267,35 @@ function ShowerGlass({ sym }: { sym: PlanSymbol }) {
         )}
       </Choice>
     )}
+    {sides.length > 0 && sym.walkIn && !sym.glassToCeiling && (
+      <Choice
+        label={t('Support bar')}
+        value={sym.brace ?? 'none'}
+        onChange={(v) => updateSymbol(sym.id, (s) => void (v === 'none' ? delete s.brace : (s.brace = v)))}
+        options={[
+          { value: 'none', label: t('None') },
+          { value: 'wall', label: t('To the wall') },
+          { value: 'ceiling', label: t('To the ceiling') },
+        ]}
+      >
+        <p className="text-xs text-muted-foreground">{t("A slim bar from the panel's free top corner, holding it steady.")}</p>
+      </Choice>
+    )}
+    {sides.length > 0 && (
+      <Choice
+        label={t('Glass up to')}
+        value={sym.glassToCeiling ? 'ceiling' : 'height'}
+        onChange={(v) => updateSymbol(sym.id, (s) => void (v === 'ceiling' ? (s.glassToCeiling = true) : delete s.glassToCeiling))}
+        options={[
+          { value: 'height', label: formatLength(sym.height, units) },
+          { value: 'ceiling', label: t('The ceiling') },
+        ]}
+      >
+        {sym.glassToCeiling && !sym.walkIn && (
+          <p className="text-xs text-muted-foreground">{t('The door stays its height, with fixed glass over it up to the ceiling.')}</p>
+        )}
+      </Choice>
+    )}
     {sides.length > 0 && (
       <Choice
         label={t('Glass stands on')}
@@ -1279,9 +1308,7 @@ function ShowerGlass({ sym }: { sym: PlanSymbol }) {
       >
         {sym.halfWall !== undefined && (
           <p className="text-xs text-muted-foreground">
-            {sym.walkIn || sym.doors !== 'sliding'
-              ? t("Its fixed glass stands on a half wall with a stone shelf, finished like the room's walls. The way in still reaches the floor.")
-              : t("Its fixed glass stands on a half wall with a stone shelf, finished like the room's walls. A sliding door's two panes stay on the floor.")}
+            {t("Its fixed glass stands on a half wall with a stone shelf, finished like the room's walls. The way in still reaches the floor.")}
           </p>
         )}
       </Choice>
@@ -1922,9 +1949,21 @@ function SymbolProps({ sym, units }: { sym: PlanSymbol; units: Units }) {
             ['depth', isLabel ? t('Text size') : beam ? t('Width') : partition ? t('Thickness') : t('Depth'), !sym.wall && !isRound(sym.type)],
             [
               'height',
-              sym.type === 'gypsum-box' ? t('Drop') : beam ? t('Below the ceiling') : def?.fixture === 'switch' ? t('Mount height') : t('Height'),
-              // A wall-hung toilet's is its box's (see its mounting).
-              !isLabel && !def?.fullHeight && (!partition || !!sym.partial) && !(sym.type === 'toilet' && sym.mount === 'wall'),
+              sym.type === 'gypsum-box'
+                ? t('Drop')
+                : beam
+                  ? t('Below the ceiling')
+                  : def?.fixture === 'switch'
+                    ? t('Mount height')
+                    : sym.type === 'shower' && sym.glassToCeiling
+                      ? t('Door height')
+                      : t('Height'),
+              // A wall-hung toilet's is its box's (see its mounting); a walk-in shower's glass up to the ceiling has none.
+              !isLabel &&
+                !def?.fullHeight &&
+                (!partition || !!sym.partial) &&
+                !(sym.type === 'toilet' && sym.mount === 'wall') &&
+                !(sym.type === 'shower' && sym.glassToCeiling && sym.walkIn),
             ],
           ] as [Dim, string, boolean][]
         ).map(([dim, label, shown]) => {
