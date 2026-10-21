@@ -67,6 +67,11 @@ export interface SymbolDef {
   /** Other library categories it's listed in as well (a washing machine: kitchens and bathrooms). */
   alsoIn?: SymbolCategory[]
   /**
+   * In the library, another piece made a particular way (a half wall: a wall, low, with a shelf on top): it's added as
+   * that piece (`of`), with these set.
+   */
+  preset?: { of: string; set: Partial<PlanSymbol> }
+  /**
    * Draw the symbol centered at the origin: x ∈ [-w/2, w/2], y ∈ [-d/2, d/2]. `around`, for a straight shower: its
    * glass, round the columns on its lines, and those columns (for its head; see model/shower).
    */
@@ -679,6 +684,31 @@ export const PARTITION_FINISHES: FrameColor[] = [
 
 /** A wall standing on its own: how high its top is (cm), the floor's walls' height if it goes up to the ceiling. */
 export const partitionTop = (sym: Pick<PlanSymbol, 'partial' | 'height'>, floorH: number) => (sym.partial ? Math.min(sym.height, floorH) : floorH)
+
+/** How high a wall-hung toilet's tank box comes up when it's a ledge, under its stone shelf (cm); a half wall's too. */
+export const LEDGE_HEIGHT = 110
+/** How thick the stone shelf on a toilet's ledge, or on a half wall, is (cm). */
+export const LEDGE_SHELF = 2
+
+/** A wall standing on its own: how high it comes up (cm), with the shelf on it if it's a low one with a shelf. */
+export const partitionCrown = (sym: Pick<PlanSymbol, 'partial' | 'height' | 'shelf'>, floorH: number) =>
+  partitionTop(sym, floorH) + (sym.partial && sym.shelf ? LEDGE_SHELF : 0)
+
+/**
+ * A wall standing on its own on the plan: up to the ceiling, as the walls are drawn; lower, lighter, with its outline
+ * (its shelf's, a little wider, if it has one); with glass over it, a line along it.
+ */
+function partitionPlan(w: number, d: number, t: PlanTheme, sym?: PlanSymbol) {
+  if (!sym?.partial) return <rect x={-w / 2} y={-d / 2} width={w} height={d} fill={t.wall} />
+  const k = kit(t)
+  const e = sym.shelf ? 1 : 0
+  return (
+    <>
+      <rect x={-w / 2} y={-d / 2 - e} width={w} height={d + 2 * e} fill={t.wall} fillOpacity={0.45} stroke={t.wall} strokeWidth={1} vectorEffect="non-scaling-stroke" />
+      {sym.glassTop && <line x1={-w / 2} y1={0} x2={w / 2} y2={0} {...k.thin} stroke={t.ink} />}
+    </>
+  )
+}
 
 /** Recesses in a wall (part of its depth), lined with the wall's finish. */
 export const NICHES = new Set(['shower-niche', 'wall-niche'])
@@ -2769,18 +2799,34 @@ export const SYMBOLS: SymbolDef[] = [
     height: 110,
     frames: PARTITION_FINISHES,
     frameLabel: 'Finish',
-    render: (w, d, t, sym) => {
-      const k = kit(t)
-      // Up to the ceiling, as the walls are drawn; lower, lighter, with its outline; glass over it, a line along it.
-      return sym?.partial ? (
-        <>
-          <rect x={-w / 2} y={-d / 2} width={w} height={d} fill={t.wall} fillOpacity={0.45} stroke={t.wall} strokeWidth={1} vectorEffect="non-scaling-stroke" />
-          {sym.glassTop && <line x1={-w / 2} y1={0} x2={w / 2} y2={0} {...k.thin} stroke={t.ink} />}
-        </>
-      ) : (
-        <rect x={-w / 2} y={-d / 2} width={w} height={d} fill={t.wall} />
-      )
-    },
+    render: partitionPlan,
+  },
+  {
+    // A half wall beside a toilet or a shower: as high as a wall-hung toilet's box, with a stone shelf as it has, so the
+    // two line up (and a shower's glass on that side sits on it; see model/shower).
+    type: 'half-wall',
+    name: 'Half wall',
+    keywords: 'partition pony wall low wall toilet divider ledge shelf privacy',
+    category: 'Bathroom',
+    alsoIn: ['Other'],
+    width: 100,
+    depth: 10,
+    height: LEDGE_HEIGHT,
+    preset: { of: 'partition', set: { partial: true, shelf: true } },
+    render: partitionPlan,
+  },
+  {
+    // The same with glass from its shelf up to the ceiling.
+    type: 'half-wall-glass',
+    name: 'Half wall with glass',
+    keywords: 'partition pony wall low wall glass screen toilet shower divider privacy',
+    category: 'Bathroom',
+    alsoIn: ['Other'],
+    width: 100,
+    depth: 10,
+    height: LEDGE_HEIGHT,
+    preset: { of: 'partition', set: { partial: true, shelf: true, glassTop: true } },
+    render: partitionPlan,
   },
   {
     // A column partly built into a wall, standing out of it into the room.

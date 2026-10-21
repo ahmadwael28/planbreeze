@@ -123,6 +123,8 @@ export default {
   Stairs: 'سلم',
   Column: 'عمود',
   'Column in a wall': 'عمود داخل حائط',
+  'Half wall': 'نصف حائط',
+  'Half wall with glass': 'نصف حائط بزجاج',
   Beam: 'كمرة',
   Person: 'شخص',
   'Text label': 'نص',

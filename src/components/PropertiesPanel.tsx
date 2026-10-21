@@ -34,7 +34,7 @@ import { wallColumns, wallSign } from '@/model/developed'
 import { DEFAULT_RAILING, isOpen, isOutdoor, keepBack, OUTDOOR, RAILING_THICKNESS, ROOM_COLORS, roomOuter, setWallLength, symbolPose } from '@/model/project'
 import { wallAcross } from '@/model/divide'
 import { beamSpan } from '@/model/beams'
-import { CABINETS, curtainLayers, frameOf, givesLight, hasGlass, NICHES, SKIN_TONES, TANK_BOX, TANK_BOX_RANGE, tankBoxDepth, vanityLight, vanitySinks, WASHER_BAY, STYLES, styleOf, SYMBOL_MAP, tvInches, tvSize, WORKTOPS, worktopOf, hasWorktop } from '@/model/symbols'
+import { CABINETS, curtainLayers, frameOf, givesLight, hasGlass, LEDGE_HEIGHT, NICHES, SKIN_TONES, TANK_BOX, TANK_BOX_RANGE, tankBoxDepth, vanityLight, vanitySinks, WASHER_BAY, STYLES, styleOf, SYMBOL_MAP, tvInches, tvSize, WORKTOPS, worktopOf, hasWorktop } from '@/model/symbols'
 import type { Worktop } from '@/model/symbols'
 import type { FrameColor } from '@/model/symbols'
 import { formatArea, formatLength } from '@/model/units'
@@ -1124,7 +1124,7 @@ function VanityOptions({ sym, units }: { sym: PlanSymbol; units: Units }) {
  * ceiling or open; finished like its room's walls or painted (see its finish).
  */
 function PartitionOptions({ sym }: { sym: PlanSymbol }) {
-  const height = !sym.partial ? 'full' : sym.height === 110 ? 'half' : 'custom'
+  const height = !sym.partial ? 'full' : sym.height === LEDGE_HEIGHT ? 'half' : 'custom'
   return (
     <>
       <Choice
@@ -1135,11 +1135,15 @@ function PartitionOptions({ sym }: { sym: PlanSymbol }) {
             if (v === 'full') {
               delete s.partial
               delete s.glassTop
+              delete s.shelf
               return
             }
             s.partial = true
-            if (v === 'half') s.height = 110
-            else if (height === 'full' || s.height === 110) s.height = 150
+            // Half height is a wall-hung toilet's box's, and it gets a shelf as the box has: the two line up.
+            if (v === 'half') {
+              s.height = LEDGE_HEIGHT
+              if (height === 'full') s.shelf = true
+            } else if (height === 'full' || s.height === LEDGE_HEIGHT) s.height = 150
           })
         }
         options={[
@@ -1147,7 +1151,22 @@ function PartitionOptions({ sym }: { sym: PlanSymbol }) {
           { value: 'half', label: t('Half height') },
           { value: 'custom', label: t('Custom height') },
         ]}
-      />
+      >
+        {height === 'half' && (
+          <p className="text-xs text-muted-foreground">{t("As high as a wall-hung toilet's box (and its shelf), so the two line up.")}</p>
+        )}
+      </Choice>
+      {sym.partial && (
+        <Choice
+          label={t('Top')}
+          value={sym.shelf ? 'shelf' : 'plain'}
+          onChange={(v) => updateSymbol(sym.id, (s) => void (v === 'shelf' ? (s.shelf = true) : delete s.shelf))}
+          options={[
+            { value: 'plain', label: t('Plain') },
+            { value: 'shelf', label: t('Stone shelf') },
+          ]}
+        />
+      )}
       {sym.partial && (
         <Choice
           label={t('Above it')}

@@ -40,6 +40,9 @@ import {
   vanitySinks,
   WASHER_BAY,
   NICHES,
+  LEDGE_HEIGHT,
+  LEDGE_SHELF,
+  partitionCrown,
   partitionTop,
   tankBoxDepth,
   worktopOf,
@@ -1824,8 +1827,8 @@ function fridge(k: Kit, w: number, d: number, h: number) {
   return g
 }
 
-/** How high a wall-hung toilet's tank box comes up when it's a ledge with a shelf on top (cm). */
-export const LEDGE_HEIGHT = 110
+/** The stone of the shelf on a wall-hung toilet's ledge, and on a half wall. */
+const LEDGE_STONE = '#e8e3da'
 
 /**
  * A wall-hung toilet: its tank concealed in a box in front of the wall (a ledge with a stone shelf, or up to the
@@ -1842,7 +1845,7 @@ function wallHungToilet(k: Kit, sym: PlanSymbol, w: number, d: number, top: numb
   if (boxD) {
     g.add(box(w, boxH, boxD, 0, 0, -d / 2 + boxD / 2, k.q(WALL_WHITE, 'satin')))
     // A stone shelf on a ledge, a little proud of it.
-    if (sym.tankBox !== 'full') g.add(rbox(w + 2, 2, boxD + 2, 0.5, 0, boxH, -d / 2 + boxD / 2 + 1, k.q('#e8e3da', 'satin')))
+    if (sym.tankBox !== 'full') g.add(rbox(w + 2, LEDGE_SHELF, boxD + 2, 0.5, 0, boxH, -d / 2 + boxD / 2 + 1, k.q(LEDGE_STONE, 'satin')))
   }
   // The flush plate, in reach above the seat, with its two buttons.
   const plateY = Math.min(boxH - 18, 100)
@@ -2274,8 +2277,9 @@ function shower(
     right: { x: w / 2, z: 0, nx: -1, nz: 0, len: d },
     left: { x: -w / 2, z: 0, nx: 1, nz: 0, len: d },
   }
-  // Glass along its stretches (stopping at any column on its sides) in slim frames, with posts where it ends; the
-  // door in the longest stretch of the first side with room for one (see model/shower), shut, opening when clicked.
+  // Glass along its stretches (stopping at any column or wall on its sides, sitting on a half wall or a toilet's box) in
+  // slim frames, with posts where it ends; the door in the longest stretch of the first side with room for one, down to
+  // the floor (see model/shower), shut, opening when clicked.
   const door = doorRun(runs)
   const posts = new Set<string>()
   for (const run of runs) {
@@ -2290,19 +2294,22 @@ function shower(
       on.add(box(along ? l : t, hh, along ? t : l, p.x, y, p.z, mat))
     }
     const { u0, u1 } = run
+    // On a half wall or a toilet's box, sitting on it (along a half wall's middle); else on the tray.
+    const foot = run.base ?? tray
+    const inset = run.inset ?? 1
     // A walk-in's way in: open, beside its panel, with no rail over it or post at its end.
     const walkIn = run === door && doors === 'walk-in'
     const pl = walkIn ? walkInPanel(u1 - u0) : 0
-    put(u0, walkIn ? u0 + pl : u1, 1, h - 2, 2, 2, metal)
+    put(u0, walkIn ? u0 + pl : u1, inset, h - 2, 2, 2, metal)
     for (const u of walkIn ? [u0 + 1] : [u0 + 1, u1 - 1]) {
-      const p = pos(u, 1)
+      const p = pos(u, inset)
       const key = `${Math.round(p.x)},${Math.round(p.z)}`
       if (posts.has(key)) continue
       posts.add(key)
-      g.add(box(2, h - tray, 2, p.x, tray, p.z, metal))
+      g.add(box(2, h - foot, 2, p.x, foot, p.z, metal))
     }
     if (run !== door) {
-      put(u0, u1, 1, tray, h - tray, 0.8, glass)
+      put(u0, u1, inset, foot, h - foot, 0.8, glass)
       continue
     }
     const len = u1 - u0
@@ -2528,26 +2535,30 @@ function blind(k: Kit, sym: PlanSymbol, w: number, d: number, h: number, top: nu
   return g
 }
 
-/** A column built into a wall, floor to ceiling, with skirting along its three exposed faces. */
 /**
  * A wall standing on its own: up to the ceiling or lower, painted (or plain, to be finished like its room's walls: see
- * buildScene); lower, maybe with glass in a slim black frame from its top up to the ceiling.
+ * buildScene); lower, maybe with a stone shelf on top as a toilet's box has, and glass in a slim black frame from its
+ * top up to the ceiling.
  */
 function partition(k: Kit, sym: PlanSymbol, w: number, d: number, floorH: number, ceilingH: number) {
   const g = new THREE.Group()
   const top = partitionTop(sym, floorH)
+  const crown = partitionCrown(sym, floorH)
   const paint = sym.frame ? (frameOf(sym)?.hex ?? COLORS.wall) : COLORS.wall
   g.add(box(w, top, d, 0, 0, 0, k.q(paint)))
-  if (sym.partial && sym.glassTop && ceilingH - top > 5) {
-    const gh = ceilingH - top
+  // Its shelf, a little proud of its faces; a hair under a toilet's next to it, where the two meet.
+  if (crown > top) g.add(rbox(w, crown - top - 0.15, d + 2, 0.5, 0, top, 0, k.q(LEDGE_STONE, 'satin')))
+  if (sym.partial && sym.glassTop && ceilingH - crown > 5) {
+    const gh = ceilingH - crown
     const black = k.q('#1f1f22', 'metal')
-    g.add(box(w - 2, gh, 0.8, 0, top, 0, k.glass()))
-    for (const y of [top, ceilingH - 2.5]) g.add(box(w, 2.5, 3, 0, y, 0, black))
-    for (const s of [-1, 1]) g.add(box(2.5, gh, 3, s * (w / 2 - 1.25), top, 0, black))
+    g.add(box(w - 2, gh, 0.8, 0, crown, 0, k.glass()))
+    for (const y of [crown, ceilingH - 2.5]) g.add(box(w, 2.5, 3, 0, y, 0, black))
+    for (const s of [-1, 1]) g.add(box(2.5, gh, 3, s * (w / 2 - 1.25), crown, 0, black))
   }
   return g
 }
 
+/** A column built into a wall, floor to ceiling, with skirting along its three exposed faces. */
 function wallPost(k: Kit, w: number, d: number, floorH: number) {
   const g = new THREE.Group()
   g.add(box(w, floorH, d, 0, 0, 0, k.q(COLORS.wall)))

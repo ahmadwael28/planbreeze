@@ -302,7 +302,10 @@ export interface PlanSymbol {
   appliances?: 'oven' | 'two-ovens'
   /** Towel rails: with a towel on them (unless false). */
   towel?: boolean
-  /** Shower niches: a glass shelf across the middle. */
+  /**
+   * Shower niches: a glass shelf across the middle. Walls standing on their own, lower than the ceiling: a stone shelf
+   * on top, as a wall-hung toilet's box has (as high as its, at half height).
+   */
   shelf?: boolean
   /** Bathroom vanities: one sink (default) or two. */
   sinks?: number

@@ -14,7 +14,7 @@ import {
 } from '@/model/geometry'
 import { finishOf, surfaceLayout, wallSurfaceAt } from '@/model/finishes'
 import { openSides } from '@/model/guides'
-import { columnBoxes, showerRuns } from '@/model/shower'
+import { columnBoxes, inShowersWay, showerRuns } from '@/model/shower'
 import { aroundColumns, developed, wallColumns } from '@/model/developed'
 import { cellRect, hasMix, parseKey, tileGrid, tileIndex, tileStyle } from '@/model/tiles'
 import { ceilingLight, ceilingRoom, ceilingZones, coveRuns, nearestOnStrip, onCeilingJoin, pocketWidth, SHADOW_GAP, WIRE_COLORS } from '@/model/lighting'
@@ -70,7 +70,7 @@ const SymbolGraphic = memo(function SymbolGraphic({
   theme: PlanTheme
   forPrint?: boolean
   faded?: boolean
-  /** For a shower: the columns on the floor (its glass stops at them). */
+  /** For a shower: what's in its glass's way on the floor (columns, walls, toilets' boxes: see model/shower). */
   columns?: PlanSymbol[]
 }) {
   const def = SYMBOL_MAP.get(sym.type)
@@ -636,7 +636,7 @@ export function PlanLayers({
   const coves = floor.symbols.filter((s) => s.room)
   const boxes = floor.symbols.filter((s) => s.type === 'gypsum-box')
   // Columns, for the showers' glass to stop at.
-  const columns = floor.symbols.filter((s) => s.type === 'column' || s.type === 'wall-post')
+  const columns = floor.symbols.filter(inShowersWay)
   const roomById = new Map(floor.rooms.map((r) => [r.id, r]))
 
   return (

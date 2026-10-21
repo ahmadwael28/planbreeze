@@ -145,7 +145,7 @@ export function newSymbol(type: string, x: number, y: number): PlanSymbol {
   const def = SYMBOL_MAP.get(type)
   const sym: PlanSymbol = {
     id: uid(),
-    type,
+    type: def?.preset?.of ?? type,
     x,
     y,
     width: def?.width ?? 60,
@@ -157,6 +157,7 @@ export function newSymbol(type: string, x: number, y: number): PlanSymbol {
     label: type === 'label' ? 'Label' : undefined,
   }
   if (def?.elevation !== undefined) sym.elevation = def.elevation
+  if (def?.preset) Object.assign(sym, def.preset.set)
   if (def?.fixture === 'switch') sym.controls = []
   else if (def?.fixture) sym.light = { color: 'warm', brightness: 1 }
   if (def?.fixture === 'track') {
