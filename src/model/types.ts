@@ -251,6 +251,11 @@ export interface PlanSymbol {
    * floor: a walk-in's panel, a hinged door's fixed pane and the glass on their other sides.
    */
   halfWall?: number
+  /**
+   * Showers: how long the fixed part of the side with their way in is (cm): a walk-in's panel or the fixed pane beside
+   * the door, and the half wall under it if there's one. As usual if left out.
+   */
+  fixedLength?: number
   /** Showers: their glass up to the ceiling (their door as tall as they're made, fixed glass over it), not `height` tall. */
   glassToCeiling?: boolean
   /** Walk-in showers: a bar holding their glass panel, from its free top corner across to the wall or up to the ceiling. */

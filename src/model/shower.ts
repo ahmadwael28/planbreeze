@@ -94,6 +94,27 @@ export function headPoint(place: HeadPlace, w: number, d: number, columns: Colum
   return p
 }
 
+/** How a straight shower's way in closes: a hinged or a sliding door, or not at all (a walk-in, open beside its panel). */
+export type ShowerDoors = 'hinged' | 'sliding' | 'walk-in'
+
+export const doorsOf = (sym: Pick<PlanSymbol, 'walkIn' | 'doors'>): ShowerDoors => (sym.walkIn ? 'walk-in' : (sym.doors ?? 'hinged'))
+
+/** The least room a shower's way in is left (cm), when the fixed part beside it is made longer. */
+const WAY_IN = 40
+
+/**
+ * How long the fixed part of a shower's side with its way in is (that side `len` long): as it's been made (leaving
+ * room to get in), or as usual: a walk-in's panel, the two fifths a hinged door hangs on, a little over half a sliding
+ * door slides past.
+ */
+export function fixedPart(sym: Pick<PlanSymbol, 'fixedLength'>, len: number, doors: ShowerDoors): number {
+  if (sym.fixedLength === undefined) return doors === 'walk-in' ? walkInPanel(len) : len * (doors === 'sliding' ? 0.55 : 0.4)
+  return Math.min(Math.max(len - WAY_IN, len / 2), Math.max(15, sym.fixedLength))
+}
+
+/** A sliding door's moving pane beside a fixed part `fixed` long (that side `len` long): how wide it is, overlapping it. */
+export const slidingPane = (len: number, fixed: number) => len - fixed + Math.min(len * 0.1, fixed / 2)
+
 /** A walk-in shower's glass panel along its way in (`len` long): what's left beside it, 50 to 70 cm, is the way in. */
 export function walkInPanel(len: number) {
   const open = Math.min(70, Math.max(50, len * 0.4))
@@ -303,13 +324,8 @@ export function ownWalls(sym: PlanSymbol, runs: GlassRun[]): Stretch[] {
   if (!sym.halfWall) return []
   const out: Stretch[] = runs.filter((g) => g.own).map(({ side, u0, u1 }) => ({ side, u0, u1 }))
   const door = doorRun(runs)
-  const doors = sym.walkIn ? 'walk-in' : (sym.doors ?? 'hinged')
-  if (door) {
-    const len = door.u1 - door.u0
-    // As far as the panel goes, or the fixed pane: the two fifths a door's hinged on, or a little over half a sliding
-    // door slides past (outside it: see the 3D model).
-    out.push({ side: door.side, u0: door.u0, u1: door.u0 + (doors === 'walk-in' ? walkInPanel(len) : len * (doors === 'sliding' ? 0.55 : 0.4)) })
-  }
+  // As far as the panel goes, or the fixed pane beside the door (a sliding one slides past outside it: see the 3D model).
+  if (door) out.push({ side: door.side, u0: door.u0, u1: door.u0 + fixedPart(sym, door.u1 - door.u0, doorsOf(sym)) })
   // Where two meet round a corner, the one on the left or right stops at the other (the front's or back's) inside face.
   return out.map((s) => {
     if (s.side !== 'left' && s.side !== 'right') return s

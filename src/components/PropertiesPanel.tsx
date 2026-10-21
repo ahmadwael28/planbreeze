@@ -83,7 +83,7 @@ import { useUi } from '@/store/ui'
 import { LengthInput, NumberInput, TextInput } from './LengthInput'
 import { CeilingSection, GroupLightSection, GrooveLightWalls, HiddenLightControls, LightSection, SwitchSection } from './LightingProps'
 import { Choice } from './Choice'
-import { headOf, headPoint, showerGlass } from '@/model/shower'
+import { doorRun, doorsOf, fixedPart, headOf, headPoint, showerGlass, showerRuns } from '@/model/shower'
 import { FloorSection, WallsSection } from './FinishProps'
 
 function Section({ title, action, children, className }: { title?: ReactNode; action?: ReactNode; children: ReactNode; className?: string }) {
@@ -1225,6 +1225,11 @@ function ShowerGlass({ sym }: { sym: PlanSymbol }) {
   const sides = sym.screens ?? openSides(sym, floor.rooms)
   // A half wall's height: a wall-hung toilet's box in the room, if there's one, to line up with it.
   const toilet = ledgeNear(floor, sym)
+  // The side with its way in, and how long the fixed part of it is (on the half wall, if there's one).
+  const doors = doorsOf(sym)
+  const door = doorRun(showerRuns(sym, sides, floor.symbols))
+  const doorLen = door ? door.u1 - door.u0 : 0
+  const fixed = fixedPart(sym, doorLen, doors)
   return (
     <>
     <Choice
@@ -1255,11 +1260,20 @@ function ShowerGlass({ sym }: { sym: PlanSymbol }) {
     {sides.length > 0 && (
       <Choice
         label={t('Way in')}
-        value={sym.walkIn ? 'walk-in' : 'door'}
-        onChange={(v) => updateSymbol(sym.id, (s) => void (v === 'walk-in' ? (s.walkIn = true) : delete s.walkIn))}
+        value={doors}
+        onChange={(v) =>
+          updateSymbol(sym.id, (s) => {
+            if (v === 'walk-in') s.walkIn = true
+            else {
+              delete s.walkIn
+              s.doors = v
+            }
+          })
+        }
         options={[
-          { value: 'door', label: t('A door') },
-          { value: 'walk-in', label: t('Glass panel') },
+          { value: 'hinged', label: t('Hinged door') },
+          { value: 'sliding', label: t('Sliding door') },
+          { value: 'walk-in', label: t('Open') },
         ]}
       >
         {sym.walkIn && (
@@ -1331,6 +1345,33 @@ function ShowerGlass({ sym }: { sym: PlanSymbol }) {
             {t("Line it up with the toilet's box ({height})", { height: formatLength(toilet, units) })}
           </Button>
         )}
+      </>
+    )}
+    {door && (
+      <>
+        <Field label={sym.halfWall !== undefined ? t('Half wall length') : sym.walkIn ? t('Panel length') : t('Fixed pane length')}>
+          {(id) => (
+            <LengthInput
+              id={id}
+              value={Math.round(fixed * 10) / 10}
+              units={units}
+              min={15}
+              onChange={(v) => updateSymbol(sym.id, (s) => void (s.fixedLength = Math.round(v * 10) / 10))}
+            />
+          )}
+        </Field>
+        <p className="text-xs text-muted-foreground">
+          {doors === 'walk-in'
+            ? t('Along the side with the way in; the rest of it is open.')
+            : doors === 'hinged'
+              ? t('Along the side with the door, which hangs on its glass; the rest of it is the door.')
+              : t('Along the side with the door; the door slides past it.')}{' '}
+          {sym.fixedLength !== undefined && (
+            <button className="underline underline-offset-2 hover:text-foreground" onClick={() => updateSymbol(sym.id, (s) => void delete s.fixedLength)}>
+              {t('As usual')}
+            </button>
+          )}
+        </p>
       </>
     )}
     </>
@@ -2274,7 +2315,7 @@ function SymbolProps({ sym, units }: { sym: PlanSymbol; units: Units }) {
             </p>
           </div>
         )}
-        {DOOR_DEFAULT[sym.type] && !(sym.type === 'shower' && sym.walkIn) && (
+        {DOOR_DEFAULT[sym.type] && sym.type !== 'shower' && (
           <Choice
             label={t('Doors')}
             value={sym.doors ?? DOOR_DEFAULT[sym.type]}

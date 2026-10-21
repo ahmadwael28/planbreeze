@@ -9,7 +9,7 @@
  * costs few draw calls.
  */
 import * as THREE from 'three'
-import { columnBoxes, cornerTrim, doorRun, HALF_WALL_THICKNESS, headInModel, headOf, headPoint, ownWalls, showerGlass, showerRuns, walkInPanel } from '@/model/shower'
+import { columnBoxes, cornerTrim, doorRun, doorsOf, fixedPart, HALF_WALL_THICKNESS, headInModel, headOf, headPoint, ownWalls, showerGlass, showerRuns, slidingPane } from '@/model/shower'
 import type { ColumnBox, GlassRun, HeadPlace, Stretch } from '@/model/shower'
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js'
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js'
@@ -2265,7 +2265,7 @@ function shower(
   columns: ColumnBox[] = [],
   walls: Stretch[] = [],
   halfWall = 0,
-  fit: { toCeiling?: boolean; brace?: 'wall' | 'ceiling' } = {},
+  fit: { toCeiling?: boolean; brace?: 'wall' | 'ceiling'; fixedLength?: number } = {},
 ) {
   const g = new THREE.Group()
   const tray = 5
@@ -2317,7 +2317,7 @@ function shower(
     const inset = run.inset ?? (own ? HALF_WALL_THICKNESS / 2 : 1)
     // A walk-in's way in: open, beside its panel, with no rail over it or post at its end.
     const walkIn = run === door && doors === 'walk-in'
-    const pl = walkIn ? walkInPanel(u1 - u0) : 0
+    const pl = walkIn ? fixedPart(fit, u1 - u0, doors) : 0
     put(a, walkIn ? u0 + pl : b, inset, top - 2, 2, 2, metal)
     const ends = [ta === undefined ? u0 + 1 : a, tb === undefined ? u1 - 1 : b]
     for (const u of walkIn ? [ends[0]] : ends) {
@@ -2357,20 +2357,21 @@ function shower(
     if (doors === 'sliding') {
       // A fixed pane on the inner track (on the half wall, if there's one), and one on the outer with rollers and a long
       // bar to pull, sliding over it (outside the half wall's shelf, on a track of its own).
-      const pw = len * 0.55
+      const pw = fixedPart(fit, len, doors)
+      const sw = slidingPane(len, pw)
       const fixedIn = own ? inset : 2.2
       const slideIn = own ? -2.5 : 0.2
       if (own) put(a, b, slideIn, h - 2, 2, 2, metal)
       put(a, u0 + pw, fixedIn, fixedFoot, h - fixedFoot - 4, 0.8, glass)
       const panel = new THREE.Group()
-      put(u1 - pw, u1, slideIn, tray, h - tray - 4, 0.8, glass, panel)
-      for (const u of [u1 - pw + 8, u1 - 8]) put(u - 2, u + 2, slideIn, h - 7, 4, 2, chrome, panel)
-      put(u1 - pw + 4, u1 - pw + 5.5, slideIn - 1.8, 70, 60, 2, chrome, panel)
-      panel.userData.door = { slide: -(len - pw), slideAxis: along ? 'x' : 'z', startOpen: false } satisfies DoorPart
+      put(u1 - sw, u1, slideIn, tray, h - tray - 4, 0.8, glass, panel)
+      for (const u of [u1 - sw + 8, u1 - 8]) put(u - 2, u + 2, slideIn, h - 7, 4, 2, chrome, panel)
+      put(u1 - sw + 4, u1 - sw + 5.5, slideIn - 1.8, 70, 60, 2, chrome, panel)
+      panel.userData.door = { slide: -(len - sw), slideAxis: along ? 'x' : 'z', startOpen: false } satisfies DoorPart
       g.add(panel)
     } else {
       // A fixed pane, and the door hinged on it with clamps, swinging out of the shower; a pull by its free edge.
-      const fixed = len * 0.4
+      const fixed = fixedPart(fit, len, doors)
       put(a, u0 + fixed - 0.4, inset, fixedFoot, h - fixedFoot - 2, 0.8, glass)
       for (const y of [own ? crown + 12 : 30, h - 45]) put(u0 + fixed - 3, u0 + fixed + 3, inset, y, 8, 2.4, chrome)
       const leaf = new THREE.Group()
@@ -3304,13 +3305,13 @@ export function symbolModel(
         h,
         k.glass(),
         runs,
-        sym.walkIn ? 'walk-in' : (sym.doors ?? 'hinged'),
+        doorsOf(sym),
         headInModel(sym, headOf(sym, glass)),
         ceilingH,
         columnBoxes(sym, others),
         ownWalls(sym, runs),
         sym.halfWall,
-        { toCeiling: sym.glassToCeiling, brace: sym.brace },
+        { toCeiling: sym.glassToCeiling, brace: sym.brace, fixedLength: sym.fixedLength },
       )
       break
     }
