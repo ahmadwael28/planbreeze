@@ -6,7 +6,9 @@ import { isOpen, isOutdoor, railingRuns, roomOuter, symbolPose, wallEnds } from 
 import { floorOrigin } from '@/model/divide'
 import { CEILING_AC, ledgeHeight, NICHES, partitionTop, styleOf, SYMBOL_MAP, tankBoxDepth } from '@/model/symbols'
 import type { PlanTheme } from '@/model/theme'
-import type { Floor, PlanSymbol, Point, Project, Room, Selection, Surface } from '@/model/types'
+import type { Floor, PlanSymbol, Point, Project, Room, Selection, Surface, WallSurface } from '@/model/types'
+import { openSides } from '@/model/guides'
+import { ownWalls, showerRuns, stretchBox } from '@/model/shower'
 import { startsAtFloor, wallBands, wallSurfaceAt } from '@/model/finishes'
 import { cutsFor, nicheDepth, roomFaces, wallBehind, wallOpenings, wallPatches } from '@/model/walls'
 import { roomUVs } from './worktops'
@@ -439,6 +441,39 @@ export function buildProjectGroup(project: Project, opts: BuildOptions): THREE.G
       if (!obj.children.length) continue
       const up = new THREE.Vector3(0, 1, 0)
       const v3 = (x: number, y: number, z: number) => new THREE.Vector3(x, y, z)
+      /**
+       * Boxes standing on the floor, x0…x1 across and z0…z1 deep as seen (round the piece's middle), finished like a
+       * room's walls (`s`) up to `top` on all four faces, the finish carrying on round each: in a group undoing the
+       * piece's flips.
+       */
+      const cladBoxes = (boxes: { x0: number; x1: number; z0: number; z1: number }[], s: WallSurface, top: number) => {
+        const clad = new THREE.Group()
+        clad.scale.set(sym.flipX ? -1 : 1, 1, sym.flipY ? -1 : 1)
+        for (const { x0, x1, z0, z1 } of boxes) {
+          const w = x1 - x0
+          const d = z1 - z0
+          // Each face from A to B left to right as seen (x along it, z across), and where it starts along the finish.
+          const faces: { A: [number, number]; B: [number, number]; u0: number }[] = [
+            { A: [x0, z1], B: [x1, z1], u0: 0 },
+            { A: [x1, z1], B: [x1, z0], u0: w },
+            { A: [x1, z0], B: [x0, z0], u0: w + d },
+            { A: [x0, z0], B: [x0, z1], u0: 2 * w + d },
+          ]
+          for (const band of wallBands(s, floor.height)) {
+            const b1 = Math.min(band.z1, top)
+            if (b1 - band.z0 < 0.5) continue
+            for (const fc of faces) {
+              const A = v3(fc.A[0], band.z0, fc.A[1])
+              const along = v3(fc.B[0], band.z0, fc.B[1]).sub(A)
+              const len = along.length()
+              along.normalize()
+              const out = along.clone().cross(up)
+              clad.add(mesh(rectGeo(A.addScaledVector(out, 0.3), along, up, len, b1 - band.z0, fc.u0, band.z0), wallMat(band.surface)))
+            }
+          }
+        }
+        return clad
+      }
       // A column in a wall is finished like the wall it's on (tiles to their height, paint, wallpaper…): its sides
       // and front, the finish carrying on round it as laid on the developed wall (tiles on round its corners, and its
       // own in a layout of several); no skirting where tiles come down to the floor.
@@ -524,34 +559,23 @@ export function buildProjectGroup(project: Project, opts: BuildOptions): THREE.G
       // A wall standing on its own is finished like its room's walls (tiles to their height, paint above…) on both its
       // faces and its ends, the finish carrying on round it; unless it's painted.
       if (sym.type === 'partition' && !sym.frame) {
-        const room = floor.rooms.find((r) => pointInPolygon(pose, r.points))
-        const s = room?.walls
+        const s = floor.rooms.find((r) => pointInPolygon(pose, r.points))?.walls
+        if (s) obj.add(cladBoxes([{ x0: -sym.width / 2, x1: sym.width / 2, z0: -sym.depth / 2, z1: sym.depth / 2 }], s, partitionTop(sym, floor.height)))
+      }
+      // So is the half wall a shower's fixed glass stands on (its model's mirrored by its flips; the finish isn't).
+      if (sym.type === 'shower' && sym.halfWall) {
+        const s = floor.rooms.find((r) => pointInPolygon(pose, r.points))?.walls
         if (s) {
-          const w = sym.width
-          const d = sym.depth
-          const top = partitionTop(sym, floor.height)
-          // Each face from A to B left to right as seen (x along it, z across), and where it starts along the finish.
-          const faces: { A: [number, number]; B: [number, number]; u0: number }[] = [
-            { A: [-w / 2, d / 2], B: [w / 2, d / 2], u0: 0 },
-            { A: [w / 2, d / 2], B: [w / 2, -d / 2], u0: w },
-            { A: [w / 2, -d / 2], B: [-w / 2, -d / 2], u0: w + d },
-            { A: [-w / 2, -d / 2], B: [-w / 2, d / 2], u0: 2 * w + d },
-          ]
-          const clad = new THREE.Group()
-          clad.scale.x = sym.flipX ? -1 : 1
-          for (const band of wallBands(s, floor.height)) {
-            const z1 = Math.min(band.z1, top)
-            if (z1 - band.z0 < 0.5) continue
-            for (const fc of faces) {
-              const A = v3(fc.A[0], band.z0, fc.A[1])
-              const along = v3(fc.B[0], band.z0, fc.B[1]).sub(A)
-              const len = along.length()
-              along.normalize()
-              const out = along.clone().cross(up)
-              clad.add(mesh(rectGeo(A.addScaledVector(out, 0.3), along, up, len, z1 - band.z0, fc.u0, band.z0), wallMat(band.surface)))
-            }
-          }
-          obj.add(clad)
+          const fx = sym.flipX ? -1 : 1
+          const fz = sym.flipY ? -1 : 1
+          const runs = showerRuns(sym, sym.screens ?? openSides(sym, floor.rooms), floor.symbols)
+          const boxes = ownWalls(sym, runs).map((st) => {
+            const b = stretchBox(st, sym.width, sym.depth)
+            const [x0, x1] = [fx * b.x0, fx * b.x1].sort((p, q) => p - q)
+            const [z0, z1] = [fz * b.y0, fz * b.y1].sort((p, q) => p - q)
+            return { x0, x1, z0, z1 }
+          })
+          obj.add(cladBoxes(boxes, s, sym.halfWall))
         }
       }
       // A shower niche is lined with the wall's finish (where the wall has one): its back, sides, top and sill.

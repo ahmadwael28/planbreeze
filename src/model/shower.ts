@@ -112,7 +112,12 @@ export interface GlassRun {
   base?: number
   /** How far in from its side it stands (cm; less than 0: out of the shower): on a half wall, along its middle. 1 if left out. */
   inset?: number
+  /** On the shower's own half wall (see its halfWall). */
+  own?: boolean
 }
+
+/** How thick a shower's own half wall is (cm), its glass along its middle. */
+export const HALF_WALL_THICKNESS = 10
 
 /** Columns, free-standing or in a wall, that a shower's glass stops at. */
 const COLUMNS = new Set(['column', 'wall-post'])
@@ -227,7 +232,102 @@ export function glassRuns(sym: PlanSymbol, sides: ShowerSide[], others: PlanSymb
       else out.push(piece)
     }
   }
-  return out.filter((g) => g.u1 - g.u0 >= 8)
+  const runs = out.filter((g) => g.u1 - g.u0 >= 8)
+  // On a half wall of its own, if it has one: all of its fixed glass on the floor, but for its door's stretch (where
+  // only its fixed part is: see ownWalls).
+  if (sym.halfWall) {
+    const door = doorRun(runs)
+    for (const g of runs) {
+      if (g !== door && g.base === undefined) Object.assign(g, { base: sym.halfWall + LEDGE_SHELF, inset: HALF_WALL_THICKNESS / 2, own: true })
+    }
+  }
+  return runs
+}
+
+/**
+ * The corners of a straight shower, by side and end (0: its start, 1: its end along it): the other side there, and
+ * which of its ends.
+ */
+const CORNERS: Record<ShowerSide, [[ShowerSide, 0 | 1], [ShowerSide, 0 | 1]]> = {
+  front: [
+    ['left', 1],
+    ['right', 1],
+  ],
+  back: [
+    ['left', 0],
+    ['right', 0],
+  ],
+  left: [
+    ['back', 0],
+    ['front', 0],
+  ],
+  right: [
+    ['back', 1],
+    ['front', 1],
+  ],
+}
+
+/** The stretch on the side round the corner from one end of another (`end` 0: its start), if both reach that corner. */
+function roundCorner<T extends Stretch>(s: Stretch, end: 0 | 1, all: T[], w: number, d: number): T | undefined {
+  const half = (side: ShowerSide) => (side === 'front' || side === 'back' ? w : d) / 2
+  const at = (g: Stretch, e: 0 | 1) => Math.abs((e ? g.u1 : g.u0) - (e ? half(g.side) : -half(g.side))) < 0.5
+  if (!at(s, end)) return undefined
+  const [side, e] = CORNERS[s.side][end]
+  return all.find((g) => g.side === side && at(g, e))
+}
+
+/**
+ * Where a straight shower's glass meets glass round a corner, how far in from that corner each end of a run stops: at
+ * the other's line, where the two meet (with one post there). Undefined at an end that doesn't.
+ */
+export function cornerTrim(run: GlassRun, runs: GlassRun[], w: number, d: number): [number | undefined, number | undefined] {
+  const by = (e: 0 | 1) => {
+    const g = roundCorner(run, e, runs, w, d)
+    return g && (g.inset ?? 1)
+  }
+  return [by(0), by(1)]
+}
+
+/** A stretch along one of a shower's sides, u0 to u1 (as a GlassRun's). */
+export interface Stretch {
+  side: ShowerSide
+  u0: number
+  u1: number
+}
+
+/**
+ * A shower's own half walls, if its fixed glass stands on one (see its halfWall): under its fixed glass, a walk-in's
+ * panel and a hinged door's fixed pane (not a sliding door's, which slides over it). Where they are along its sides.
+ */
+export function ownWalls(sym: PlanSymbol, runs: GlassRun[]): Stretch[] {
+  if (!sym.halfWall) return []
+  const out: Stretch[] = runs.filter((g) => g.own).map(({ side, u0, u1 }) => ({ side, u0, u1 }))
+  const door = doorRun(runs)
+  const doors = sym.walkIn ? 'walk-in' : (sym.doors ?? 'hinged')
+  if (door && doors !== 'sliding') {
+    const len = door.u1 - door.u0
+    // As far as the panel goes, or the fixed pane (two fifths of it) the door's hinged on.
+    out.push({ side: door.side, u0: door.u0, u1: door.u0 + (doors === 'walk-in' ? walkInPanel(len) : len * 0.4) })
+  }
+  // Where two meet round a corner, the one on the left or right stops at the other (the front's or back's) inside face.
+  return out.map((s) => {
+    if (s.side !== 'left' && s.side !== 'right') return s
+    const t = HALF_WALL_THICKNESS
+    const u0 = roundCorner(s, 0, out, sym.width, sym.depth) ? s.u0 + t : s.u0
+    const u1 = roundCorner(s, 1, out, sym.width, sym.depth) ? s.u1 - t : s.u1
+    return { ...s, u0, u1 }
+  })
+}
+
+/**
+ * A stretch along a w × d shower's side as a box in its own frame (x across, y from its back to its front): `t` thick,
+ * in from that side.
+ */
+export function stretchBox(s: Stretch, w: number, d: number, t = HALF_WALL_THICKNESS): ColumnBox {
+  if (s.side === 'front') return { x0: s.u0, x1: s.u1, y0: d / 2 - t, y1: d / 2 }
+  if (s.side === 'back') return { x0: s.u0, x1: s.u1, y0: -d / 2, y1: -d / 2 + t }
+  if (s.side === 'right') return { x0: w / 2 - t, x1: w / 2, y0: s.u0, y1: s.u1 }
+  return { x0: -w / 2, x1: -w / 2 + t, y0: s.u0, y1: s.u1 }
 }
 
 /**

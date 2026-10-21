@@ -246,6 +246,11 @@ export interface PlanSymbol {
   room?: string
   /** Showers: a fixed glass panel with an open way in beside it (a walk-in), instead of a door. */
   walkIn?: boolean
+  /**
+   * Showers: their fixed glass stands on a half wall of their own this high (cm, under its stone shelf), not down to the
+   * floor: a walk-in's panel, a hinged door's fixed pane and the glass on their other sides.
+   */
+  halfWall?: number
   /** Showers and wardrobes: hinged or sliding doors (each has its default). */
   doors?: 'hinged' | 'sliding'
   /** Wardrobes and cabinets: glass doors. */

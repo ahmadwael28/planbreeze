@@ -842,7 +842,10 @@ function ToiletMount({ sym }: { sym: PlanSymbol }) {
       const s = f.symbols.find((x) => x.id === sym.id)
       if (!s) return
       const next = Math.min(LEDGE_RANGE[1], Math.max(LEDGE_RANGE[0], Math.round(v * 10) / 10))
-      for (const w of linedUp(f, s)) w.height = next
+      for (const w of linedUp(f, s)) {
+        if (w.type === 'shower') w.halfWall = next
+        else w.height = next
+      }
       if (next === LEDGE_HEIGHT) delete s.tankHeight
       else s.tankHeight = next
     })
@@ -1217,8 +1220,11 @@ function PartitionOptions({ sym }: { sym: PlanSymbol }) {
 
 function ShowerGlass({ sym }: { sym: PlanSymbol }) {
   const floor = useFloor()
+  const units = useEditor((s) => s.project.units)
   const auto = !sym.screens
   const sides = sym.screens ?? openSides(sym, floor.rooms)
+  // A half wall's height: a wall-hung toilet's box in the room, if there's one, to line up with it.
+  const toilet = ledgeNear(floor, sym)
   return (
     <>
     <Choice
@@ -1260,6 +1266,45 @@ function ShowerGlass({ sym }: { sym: PlanSymbol }) {
           <p className="text-xs text-muted-foreground">{t('A fixed glass panel, with an open way in beside it. Mirror the shower for the way in at the other end.')}</p>
         )}
       </Choice>
+    )}
+    {sides.length > 0 && (
+      <Choice
+        label={t('Glass stands on')}
+        value={sym.halfWall ? 'wall' : 'floor'}
+        onChange={(v) => updateSymbol(sym.id, (s) => void (v === 'wall' ? (s.halfWall = toilet ?? LEDGE_HEIGHT) : delete s.halfWall))}
+        options={[
+          { value: 'floor', label: t('The floor') },
+          { value: 'wall', label: t('A half wall') },
+        ]}
+      >
+        {sym.halfWall !== undefined && (
+          <p className="text-xs text-muted-foreground">
+            {sym.walkIn || sym.doors !== 'sliding'
+              ? t("Its fixed glass stands on a half wall with a stone shelf, finished like the room's walls. The way in still reaches the floor.")
+              : t("Its fixed glass stands on a half wall with a stone shelf, finished like the room's walls. A sliding door's two panes stay on the floor.")}
+          </p>
+        )}
+      </Choice>
+    )}
+    {sides.length > 0 && sym.halfWall !== undefined && (
+      <>
+        <Field label={t('Half wall height')}>
+          {(id) => (
+            <LengthInput
+              id={id}
+              value={sym.halfWall!}
+              units={units}
+              min={LEDGE_RANGE[0]}
+              onChange={(v) => updateSymbol(sym.id, (s) => void (s.halfWall = Math.min(LEDGE_RANGE[1], Math.max(LEDGE_RANGE[0], Math.round(v * 10) / 10))))}
+            />
+          )}
+        </Field>
+        {toilet !== undefined && Math.abs(toilet - sym.halfWall) > 0.05 && (
+          <Button variant="link" size="sm" className="h-auto px-0 text-xs" onClick={() => updateSymbol(sym.id, (s) => void (s.halfWall = toilet))}>
+            {t("Line it up with the toilet's box ({height})", { height: formatLength(toilet, units) })}
+          </Button>
+        )}
+      </>
     )}
     </>
   )

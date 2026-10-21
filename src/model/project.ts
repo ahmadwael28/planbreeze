@@ -157,11 +157,18 @@ export function ledgeNear(floor: Floor, p: Point): number | undefined {
   return near && ledgeHeight(near)
 }
 
-/** The half walls in a wall-hung toilet's room as high as its box (`h`, its height now if left out): lined up with it. */
+/**
+ * The half walls in a wall-hung toilet's room as high as its box (`h`, its height now if left out), lined up with it:
+ * walls on their own, and showers whose glass stands on a half wall.
+ */
 export function linedUp(floor: Floor, toilet: PlanSymbol, h = ledgeHeight(toilet)): PlanSymbol[] {
   const room = floor.rooms.find((r) => r.points.length >= 3 && pointInPolygon(toilet, r.points))
   if (!room || !onLedge(toilet)) return []
-  return floor.symbols.filter((s) => s.type === 'partition' && s.partial && Math.abs(s.height - h) < 0.05 && pointInPolygon(s, room.points))
+  const high = (s: PlanSymbol) => (s.type === 'partition' && s.partial ? s.height : s.type === 'shower' ? s.halfWall : undefined)
+  return floor.symbols.filter((s) => {
+    const at = high(s)
+    return at !== undefined && Math.abs(at - h) < 0.05 && pointInPolygon(s, room.points)
+  })
 }
 
 export function newSymbol(type: string, x: number, y: number): PlanSymbol {

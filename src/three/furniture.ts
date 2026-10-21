@@ -9,8 +9,8 @@
  * costs few draw calls.
  */
 import * as THREE from 'three'
-import { columnBoxes, doorRun, headInModel, headOf, headPoint, showerGlass, showerRuns, walkInPanel } from '@/model/shower'
-import type { ColumnBox, GlassRun, HeadPlace } from '@/model/shower'
+import { columnBoxes, cornerTrim, doorRun, HALF_WALL_THICKNESS, headInModel, headOf, headPoint, ownWalls, showerGlass, showerRuns, walkInPanel } from '@/model/shower'
+import type { ColumnBox, GlassRun, HeadPlace, Stretch } from '@/model/shower'
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js'
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js'
 import { WALL_WHITE } from '@/model/finishes'
@@ -2263,6 +2263,8 @@ function shower(
   head: HeadPlace,
   ceilingH: number,
   columns: ColumnBox[] = [],
+  walls: Stretch[] = [],
+  halfWall = 0,
 ) {
   const g = new THREE.Group()
   const tray = 5
@@ -2294,28 +2296,45 @@ function shower(
       on.add(box(along ? l : t, hh, along ? t : l, p.x, y, p.z, mat))
     }
     const { u0, u1 } = run
+    // Where it meets glass round a corner: from (and to) where the two lines cross, one post there.
+    const [ta, tb] = cornerTrim(run, runs, w, d)
+    const a = u0 + (ta ?? 0)
+    const b = u1 - (tb ?? 0)
+    // Its own half wall, where its fixed glass stands on one (see model/shower): finished like the room's walls (see
+    // buildScene), with a stone shelf as a toilet's box has.
+    const own = walls.find((s) => s.side === run.side && s.u0 <= u0 + HALF_WALL_THICKNESS && s.u1 > u0)
+    const crown = halfWall + LEDGE_SHELF
+    if (own) {
+      put(own.u0, own.u1, HALF_WALL_THICKNESS / 2, 0, halfWall, HALF_WALL_THICKNESS, k.q(COLORS.wall))
+      // Its shelf a little proud of it all round; on a side one, a hair under the front's or back's it runs into.
+      put(own.u0 - 1, own.u1 + 1, HALF_WALL_THICKNESS / 2, halfWall, LEDGE_SHELF - (along ? 0.15 : 0.2), HALF_WALL_THICKNESS + 2, k.q(LEDGE_STONE, 'satin'))
+    }
     // On a half wall or a toilet's box, sitting on it (along a half wall's middle); else on the tray.
     const foot = run.base ?? tray
-    const inset = run.inset ?? 1
+    const inset = run.inset ?? (own ? HALF_WALL_THICKNESS / 2 : 1)
     // A walk-in's way in: open, beside its panel, with no rail over it or post at its end.
     const walkIn = run === door && doors === 'walk-in'
     const pl = walkIn ? walkInPanel(u1 - u0) : 0
-    put(u0, walkIn ? u0 + pl : u1, inset, h - 2, 2, 2, metal)
-    for (const u of walkIn ? [u0 + 1] : [u0 + 1, u1 - 1]) {
+    put(a, walkIn ? u0 + pl : b, inset, h - 2, 2, 2, metal)
+    const ends = [ta === undefined ? u0 + 1 : a, tb === undefined ? u1 - 1 : b]
+    for (const u of walkIn ? [ends[0]] : ends) {
       const p = pos(u, inset)
       const key = `${Math.round(p.x)},${Math.round(p.z)}`
       if (posts.has(key)) continue
       posts.add(key)
-      g.add(box(2, h - foot, 2, p.x, foot, p.z, metal))
+      const from = own && u < own.u1 ? crown : foot
+      g.add(box(2, h - from, 2, p.x, from, p.z, metal))
     }
+    // Where the fixed part of its door's stretch stands: on its half wall, or on the tray.
+    const fixedFoot = own ? crown : tray
     if (run !== door) {
-      put(u0, u1, inset, foot, h - foot, 0.8, glass)
+      put(a, b, inset, foot, h - foot, 0.8, glass)
       continue
     }
     const len = u1 - u0
     if (walkIn) {
       // A fixed panel from the wall, and a bar from its free top corner across to the wall behind it, holding it.
-      put(u0, u0 + pl, 1, tray, h - tray - 2, 0.8, glass)
+      put(a, u0 + pl, inset, fixedFoot, h - fixedFoot - 2, 0.8, glass)
       const across = along ? d : w
       const p = pos(u0 + pl - 2, 1 + (across - 2) / 2)
       g.add(box(along ? 1.4 : across - 2, 1.4, along ? across - 2 : 1.4, p.x, h - 8, p.z, chrome))
@@ -2334,13 +2353,13 @@ function shower(
     } else {
       // A fixed pane, and the door hinged on it with clamps, swinging out of the shower; a pull by its free edge.
       const fixed = len * 0.4
-      put(u0, u0 + fixed - 0.4, 1, tray, h - tray - 2, 0.8, glass)
-      for (const y of [30, h - 45]) put(u0 + fixed - 3, u0 + fixed + 3, 1, y, 8, 2.4, chrome)
+      put(a, u0 + fixed - 0.4, inset, fixedFoot, h - fixedFoot - 2, 0.8, glass)
+      for (const y of [own ? crown + 12 : 30, h - 45]) put(u0 + fixed - 3, u0 + fixed + 3, inset, y, 8, 2.4, chrome)
       const leaf = new THREE.Group()
-      put(u0 + fixed + 0.4, u1, 1, tray + 1, h - tray - 4, 0.8, glass, leaf)
-      put(u1 - 9, u1 - 7.6, -1.4, 80, 30, 2.5, chrome, leaf)
+      put(u0 + fixed + 0.4, u1, inset, tray + 1, h - tray - 4, 0.8, glass, leaf)
+      put(u1 - 9, u1 - 7.6, inset - 2.4, 80, 30, 2.5, chrome, leaf)
       const along1 = along ? { x: 1, z: 0 } : { x: 0, z: 1 }
-      g.add(turning(leaf, pos(u0 + fixed, 1), swingOut(along1, { x: -nx, z: -nz }, 80)))
+      g.add(turning(leaf, pos(u0 + fixed, inset), swingOut(along1, { x: -nx, z: -nz }, 80)))
     }
   }
   // Rain head where it's been put, and a mixer on its wall.
@@ -3259,17 +3278,20 @@ export function symbolModel(
       // Glass where chosen, or on the sides not against a wall, stopping at columns; the model is mirrored by flips, the
       // glass with it (see model/shower).
       const glass = sym.screens ?? openSides(sym, rooms)
+      const runs = showerRuns(sym, glass, others)
       g = shower(
         k,
         w,
         d,
         h,
         k.glass(),
-        showerRuns(sym, glass, others),
+        runs,
         sym.walkIn ? 'walk-in' : (sym.doors ?? 'hinged'),
         headInModel(sym, headOf(sym, glass)),
         ceilingH,
         columnBoxes(sym, others),
+        ownWalls(sym, runs),
+        sym.halfWall,
       )
       break
     }

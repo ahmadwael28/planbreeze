@@ -2,7 +2,7 @@ import type { ReactNode } from 'react'
 import { lightHex } from './lighting'
 import type { PlanTheme } from './theme'
 import type { CeilingStyle, MirrorShape, PlanSymbol } from './types'
-import { doorRun, headInModel, headOf, headPoint, showerGlass, walkInPanel } from './shower'
+import { doorRun, headInModel, headOf, headPoint, ownWalls, showerGlass, stretchBox, walkInPanel } from './shower'
 import type { ColumnBox, GlassRun, ShowerSide } from './shower'
 
 export type SymbolCategory =
@@ -2116,12 +2116,31 @@ export const SYMBOLS: SymbolDef[] = [
     opens: true,
     render: (w, d, t, sym, around) => {
       const k = kit(t)
-      const door = doorRun(around?.glass ?? [{ side: 'front', u0: -w / 2, u1: w / 2 }])
+      const glass = around?.glass ?? [{ side: 'front', u0: -w / 2, u1: w / 2 }]
+      const door = doorRun(glass)
       return (
         <>
           {k.box(w, d)}
           <line x1={-w / 2} y1={-d / 2} x2={w / 2} y2={d / 2} {...k.thin} />
           <line x1={w / 2} y1={-d / 2} x2={-w / 2} y2={d / 2} {...k.thin} />
+          {sym &&
+            ownWalls(sym, glass).map((s) => {
+              const b = stretchBox(s, w, d)
+              return (
+                <rect
+                  key={`${s.side}${s.u0}`}
+                  x={b.x0}
+                  y={b.y0}
+                  width={b.x1 - b.x0}
+                  height={b.y1 - b.y0}
+                  fill={t.wall}
+                  fillOpacity={0.45}
+                  stroke={t.wall}
+                  strokeWidth={1}
+                  vectorEffect="non-scaling-stroke"
+                />
+              )
+            })}
           <circle cx={0} cy={0} r={4} {...k.s()} />
           {showerHeadMark(sym, w, d, t, sym?.screens ?? ['front'], around?.columns)}
           {door && showerDoor(k, door, w, d, sym?.walkIn ? 'walk-in' : (sym?.doors ?? 'hinged'))}
