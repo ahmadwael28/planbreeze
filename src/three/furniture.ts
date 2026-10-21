@@ -40,7 +40,7 @@ import {
   vanitySinks,
   WASHER_BAY,
   NICHES,
-  TANK_BOX,
+  tankBoxDepth,
   worktopOf,
 } from '@/model/symbols'
 import type { MirrorShape, PlanSymbol, Point, Room } from '@/model/types'
@@ -1835,7 +1835,7 @@ function wallHungToilet(k: Kit, sym: PlanSymbol, w: number, d: number, top: numb
   const g = new THREE.Group()
   const white = k.q(COLORS.ceramic, 'gloss')
   const satin = k.q(COLORS.white, 'satin')
-  const boxD = sym.tankBox === 'none' ? 0 : TANK_BOX
+  const boxD = tankBoxDepth(sym)
   const boxH = sym.tankBox === 'full' ? top : Math.min(LEDGE_HEIGHT, top)
   const back = -d / 2 + boxD // the face the bowl hangs on
   if (boxD) {

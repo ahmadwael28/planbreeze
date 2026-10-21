@@ -28,16 +28,18 @@ import { Switch } from '@/components/ui/switch'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { usePlanTheme } from '@/hooks/use-plan-theme'
 import { cn } from '@/lib/utils'
-import { area, dist, perimeter, pointInPolygon } from '@/model/geometry'
+import { area, dist, dot, normalize, perimeter, pointInPolygon, sub } from '@/model/geometry'
+import { wallBehind } from '@/model/walls'
+import { wallColumns, wallSign } from '@/model/developed'
 import { DEFAULT_RAILING, isOpen, isOutdoor, keepBack, OUTDOOR, RAILING_THICKNESS, ROOM_COLORS, roomOuter, setWallLength, symbolPose } from '@/model/project'
 import { wallAcross } from '@/model/divide'
 import { beamSpan } from '@/model/beams'
-import { CABINETS, curtainLayers, frameOf, givesLight, hasGlass, NICHES, SKIN_TONES, vanityLight, vanitySinks, WASHER_BAY, STYLES, styleOf, SYMBOL_MAP, tvInches, tvSize, WORKTOPS, worktopOf, hasWorktop } from '@/model/symbols'
+import { CABINETS, curtainLayers, frameOf, givesLight, hasGlass, NICHES, SKIN_TONES, TANK_BOX, TANK_BOX_RANGE, tankBoxDepth, vanityLight, vanitySinks, WASHER_BAY, STYLES, styleOf, SYMBOL_MAP, tvInches, tvSize, WORKTOPS, worktopOf, hasWorktop } from '@/model/symbols'
 import type { Worktop } from '@/model/symbols'
 import type { FrameColor } from '@/model/symbols'
 import { formatArea, formatLength } from '@/model/units'
 import { PERSON, PERSON_PRESETS, personLook, personSupport, POSE_NAMES } from '@/model/people'
-import type { Dimension, ItemRef, MirrorShape, OutdoorKind, PlanSymbol, Project, RailingStyle, Room, RoomUse, SavedView, Units } from '@/model/types'
+import type { Dimension, Floor, ItemRef, MirrorShape, OutdoorKind, PlanSymbol, Project, RailingStyle, Room, RoomUse, SavedView, Units } from '@/model/types'
 import {
   arrangeSelection,
   autoDimension,
@@ -802,12 +804,45 @@ const DOOR_DEFAULT: Record<string, 'hinged' | 'sliding'> = {
 const TOILET_SIZES = { floor: [40, 65], box: [60, 74], wall: [38, 54] }
 
 /**
+ * The column on the same wall as a wall-hung toilet, near it (within a metre and a half along the wall): how deep it
+ * is, to make the tank box as deep and line them up. None if there isn't one.
+ */
+function columnBeside(sym: PlanSymbol, floor: Floor): number | null {
+  const pose = symbolPose(sym, floor.rooms)
+  const at = wallBehind(pose, sym.depth, floor.rooms)
+  if (!at) return null
+  const a = at.room.points[at.edge]
+  const b = at.room.points[(at.edge + 1) % at.room.points.length]
+  const u = wallSign(at.room, at.edge) * dot(sub(pose, a), normalize(sub(b, a)))
+  let best: { gap: number; depth: number } | null = null
+  for (const c of wallColumns(floor, at.room, at.edge)) {
+    const gap = Math.max(0, c.uL - (u + sym.width / 2), u - sym.width / 2 - c.uR)
+    if (gap < 150 && (!best || gap < best.gap)) best = { gap, depth: c.depth }
+  }
+  return best && Math.round(best.depth * 10) / 10
+}
+
+/**
  * How a toilet's mounted: standing on the floor with its own tank, or hung on the wall with the tank concealed in a box
  * in front of the wall (half height with a shelf on top, or up to the ceiling) or in the wall itself. Each is made its
  * usual size, its back staying against the wall.
  */
 function ToiletMount({ sym }: { sym: PlanSymbol }) {
   const box = sym.tankBox ?? 'ledge'
+  const units = useEditor((s) => s.project.units)
+  const floor = useFloor()
+  const depth = tankBoxDepth(sym)
+  const column = box !== 'none' ? columnBeside(sym, floor) : null
+  // A deeper or shallower box: the toilet as much deeper, its bowl the same, its back where it was (on the wall).
+  const setDepth = (v: number) =>
+    updateSymbol(sym.id, (s) => {
+      const next = Math.min(TANK_BOX_RANGE[1], Math.max(TANK_BOX_RANGE[0], Math.round(v * 10) / 10))
+      const total = s.depth - tankBoxDepth(s) + next
+      if (next === TANK_BOX) delete s.tankDepth
+      else s.tankDepth = next
+      keepBack(s, total)
+      s.depth = total
+    })
   const reshape = (s: PlanSymbol, [w, d]: number[]) => {
     const r = (s.rotation * Math.PI) / 180
     const f = s.flipY ? -1 : 1
@@ -826,7 +861,7 @@ function ToiletMount({ sym }: { sym: PlanSymbol }) {
           updateSymbol(sym.id, (s) => {
             if (v === 'wall') {
               s.mount = 'wall'
-              reshape(s, s.tankBox === 'none' ? TOILET_SIZES.wall : TOILET_SIZES.box)
+              reshape(s, s.tankBox === 'none' ? TOILET_SIZES.wall : [TOILET_SIZES.box[0], TOILET_SIZES.wall[1] + tankBoxDepth(s)])
             } else {
               delete s.mount
               delete s.tankBox
@@ -848,7 +883,7 @@ function ToiletMount({ sym }: { sym: PlanSymbol }) {
             updateSymbol(sym.id, (s) => {
               if (v === 'ledge') delete s.tankBox
               else s.tankBox = v
-              if ((box === 'none') !== (v === 'none')) reshape(s, v === 'none' ? TOILET_SIZES.wall : TOILET_SIZES.box)
+              if ((box === 'none') !== (v === 'none')) reshape(s, v === 'none' ? TOILET_SIZES.wall : [TOILET_SIZES.box[0], TOILET_SIZES.wall[1] + tankBoxDepth(s)])
             })
           }
           options={[
@@ -863,6 +898,18 @@ function ToiletMount({ sym }: { sym: PlanSymbol }) {
               : t("The box is finished like the wall behind it (its tiles, if it's tiled), and can be as wide as the wall.")}
           </p>
         </Choice>
+      )}
+      {sym.mount === 'wall' && box !== 'none' && (
+        <>
+          <Field label={t('Box depth')}>
+            {(id) => <LengthInput id={id} value={depth} units={units} min={TANK_BOX_RANGE[0]} onChange={setDepth} />}
+          </Field>
+          {column !== null && Math.abs(column - depth) > 0.5 && (
+            <Button variant="link" size="sm" className="h-auto px-0 text-xs" onClick={() => setDepth(column)}>
+              {t('Make it as deep as the column beside it ({depth})', { depth: formatLength(column, units) })}
+            </Button>
+          )}
+        </>
       )}
     </>
   )

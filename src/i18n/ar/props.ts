@@ -220,6 +220,8 @@ export default {
   'Wall-hung': 'معلّق',
   'Concealed tank': 'السيفون المدفون',
   'Box with a shelf': 'صندوق برف أعلاه',
+  'Box depth': 'عمق الصندوق',
+  'Make it as deep as the column beside it ({depth})': 'اجعله بعمق العمود المجاور ({depth})',
   'Box to the ceiling': 'صندوق حتى السقف',
   'In the wall': 'داخل الحائط',
   'The tank is inside the wall: only its flush plate shows.': 'السيفون داخل الحائط: لا يظهر منه إلا لوح زر الطرد.',

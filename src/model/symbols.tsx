@@ -675,8 +675,13 @@ function niche(w: number, d: number, t: PlanTheme, sym?: PlanSymbol) {
 /** Air conditioning in the ceiling (a gypsum one, or the slab): set into it wherever they're placed. */
 export const CEILING_AC = new Set(['ac-cassette', 'ac-slot', 'ac-square', 'ac-round', 'ac-return'])
 
-/** How deep the box a wall-hung toilet's tank is concealed in stands out from the wall (cm). */
+/** How deep the box a wall-hung toilet's tank is concealed in stands out from the wall, usually (cm). */
 export const TANK_BOX = 20
+/** How deep a tank box can be made: enough for the tank, and as deep as a column it's lined up with. */
+export const TANK_BOX_RANGE: [number, number] = [10, 60]
+
+/** How far a wall-hung toilet's tank box comes out from the wall: as made, or as usual (none if it's in the wall). */
+export const tankBoxDepth = (sym: Pick<PlanSymbol, 'tankBox' | 'tankDepth'>) => (sym.tankBox === 'none' ? 0 : (sym.tankDepth ?? TANK_BOX))
 
 function kit(t: PlanTheme) {
   const base = {
@@ -1818,7 +1823,7 @@ export const SYMBOLS: SymbolDef[] = [
       if (sym?.mount === 'wall') {
         // Hung on the wall: its tank concealed in a box behind it (or in the wall), a flush plate on the front, and
         // the bowl flat at the back, round at the front.
-        const box = sym.tankBox === 'none' ? 0 : TANK_BOX
+        const box = tankBoxDepth(sym)
         const bw = Math.min(w, 38)
         const y0 = -d / 2 + box
         const len = d / 2 - y0

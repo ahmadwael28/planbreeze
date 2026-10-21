@@ -276,6 +276,8 @@ export interface PlanSymbol {
    * default) or up to the ceiling, or inside the wall itself (nothing stands out, only its flush plate shows).
    */
   tankBox?: 'ledge' | 'full' | 'none'
+  /** A wall-hung toilet's tank box: how far it comes out from the wall (cm; TANK_BOX if left out). */
+  tankDepth?: number
   /** Shower benches (built-in or across a corner): held on the wall, clear of the floor. */
   floating?: boolean
   /** Frame / trim color (hex) for items that come in several finishes: spots, tracks, aluminium doors. */

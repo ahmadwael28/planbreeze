@@ -81,7 +81,7 @@ const RULES: Record<string, Rules> = {
   'range-hood': { width: [50, 150], depth: [30, 70], height: [5, 90] },
   toilet: { width: [35, 50], depth: [45, 75], height: [35, 110] },
   // Hung on the wall: as wide as the box its tank is in (a ledge can run along the wall), as deep as that and the bowl.
-  'toilet-wall': { width: [35, 300], depth: [40, 90], height: [35, 110] },
+  'toilet-wall': { width: [35, 300], depth: [40, 120], height: [35, 110] },
   'shower-bench': { width: [30, 250], depth: [25, 70], height: [35, 60] },
   washbasin: { width: [30, 200], depth: [30, 60], height: [60, 100] },
   bathtub: { width: [120, 200], depth: [60, 100], height: [40, 70] },
