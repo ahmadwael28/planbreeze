@@ -244,6 +244,8 @@ export interface PlanSymbol {
   controls?: string[]
   /** Cove / hidden lights: the room whose ceiling they run around. */
   room?: string
+  /** Showers: a fixed glass panel with an open way in beside it (a walk-in), instead of a door. */
+  walkIn?: boolean
   /** Showers and wardrobes: hinged or sliding doors (each has its default). */
   doors?: 'hinged' | 'sliding'
   /** Wardrobes and cabinets: glass doors. */

@@ -9,8 +9,8 @@
  * costs few draw calls.
  */
 import * as THREE from 'three'
-import { doorRun, headInModel, headOf, headPoint, showerGlass, showerRuns } from '@/model/shower'
-import type { GlassRun, HeadPlace } from '@/model/shower'
+import { columnBoxes, doorRun, headInModel, headOf, headPoint, showerGlass, showerRuns, walkInPanel } from '@/model/shower'
+import type { ColumnBox, GlassRun, HeadPlace } from '@/model/shower'
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js'
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js'
 import { WALL_WHITE } from '@/model/finishes'
@@ -2227,17 +2227,18 @@ function bathtub(k: Kit, w: number, d: number, h: number) {
  * A rain head where it's been put (see model/shower): on an arm out from its wall with a mixer below, or down from the
  * ceiling (`ceilingH`) in the middle with the mixer on the first wall there is (`mixerAt`: that wall's middle).
  */
-function showerHead(g: THREE.Group, chrome: Mat, head: HeadPlace, w: number, d: number, h: number, ceilingH: number, mixerAt?: HeadPlace) {
+function showerHead(g: THREE.Group, chrome: Mat, head: HeadPlace, w: number, d: number, h: number, ceilingH: number, mixerAt?: HeadPlace, columns: ColumnBox[] = []) {
   const mixer = (p: { x: number; y: number; nx: number; ny: number }) =>
     g.add(rbox(p.ny !== 0 ? 14 : 4, 8, p.ny !== 0 ? 4 : 14, 2, p.x + p.nx * 2, 105, p.y + p.ny * 2, chrome))
   if (head.side === 'ceiling') {
     const c = headPoint(head, w, d)
     g.add(cylinder(1.1, Math.max(4, ceilingH - (h - 10.4)), c.x, h - 10.4, c.y, chrome, 1, 1.1, 12))
     g.add(cylinder(15, 1.6, c.x, h - 12, c.y, chrome))
-    if (mixerAt) mixer(headPoint(mixerAt, w, d))
+    if (mixerAt) mixer(headPoint(mixerAt, w, d, columns))
     return
   }
-  const p = headPoint(head, w, d)
+  // On its wall, or on the face of a column standing there.
+  const p = headPoint(head, w, d, columns)
   const arm = cylinder(1.1, 25, 0, 0, 0, chrome, 1, 1.1, 12)
   if (p.ny !== 0) arm.rotation.x = Math.PI / 2
   else arm.rotation.z = Math.PI / 2
@@ -2248,7 +2249,18 @@ function showerHead(g: THREE.Group, chrome: Mat, head: HeadPlace, w: number, d: 
 }
 
 /** A shower with glass on the given sides (model frame: +x right, +z front); the others are walls. */
-function shower(k: Kit, w: number, d: number, h: number, glass: Mat, runs: GlassRun[], doors: 'hinged' | 'sliding', head: HeadPlace, ceilingH: number) {
+function shower(
+  k: Kit,
+  w: number,
+  d: number,
+  h: number,
+  glass: Mat,
+  runs: GlassRun[],
+  doors: 'hinged' | 'sliding' | 'walk-in',
+  head: HeadPlace,
+  ceilingH: number,
+  columns: ColumnBox[] = [],
+) {
   const g = new THREE.Group()
   const tray = 5
   g.add(rbox(w, tray, d, 1.5, 0, 0, 0, k.q(COLORS.ceramic, 'gloss')))
@@ -2278,8 +2290,11 @@ function shower(k: Kit, w: number, d: number, h: number, glass: Mat, runs: Glass
       on.add(box(along ? l : t, hh, along ? t : l, p.x, y, p.z, mat))
     }
     const { u0, u1 } = run
-    put(u0, u1, 1, h - 2, 2, 2, metal)
-    for (const u of [u0 + 1, u1 - 1]) {
+    // A walk-in's way in: open, beside its panel, with no rail over it or post at its end.
+    const walkIn = run === door && doors === 'walk-in'
+    const pl = walkIn ? walkInPanel(u1 - u0) : 0
+    put(u0, walkIn ? u0 + pl : u1, 1, h - 2, 2, 2, metal)
+    for (const u of walkIn ? [u0 + 1] : [u0 + 1, u1 - 1]) {
       const p = pos(u, 1)
       const key = `${Math.round(p.x)},${Math.round(p.z)}`
       if (posts.has(key)) continue
@@ -2291,6 +2306,14 @@ function shower(k: Kit, w: number, d: number, h: number, glass: Mat, runs: Glass
       continue
     }
     const len = u1 - u0
+    if (walkIn) {
+      // A fixed panel from the wall, and a bar from its free top corner across to the wall behind it, holding it.
+      put(u0, u0 + pl, 1, tray, h - tray - 2, 0.8, glass)
+      const across = along ? d : w
+      const p = pos(u0 + pl - 2, 1 + (across - 2) / 2)
+      g.add(box(along ? 1.4 : across - 2, 1.4, along ? across - 2 : 1.4, p.x, h - 8, p.z, chrome))
+      continue
+    }
     if (doors === 'sliding') {
       // A fixed pane on the inner track, and one on the outer with rollers and a long bar to pull, sliding over it.
       const pw = len * 0.55
@@ -2316,7 +2339,7 @@ function shower(k: Kit, w: number, d: number, h: number, glass: Mat, runs: Glass
   // Rain head where it's been put, and a mixer on its wall.
   const sides = new Set(runs.map((r) => r.side))
   const wall = (['back', 'left', 'right', 'front'] as const).find((s) => !sides.has(s))
-  showerHead(g, chrome, head, w, d, h, ceilingH, wall && { side: wall, at: 0.5 })
+  showerHead(g, chrome, head, w, d, h, ceilingH, wall && { side: wall, at: 0.5 }, columns)
   return g
 }
 
@@ -3225,7 +3248,18 @@ export function symbolModel(
       // Glass where chosen, or on the sides not against a wall, stopping at columns; the model is mirrored by flips, the
       // glass with it (see model/shower).
       const glass = sym.screens ?? openSides(sym, rooms)
-      g = shower(k, w, d, h, k.glass(), showerRuns(sym, glass, others), sym.doors ?? 'hinged', headInModel(sym, headOf(sym, glass)), ceilingH)
+      g = shower(
+        k,
+        w,
+        d,
+        h,
+        k.glass(),
+        showerRuns(sym, glass, others),
+        sym.walkIn ? 'walk-in' : (sym.doors ?? 'hinged'),
+        headInModel(sym, headOf(sym, glass)),
+        ceilingH,
+        columnBoxes(sym, others),
+      )
       break
     }
     case 'shower-quadrant':

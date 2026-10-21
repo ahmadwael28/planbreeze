@@ -1171,6 +1171,7 @@ function ShowerGlass({ sym }: { sym: PlanSymbol }) {
   const auto = !sym.screens
   const sides = sym.screens ?? openSides(sym, floor.rooms)
   return (
+    <>
     <Choice
       multiple
       label={t('Glass on')}
@@ -1196,6 +1197,22 @@ function ShowerGlass({ sym }: { sym: PlanSymbol }) {
         )}
       </p>
     </Choice>
+    {sides.length > 0 && (
+      <Choice
+        label={t('Way in')}
+        value={sym.walkIn ? 'walk-in' : 'door'}
+        onChange={(v) => updateSymbol(sym.id, (s) => void (v === 'walk-in' ? (s.walkIn = true) : delete s.walkIn))}
+        options={[
+          { value: 'door', label: t('A door') },
+          { value: 'walk-in', label: t('Glass panel') },
+        ]}
+      >
+        {sym.walkIn && (
+          <p className="text-xs text-muted-foreground">{t('A fixed glass panel, with an open way in beside it. Mirror the shower for the way in at the other end.')}</p>
+        )}
+      </Choice>
+    )}
+    </>
   )
 }
 
@@ -2123,7 +2140,7 @@ function SymbolProps({ sym, units }: { sym: PlanSymbol; units: Units }) {
             </p>
           </div>
         )}
-        {DOOR_DEFAULT[sym.type] && (
+        {DOOR_DEFAULT[sym.type] && !(sym.type === 'shower' && sym.walkIn) && (
           <Choice
             label={t('Doors')}
             value={sym.doors ?? DOOR_DEFAULT[sym.type]}

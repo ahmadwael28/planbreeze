@@ -14,7 +14,7 @@ import {
 } from '@/model/geometry'
 import { finishOf, surfaceLayout, wallSurfaceAt } from '@/model/finishes'
 import { openSides } from '@/model/guides'
-import { showerRuns } from '@/model/shower'
+import { columnBoxes, showerRuns } from '@/model/shower'
 import { aroundColumns, developed, wallColumns } from '@/model/developed'
 import { cellRect, hasMix, parseKey, tileGrid, tileIndex, tileStyle } from '@/model/tiles'
 import { ceilingLight, ceilingRoom, ceilingZones, coveRuns, nearestOnStrip, onCeilingJoin, pocketWidth, SHADOW_GAP, WIRE_COLORS } from '@/model/lighting'
@@ -93,7 +93,7 @@ const SymbolGraphic = memo(function SymbolGraphic({
         sym.type === 'shower' ? (
           (() => {
             const seenSym = sym.screens ? sym : { ...sym, screens: openSides(sym, rooms) }
-            return def.render(sym.width, depth, theme, seenSym, showerRuns(sym, seenSym.screens!, columns ?? []))
+            return def.render(sym.width, depth, theme, seenSym, { glass: showerRuns(sym, seenSym.screens!, columns ?? []), columns: columnBoxes(sym, columns ?? []) })
           })()
         ) : (
           def.render(sym.width, depth, theme, sym)

@@ -67,20 +67,35 @@ export function headInModel(sym: PlanSymbol, place: HeadPlace): HeadPlace {
  * The head's spot on its wall, in a w × d shower's frame (x right, y toward the front, from its middle), kept clear
  * of the corners, and the way into the shower from there. The middle for a ceiling head.
  */
-export function headPoint(place: HeadPlace, w: number, d: number): { x: number; y: number; nx: number; ny: number } {
+export function headPoint(place: HeadPlace, w: number, d: number, columns: ColumnBox[] = []): { x: number; y: number; nx: number; ny: number } {
   const clear = (len: number) => Math.min(0.5, 12 / Math.max(len, 1))
   const along = (len: number) => -len / 2 + len * Math.min(1 - clear(len), Math.max(clear(len), place.at))
-  switch (place.side) {
-    case 'back':
-      return { x: along(w), y: -d / 2, nx: 0, ny: 1 }
-    case 'front':
-      return { x: along(w), y: d / 2, nx: 0, ny: -1 }
-    case 'left':
-      return { x: -w / 2, y: along(d), nx: 1, ny: 0 }
-    case 'right':
-      return { x: w / 2, y: along(d), nx: -1, ny: 0 }
+  const p =
+    place.side === 'back'
+      ? { x: along(w), y: -d / 2, nx: 0, ny: 1 }
+      : place.side === 'front'
+        ? { x: along(w), y: d / 2, nx: 0, ny: -1 }
+        : place.side === 'left'
+          ? { x: -w / 2, y: along(d), nx: 1, ny: 0 }
+          : place.side === 'right'
+            ? { x: w / 2, y: along(d), nx: -1, ny: 0 }
+            : null
+  if (!p) return { x: 0, y: 0, nx: 0, ny: 0 }
+  // Where a column stands on that wall, on the column's face (out from the wall as far as it is).
+  for (const c of columns) {
+    if (p.x < c.x0 || p.x > c.x1 || p.y < c.y0 || p.y > c.y1) continue
+    if (p.ny > 0) p.y = Math.max(p.y, c.y1)
+    else if (p.ny < 0) p.y = Math.min(p.y, c.y0)
+    else if (p.nx > 0) p.x = Math.max(p.x, c.x1)
+    else p.x = Math.min(p.x, c.x0)
   }
-  return { x: 0, y: 0, nx: 0, ny: 0 }
+  return p
+}
+
+/** A walk-in shower's glass panel along its way in (`len` long): what's left beside it, 50 to 70 cm, is the way in. */
+export function walkInPanel(len: number) {
+  const open = Math.min(70, Math.max(50, len * 0.4))
+  return len - open >= 25 ? len - open : len * 0.5
 }
 
 /**
@@ -101,9 +116,16 @@ const COLUMNS = new Set(['column', 'wall-post'])
  * but not through a column standing on its line (or against it: there the column is the wall), each stretch at least
  * a hand's width.
  */
-export function glassRuns(sym: PlanSymbol, sides: ShowerSide[], others: PlanSymbol[]): GlassRun[] {
-  const w = sym.width
-  const d = sym.depth
+/** A column near a shower, as a box in the shower's own frame (x across, y from its back to its front), a touch bigger. */
+export interface ColumnBox {
+  x0: number
+  x1: number
+  y0: number
+  y1: number
+}
+
+/** The columns (free-standing or in a wall) on a floor, as boxes in a shower's own frame, before its flips. */
+export function columnBoxes(sym: PlanSymbol, others: PlanSymbol[]): ColumnBox[] {
   // A plan point in the shower's frame: x across it, y from its back to its front, before its flips.
   const r = (-sym.rotation * Math.PI) / 180
   const local = (x: number, y: number) => {
@@ -114,7 +136,7 @@ export function glassRuns(sym: PlanSymbol, sides: ShowerSide[], others: PlanSymb
     return { x: sym.flipX ? -lx : lx, y: sym.flipY ? -ly : ly }
   }
   const TOUCH = 1.5
-  const boxes = others
+  return others
     .filter((c) => COLUMNS.has(c.type) && c.id !== sym.id)
     .map((c) => {
       const a = (c.rotation * Math.PI) / 180
@@ -132,6 +154,12 @@ export function glassRuns(sym: PlanSymbol, sides: ShowerSide[], others: PlanSymb
       const ys = pts.map((p) => p.y)
       return { x0: Math.min(...xs) - TOUCH, x1: Math.max(...xs) + TOUCH, y0: Math.min(...ys) - TOUCH, y1: Math.max(...ys) + TOUCH }
     })
+}
+
+export function glassRuns(sym: PlanSymbol, sides: ShowerSide[], others: PlanSymbol[]): GlassRun[] {
+  const w = sym.width
+  const d = sym.depth
+  const boxes = columnBoxes(sym, others)
   const out: GlassRun[] = []
   for (const side of sides) {
     const across = side === 'front' || side === 'back'
