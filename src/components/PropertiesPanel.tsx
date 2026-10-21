@@ -31,10 +31,10 @@ import { cn } from '@/lib/utils'
 import { area, dist, dot, normalize, perimeter, pointInPolygon, sub } from '@/model/geometry'
 import { wallBehind } from '@/model/walls'
 import { wallColumns, wallSign } from '@/model/developed'
-import { DEFAULT_RAILING, isOpen, isOutdoor, keepBack, OUTDOOR, RAILING_THICKNESS, ROOM_COLORS, roomOuter, setWallLength, symbolPose } from '@/model/project'
+import { DEFAULT_RAILING, isOpen, isOutdoor, keepBack, ledgeNear, linedUp, OUTDOOR, RAILING_THICKNESS, ROOM_COLORS, roomOuter, setWallLength, symbolPose } from '@/model/project'
 import { wallAcross } from '@/model/divide'
 import { beamSpan } from '@/model/beams'
-import { CABINETS, curtainLayers, frameOf, givesLight, hasGlass, LEDGE_HEIGHT, NICHES, SKIN_TONES, TANK_BOX, TANK_BOX_RANGE, tankBoxDepth, vanityLight, vanitySinks, WASHER_BAY, STYLES, styleOf, SYMBOL_MAP, tvInches, tvSize, WORKTOPS, worktopOf, hasWorktop } from '@/model/symbols'
+import { CABINETS, curtainLayers, frameOf, givesLight, hasGlass, LEDGE_HEIGHT, LEDGE_RANGE, ledgeHeight, NICHES, SKIN_TONES, TANK_BOX, TANK_BOX_RANGE, tankBoxDepth, vanityLight, vanitySinks, WASHER_BAY, STYLES, styleOf, SYMBOL_MAP, tvInches, tvSize, WORKTOPS, worktopOf, hasWorktop } from '@/model/symbols'
 import type { Worktop } from '@/model/symbols'
 import type { FrameColor } from '@/model/symbols'
 import { formatArea, formatLength } from '@/model/units'
@@ -833,6 +833,19 @@ function ToiletMount({ sym }: { sym: PlanSymbol }) {
   const floor = useFloor()
   const depth = tankBoxDepth(sym)
   const column = box !== 'none' ? columnBeside(sym, floor) : null
+  const ledge = ledgeHeight(sym)
+  const lined = linedUp(floor, sym).length
+  // A higher or lower ledge: the half walls in its room lined up with it go with it.
+  const setLedge = (v: number) =>
+    useEditor.getState().commit((d) => {
+      const f = draftFloor(d)
+      const s = f.symbols.find((x) => x.id === sym.id)
+      if (!s) return
+      const next = Math.min(LEDGE_RANGE[1], Math.max(LEDGE_RANGE[0], Math.round(v * 10) / 10))
+      for (const w of linedUp(f, s)) w.height = next
+      if (next === LEDGE_HEIGHT) delete s.tankHeight
+      else s.tankHeight = next
+    })
   // A deeper or shallower box: the toilet as much deeper, its bowl the same, its back where it was (on the wall).
   const setDepth = (v: number) =>
     updateSymbol(sym.id, (s) => {
@@ -908,6 +921,14 @@ function ToiletMount({ sym }: { sym: PlanSymbol }) {
             <Button variant="link" size="sm" className="h-auto px-0 text-xs" onClick={() => setDepth(column)}>
               {t('Make it as deep as the column beside it ({depth})', { depth: formatLength(column, units) })}
             </Button>
+          )}
+          {box === 'ledge' && (
+            <>
+              <Field label={t('Box height')}>
+                {(id) => <LengthInput id={id} value={ledge} units={units} min={LEDGE_RANGE[0]} onChange={setLedge} />}
+              </Field>
+              {lined > 0 && <p className="text-xs text-muted-foreground">{t('The half walls lined up with it here go up and down with it.')}</p>}
+            </>
           )}
         </>
       )}
@@ -1124,7 +1145,12 @@ function VanityOptions({ sym, units }: { sym: PlanSymbol; units: Units }) {
  * ceiling or open; finished like its room's walls or painted (see its finish).
  */
 function PartitionOptions({ sym }: { sym: PlanSymbol }) {
-  const height = !sym.partial ? 'full' : sym.height === LEDGE_HEIGHT ? 'half' : 'custom'
+  const units = useEditor((s) => s.project.units)
+  const floor = useFloor()
+  // Half height: the box of a wall-hung toilet in its room, if there's one; else as such boxes usually are.
+  const toilet = ledgeNear(floor, sym)
+  const half = toilet ?? LEDGE_HEIGHT
+  const height = !sym.partial ? 'full' : sym.height === half ? 'half' : 'custom'
   return (
     <>
       <Choice
@@ -1141,9 +1167,9 @@ function PartitionOptions({ sym }: { sym: PlanSymbol }) {
             s.partial = true
             // Half height is a wall-hung toilet's box's, and it gets a shelf as the box has: the two line up.
             if (v === 'half') {
-              s.height = LEDGE_HEIGHT
+              s.height = half
               if (height === 'full') s.shelf = true
-            } else if (height === 'full' || s.height === LEDGE_HEIGHT) s.height = 150
+            } else if (height === 'full' || s.height === half) s.height = Math.min(half + 40, 250)
           })
         }
         options={[
@@ -1153,7 +1179,11 @@ function PartitionOptions({ sym }: { sym: PlanSymbol }) {
         ]}
       >
         {height === 'half' && (
-          <p className="text-xs text-muted-foreground">{t("As high as a wall-hung toilet's box (and its shelf), so the two line up.")}</p>
+          <p className="text-xs text-muted-foreground">
+            {toilet !== undefined
+              ? t("As high as the toilet's box here ({height}), and its shelf, so the two line up.", { height: formatLength(toilet, units) })
+              : t("As high as a wall-hung toilet's box (and its shelf), so the two line up.")}
+          </p>
         )}
       </Choice>
       {sym.partial && (
@@ -1848,7 +1878,8 @@ function SymbolProps({ sym, units }: { sym: PlanSymbol; units: Units }) {
             [
               'height',
               sym.type === 'gypsum-box' ? t('Drop') : beam ? t('Below the ceiling') : def?.fixture === 'switch' ? t('Mount height') : t('Height'),
-              !isLabel && !def?.fullHeight && (!partition || !!sym.partial),
+              // A wall-hung toilet's is its box's (see its mounting).
+              !isLabel && !def?.fullHeight && (!partition || !!sym.partial) && !(sym.type === 'toilet' && sym.mount === 'wall'),
             ],
           ] as [Dim, string, boolean][]
         ).map(([dim, label, shown]) => {

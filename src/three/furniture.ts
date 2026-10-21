@@ -40,8 +40,8 @@ import {
   vanitySinks,
   WASHER_BAY,
   NICHES,
-  LEDGE_HEIGHT,
   LEDGE_SHELF,
+  ledgeHeight,
   partitionCrown,
   partitionTop,
   tankBoxDepth,
@@ -1840,7 +1840,7 @@ function wallHungToilet(k: Kit, sym: PlanSymbol, w: number, d: number, top: numb
   const white = k.q(COLORS.ceramic, 'gloss')
   const satin = k.q(COLORS.white, 'satin')
   const boxD = tankBoxDepth(sym)
-  const boxH = sym.tankBox === 'full' ? top : Math.min(LEDGE_HEIGHT, top)
+  const boxH = sym.tankBox === 'full' ? top : Math.min(ledgeHeight(sym), top)
   const back = -d / 2 + boxD // the face the bowl hangs on
   if (boxD) {
     g.add(box(w, boxH, boxD, 0, 0, -d / 2 + boxD / 2, k.q(WALL_WHITE, 'satin')))

@@ -1,7 +1,7 @@
 /**
  * Where a shower's head is: on one of its walls, some way along it, or from the ceiling (a rain shower).
  */
-import { LEDGE_HEIGHT, LEDGE_SHELF, partitionCrown, tankBoxDepth } from './symbols'
+import { LEDGE_SHELF, ledgeHeight, partitionCrown, tankBoxDepth } from './symbols'
 import type { PlanSymbol } from './types'
 
 export type ShowerSide = 'front' | 'back' | 'left' | 'right'
@@ -176,7 +176,7 @@ export function columnBoxes(sym: PlanSymbol, others: PlanSymbol[]): ColumnBox[] 
     .filter((c) => c.id !== sym.id && inShowersWay(c))
     .map((c) => {
       // A toilet's box along its back: as high as its shelf, or up to the ceiling.
-      if (c.type === 'toilet') return boxOf(c, -c.depth / 2, -c.depth / 2 + tankBoxDepth(c), c.tankBox === 'full' ? undefined : LEDGE_HEIGHT + LEDGE_SHELF)
+      if (c.type === 'toilet') return boxOf(c, -c.depth / 2, -c.depth / 2 + tankBoxDepth(c), c.tankBox === 'full' ? undefined : ledgeHeight(c) + LEDGE_SHELF)
       // A half wall with nothing over it, as high as it comes; a wall up to the ceiling, or one with glass over it.
       const low = c.type === 'partition' && c.partial && !c.glassTop
       return boxOf(c, -c.depth / 2, c.depth / 2, low ? partitionCrown(c, Infinity) : undefined)

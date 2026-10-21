@@ -4,7 +4,7 @@ import { add, bbox, dist, dot, inwardNormal, labelPoint, mul, normalize, pointIn
 import { isSelected } from '@/model/items'
 import { isOpen, isOutdoor, railingRuns, roomOuter, symbolPose, wallEnds } from '@/model/project'
 import { floorOrigin } from '@/model/divide'
-import { CEILING_AC, LEDGE_HEIGHT, NICHES, partitionTop, styleOf, SYMBOL_MAP, tankBoxDepth } from '@/model/symbols'
+import { CEILING_AC, ledgeHeight, NICHES, partitionTop, styleOf, SYMBOL_MAP, tankBoxDepth } from '@/model/symbols'
 import type { PlanTheme } from '@/model/theme'
 import type { Floor, PlanSymbol, Point, Project, Room, Selection, Surface } from '@/model/types'
 import { startsAtFloor, wallBands, wallSurfaceAt } from '@/model/finishes'
@@ -133,7 +133,7 @@ function gapToWall(sym: PlanSymbol, pose: { x: number; y: number; rotation: numb
  */
 function builtBox(sym: PlanSymbol, ceilingH: number) {
   if (sym.type === 'toilet' && sym.mount === 'wall' && sym.tankBox !== 'none') {
-    return { depth: tankBoxDepth(sym), y0: 0, y1: sym.tankBox === 'full' ? ceilingH : Math.min(LEDGE_HEIGHT, ceilingH), corner: false, under: false }
+    return { depth: tankBoxDepth(sym), y0: 0, y1: sym.tankBox === 'full' ? ceilingH : Math.min(ledgeHeight(sym), ceilingH), corner: false, under: false }
   }
   if (sym.type === 'shower-bench') {
     const style = styleOf(sym)

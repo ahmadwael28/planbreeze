@@ -15,7 +15,7 @@ import {
   signedArea,
   sub,
 } from './geometry'
-import { SYMBOL_MAP } from './symbols'
+import { ledgeHeight, SYMBOL_MAP } from './symbols'
 import { t } from '@/i18n'
 import type { Dimension, Floor, OutdoorKind, PlanSymbol, Point, Pose, Project, Railing, Room, WallAttachment } from './types'
 
@@ -139,6 +139,29 @@ export function rectPoints(x: number, y: number, w: number, h: number): Point[] 
     { x: x + w, y: y + h },
     { x, y: y + h },
   ]
+}
+
+/** A wall-hung toilet with its tank in a box that's a ledge (with a shelf on top). */
+const onLedge = (s: PlanSymbol) => s.type === 'toilet' && s.mount === 'wall' && (s.tankBox ?? 'ledge') === 'ledge'
+
+/**
+ * How high the box of a wall-hung toilet in the room at `p` comes up, if it's a ledge (the nearest one's, if there are
+ * more): what a half wall there is made as high as, to line up with it. None if there isn't one.
+ */
+export function ledgeNear(floor: Floor, p: Point): number | undefined {
+  const room = floor.rooms.find((r) => r.points.length >= 3 && pointInPolygon(p, r.points))
+  if (!room) return undefined
+  const near = floor.symbols
+    .filter((s) => onLedge(s) && pointInPolygon(s, room.points))
+    .sort((a, b) => dist(a, p) - dist(b, p))[0]
+  return near && ledgeHeight(near)
+}
+
+/** The half walls in a wall-hung toilet's room as high as its box (`h`, its height now if left out): lined up with it. */
+export function linedUp(floor: Floor, toilet: PlanSymbol, h = ledgeHeight(toilet)): PlanSymbol[] {
+  const room = floor.rooms.find((r) => r.points.length >= 3 && pointInPolygon(toilet, r.points))
+  if (!room || !onLedge(toilet)) return []
+  return floor.symbols.filter((s) => s.type === 'partition' && s.partial && Math.abs(s.height - h) < 0.05 && pointInPolygon(s, room.points))
 }
 
 export function newSymbol(type: string, x: number, y: number): PlanSymbol {

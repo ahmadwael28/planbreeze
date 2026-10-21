@@ -21,12 +21,12 @@ import type { Side } from '@/model/guides'
 import { fixSizes } from '@/model/sizes'
 import type { Clip } from '@/model/items'
 import { CEILING_STYLES, mergeRoomLights, OTHER_LIGHTS, pruneControls, remapEdges, remapEdgeValues, ROOM_LIGHTS } from '@/model/lighting'
-import { columnIntoWall, dimensionPoints, findWallSnap, isOpen, isOutdoor, moveWall, roomOuter, symbolPose } from '@/model/project'
+import { columnIntoWall, dimensionPoints, findWallSnap, isOpen, isOutdoor, ledgeNear, moveWall, roomOuter, symbolPose } from '@/model/project'
 import { dividePoints, healOpenings, joinPoints, openedPoints, sharedStretch, wallAcross } from '@/model/divide'
 import { beamSpan } from '@/model/beams'
 import { personDepth, personSupport } from '@/model/people'
 import { behindSofa } from '@/model/placement'
-import { SYMBOL_MAP } from '@/model/symbols'
+import { LEDGE_HEIGHT, SYMBOL_MAP } from '@/model/symbols'
 import type {
   CeilingStyle,
   Dimension,
@@ -443,6 +443,8 @@ export function addSymbol(type: string, at?: Point, rotation = 0, wall?: PlanSym
   // A beam runs from wall to wall, the short way across the room it's put in.
   if (type === 'beam') Object.assign(sym, beamSpan(p, floor0.rooms) ?? {})
   if (def?.wall) sym.depth = st0.project.defaultWallThickness
+  // A half wall lines up with the box of a wall-hung toilet in its room.
+  if (sym.type === 'partition' && sym.partial && sym.height === LEDGE_HEIGHT) sym.height = ledgeNear(floor0, p) ?? sym.height
   // A switch is named after its room (Kitchen S1…).
   if (def?.fixture === 'switch') sym.label = newSwitchLabel(floor0, switchRoom(sym, floor0.rooms))
   if (def?.fixture === 'cove') {

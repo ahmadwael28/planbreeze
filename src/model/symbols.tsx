@@ -685,8 +685,13 @@ export const PARTITION_FINISHES: FrameColor[] = [
 /** A wall standing on its own: how high its top is (cm), the floor's walls' height if it goes up to the ceiling. */
 export const partitionTop = (sym: Pick<PlanSymbol, 'partial' | 'height'>, floorH: number) => (sym.partial ? Math.min(sym.height, floorH) : floorH)
 
-/** How high a wall-hung toilet's tank box comes up when it's a ledge, under its stone shelf (cm); a half wall's too. */
+/** How high a wall-hung toilet's tank box usually comes up when it's a ledge, under its stone shelf (cm); a half wall's too. */
 export const LEDGE_HEIGHT = 110
+/** How high a ledge can be made: over the tank's frame, and its flush plate still in reach. */
+export const LEDGE_RANGE: [number, number] = [80, 150]
+
+/** How high a wall-hung toilet's box comes up when it's a ledge, under its shelf (cm): as made, or as usual. */
+export const ledgeHeight = (sym: Pick<PlanSymbol, 'tankHeight'>) => sym.tankHeight ?? LEDGE_HEIGHT
 /** How thick the stone shelf on a toilet's ledge, or on a half wall, is (cm). */
 export const LEDGE_SHELF = 2
 
