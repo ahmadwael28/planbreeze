@@ -256,6 +256,11 @@ export interface PlanSymbol {
    * the door, and the half wall under it if there's one. As usual if left out.
    */
   fixedLength?: number
+  /**
+   * Showers: the fixed part of the side with their way in (the half wall, if there's one) starts at that side's other
+   * end: its end in their own frame, not its start.
+   */
+  fixedAtEnd?: boolean
   /** Showers: how wide their door (or open way in) is (cm), past the fixed part; the rest of that side if left out. */
   doorWidth?: number
   /** Showers with a hinged door: it opens into the shower (out of it if left out). */

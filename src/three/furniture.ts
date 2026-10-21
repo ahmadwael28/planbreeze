@@ -2265,7 +2265,15 @@ function shower(
   columns: ColumnBox[] = [],
   walls: Stretch[] = [],
   halfWall = 0,
-  fit: { toCeiling?: boolean; brace?: 'wall' | 'ceiling'; fixedLength?: number; doorWidth?: number; swingIn?: boolean; hingeFar?: boolean } = {},
+  fit: {
+    toCeiling?: boolean
+    brace?: 'wall' | 'ceiling'
+    fixedLength?: number
+    doorWidth?: number
+    swingIn?: boolean
+    hingeFar?: boolean
+    fixedAtEnd?: boolean
+  } = {},
 ) {
   const g = new THREE.Group()
   const tray = 5
@@ -2317,20 +2325,27 @@ function shower(
     // On a half wall or a toilet's box, sitting on it (along a half wall's middle); else on the tray.
     const foot = run.base ?? tray
     const inset = run.inset ?? (mine.length ? HALF_WALL_THICKNESS / 2 : 1)
-    // Its door's stretch: the fixed glass, the door (or the open way in) from d0 to d1, and fixed glass past it.
+    // Its door's stretch: the fixed glass, the door (or the open way in) from d0 to d1, and fixed glass past it; worked
+    // out from the end its fixed glass starts at (its far end, if that's chosen: `m` turns it round into place).
     const len = u1 - u0
     const parts = run === door ? wayIn(fit, len, doors) : undefined
+    const flip = !!parts && !!fit.fixedAtEnd
+    const m = (u: number) => (flip ? u0 + u1 - u : u)
+    // From p0 to p1, so worked out, in place.
+    const span = (p0: number, p1: number): [number, number] => (flip ? [m(p1), m(p0)] : [p0, p1])
+    const va = flip ? m(b) : a
+    const vb = flip ? m(a) : b
     const d0 = u0 + (parts?.fixed ?? 0)
     const d1 = d0 + (parts?.door ?? 0)
     const rest = parts?.rest ?? 0
     // A walk-in's way in: open, with no rail over it (or post at its end, unless there's glass past it).
     const walkIn = run === door && doors === 'walk-in'
     if (walkIn) {
-      put(a, d0, inset, top - 2, 2, 2, metal)
-      if (rest) put(d1, b, inset, top - 2, 2, 2, metal)
+      put(...span(va, d0), inset, top - 2, 2, 2, metal)
+      if (rest) put(...span(d1, vb), inset, top - 2, 2, 2, metal)
     } else put(a, b, inset, top - 2, 2, 2, metal)
     const ends = [ta === undefined ? u0 + 1 : a, tb === undefined ? u1 - 1 : b]
-    for (const u of walkIn && !rest ? [ends[0]] : ends) {
+    for (const u of walkIn && !rest ? [flip ? ends[1] : ends[0]] : ends) {
       const p = pos(u, inset)
       const key = `${Math.round(p.x)},${Math.round(p.z)}`
       if (posts.has(key)) continue
@@ -2344,20 +2359,21 @@ function shower(
     }
     // The fixed glass either side of the way in, from p0 to p1 up to y1: on its half wall, or on the tray.
     const pane = (p0: number, p1: number, y1: number, ins = inset) => {
-      const y0 = onWall((p0 + p1) / 2) ? crown : tray
-      put(p0, p1, ins, y0, y1 - y0, 0.8, glass)
+      const [q0, q1] = span(p0, p1)
+      const y0 = onWall((q0 + q1) / 2) ? crown : tray
+      put(q0, q1, ins, y0, y1 - y0, 0.8, glass)
     }
     if (walkIn) {
       // A fixed panel from the wall; held, if it's chosen, by a bar from its free top corner across to the wall behind
       // it or up to the ceiling.
-      pane(a, d0, top - 2)
-      if (rest) pane(d1, b, top - 2)
+      pane(va, d0, top - 2)
+      if (rest) pane(d1, vb, top - 2)
       if (fit.brace === 'wall' && !fit.toCeiling) {
         const across = along ? d : w
-        const p = pos(d0 - 2, inset + (across - inset) / 2)
+        const p = pos(m(d0 - 2), inset + (across - inset) / 2)
         g.add(box(along ? 1.4 : across - inset, 1.4, along ? across - inset : 1.4, p.x, top - 8, p.z, chrome))
       } else if (fit.brace === 'ceiling' && ceilingH - top > 2) {
-        const p = pos(d0 - 2, inset)
+        const p = pos(m(d0 - 2), inset)
         g.add(cylinder(0.7, ceilingH - top, p.x, top, p.z, chrome))
       }
       continue
@@ -2374,16 +2390,17 @@ function shower(
       const fixedIn = mine.length ? inset : 2.2
       const slideIn = mine.length ? -2.5 : 0.2
       if (mine.length) put(a, b, slideIn, h - 2, 2, 2, metal)
-      pane(a, d0, h - 4, fixedIn)
-      if (rest) pane(d1, b, h - 4, fixedIn)
+      pane(va, d0, h - 4, fixedIn)
+      if (rest) pane(d1, vb, h - 4, fixedIn)
       const s0 = d0 - ov
       const s1 = rest ? d1 + ov : d1
       const panel = new THREE.Group()
-      put(s0, s1, slideIn, tray, h - tray - 4, 0.8, glass, panel)
-      for (const u of [s0 + 8, s1 - 8]) put(u - 2, u + 2, slideIn, h - 7, 4, 2, chrome, panel)
-      put(s0 + 4, s0 + 5.5, slideIn - 1.8, 70, 60, 2, chrome, panel)
-      // Open, the way in clear, as far as the track goes.
-      panel.userData.door = { slide: -Math.min(s1 - d0, s0 - u0), slideAxis: along ? 'x' : 'z', startOpen: false } satisfies DoorPart
+      put(...span(s0, s1), slideIn, tray, h - tray - 4, 0.8, glass, panel)
+      for (const u of [s0 + 8, s1 - 8]) put(...span(u - 2, u + 2), slideIn, h - 7, 4, 2, chrome, panel)
+      put(...span(s0 + 4, s0 + 5.5), slideIn - 1.8, 70, 60, 2, chrome, panel)
+      // Open, the way in clear, as far as the track goes: toward the fixed glass's end.
+      const slide = Math.min(s1 - d0, s0 - u0)
+      panel.userData.door = { slide: flip ? slide : -slide, slideAxis: along ? 'x' : 'z', startOpen: false } satisfies DoorPart
       g.add(panel)
     } else {
       // The door hinged with clamps at one end (on the fixed glass beside it, or at its far end: the glass there, a
@@ -2391,15 +2408,16 @@ function shower(
       const hinge = fit.hingeFar ? d1 : d0
       const free = fit.hingeFar ? d0 : d1
       const s = fit.hingeFar ? -1 : 1
-      pane(a, d0 - 0.4, h - 2)
-      if (rest) pane(d1 + 0.4, b, h - 2)
-      for (const y of [onWall(hinge - s * 2) ? crown + 12 : 30, h - 45]) put(hinge - 3, hinge + 3, inset, y, 8, 2.4, chrome)
+      pane(va, d0 - 0.4, h - 2)
+      if (rest) pane(d1 + 0.4, vb, h - 2)
+      for (const y of [onWall(m(hinge - s * 2)) ? crown + 12 : 30, h - 45]) put(...span(hinge - 3, hinge + 3), inset, y, 8, 2.4, chrome)
       const leaf = new THREE.Group()
-      put(d0 + 0.4, d1 - 0.4, inset, tray + 1, h - tray - 4, 0.8, glass, leaf)
+      put(...span(d0 + 0.4, d1 - 0.4), inset, tray + 1, h - tray - 4, 0.8, glass, leaf)
       const pull = free - s * 8.3
-      for (const side of fit.swingIn ? [-1, 1] : [-1]) put(pull - 0.7, pull + 0.7, inset + side * 2.4, 80, 30, 2.5, chrome, leaf)
-      const way = along ? { x: s, z: 0 } : { x: 0, z: s }
-      g.add(turning(leaf, pos(hinge, inset), swingOut(way, fit.swingIn ? { x: nx, z: nz } : { x: -nx, z: -nz }, 80)))
+      for (const side of fit.swingIn ? [-1, 1] : [-1]) put(...span(pull - 0.7, pull + 0.7), inset + side * 2.4, 80, 30, 2.5, chrome, leaf)
+      const dir = flip ? -s : s
+      const way = along ? { x: dir, z: 0 } : { x: 0, z: dir }
+      g.add(turning(leaf, pos(m(hinge), inset), swingOut(way, fit.swingIn ? { x: nx, z: nz } : { x: -nx, z: -nz }, 80)))
     }
   }
   // Rain head where it's been put, and a mixer on its wall.
@@ -3332,7 +3350,15 @@ export function symbolModel(
         columnBoxes(sym, others),
         ownWalls(sym, runs),
         sym.halfWall,
-        { toCeiling: sym.glassToCeiling, brace: sym.brace, fixedLength: sym.fixedLength, doorWidth: sym.doorWidth, swingIn: sym.swingIn, hingeFar: sym.hingeFar },
+        {
+          toCeiling: sym.glassToCeiling,
+          brace: sym.brace,
+          fixedLength: sym.fixedLength,
+          doorWidth: sym.doorWidth,
+          swingIn: sym.swingIn,
+          hingeFar: sym.hingeFar,
+          fixedAtEnd: sym.fixedAtEnd,
+        },
       )
       break
     }

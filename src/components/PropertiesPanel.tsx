@@ -83,7 +83,7 @@ import { useUi } from '@/store/ui'
 import { LengthInput, NumberInput, TextInput } from './LengthInput'
 import { CeilingSection, GroupLightSection, GrooveLightWalls, HiddenLightControls, LightSection, SwitchSection } from './LightingProps'
 import { Choice } from './Choice'
-import { doorRun, doorsOf, headOf, headPoint, showerGlass, showerRuns, wayIn } from '@/model/shower'
+import { doorRun, doorsOf, headOf, headPoint, showerGlass, showerRuns, startsLeft, wayIn } from '@/model/shower'
 import { FloorSection, WallsSection } from './FinishProps'
 
 function Section({ title, action, children, className }: { title?: ReactNode; action?: ReactNode; children: ReactNode; className?: string }) {
@@ -1277,7 +1277,7 @@ function ShowerGlass({ sym }: { sym: PlanSymbol }) {
         ]}
       >
         {sym.walkIn && (
-          <p className="text-xs text-muted-foreground">{t('A fixed glass panel, with an open way in beside it. Mirror the shower for the way in at the other end.')}</p>
+          <p className="text-xs text-muted-foreground">{t('A fixed glass panel, with an open way in beside it.')}</p>
         )}
       </Choice>
     )}
@@ -1371,6 +1371,17 @@ function ShowerGlass({ sym }: { sym: PlanSymbol }) {
             />
           )}
         </Field>
+        <Choice
+          label={sym.halfWall !== undefined ? t('Half wall on the') : t('Fixed glass on the')}
+          value={!!sym.fixedAtEnd !== startsLeft(sym, door.side) ? 'left' : 'right'}
+          onChange={(v) => updateSymbol(sym.id, (s) => void ((v === 'left') !== startsLeft(s, door.side) ? (s.fixedAtEnd = true) : delete s.fixedAtEnd))}
+          options={[
+            { value: 'left', label: tc('side', 'Left') },
+            { value: 'right', label: tc('side', 'Right') },
+          ]}
+        >
+          <p className="text-xs text-muted-foreground">{t('As seen from outside the shower, facing the way in.')}</p>
+        </Choice>
         <p className="text-xs text-muted-foreground">
           {parts.rest > 0
             ? sym.halfWall !== undefined

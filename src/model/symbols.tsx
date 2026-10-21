@@ -618,7 +618,7 @@ function showerDoor(
   d: number,
   doors: ShowerDoors,
   parts: WayIn,
-  sym?: Pick<PlanSymbol, 'halfWall' | 'hingeFar' | 'swingIn'>,
+  sym?: Pick<PlanSymbol, 'halfWall' | 'hingeFar' | 'swingIn' | 'fixedAtEnd'>,
 ) {
   const onWall = !!sym?.halfWall
   // Drawn as on the front (u along x, out toward +y), then turned onto its side; on a half wall, along its middle (a
@@ -626,9 +626,11 @@ function showerDoor(
   const side = { front: `translate(0,${d / 2})`, back: `translate(0,${-d / 2}) rotate(180)`, right: `translate(${w / 2},0) rotate(-90)`, left: `translate(${-w / 2},0) rotate(90)` }[run.side]
   const mid = HALF_WALL_THICKNESS / 2
   const at = onWall && doors !== 'sliding' ? `${side} translate(0,${-mid})` : side
-  // Along the side (u) to across the drawing: turned onto the back or right, it runs the other way.
-  const x = (u: number) => (run.side === 'front' || run.side === 'left' ? u : -u)
   const { u0, u1 } = run
+  // Along the side (u, from the end its fixed glass starts at) to across the drawing: turned onto the back or right, it
+  // runs the other way.
+  const along = (u: number) => (sym?.fixedAtEnd ? u0 + u1 - u : u)
+  const x = (u: number) => (run.side === 'front' || run.side === 'left' ? along(u) : -along(u))
   // The door (or the open way in) from d0 to d1, fixed glass before it and, if there's any, past it.
   const d0 = u0 + parts.fixed
   const d1 = d0 + parts.door

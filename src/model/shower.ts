@@ -131,6 +131,12 @@ export function wayIn(sym: Pick<PlanSymbol, 'fixedLength' | 'doorWidth'>, len: n
   return room - door < 8 ? { fixed, door: room, rest: 0 } : { fixed, door, rest: room - door }
 }
 
+/**
+ * Whether a straight shower's side starts (its u0) on the left, seen from outside the shower facing it: on the front
+ * and the left in its own frame, the other way round once it's mirrored (by one flip, not both).
+ */
+export const startsLeft = (sym: Pick<PlanSymbol, 'flipX' | 'flipY'>, side: ShowerSide) => (side === 'front' || side === 'left') !== (!!sym.flipX !== !!sym.flipY)
+
 /** How far a sliding door's pane overlaps the fixed glass either side of it (its side `len` long, `fixed` before it). */
 export const slideOverlap = (len: number, fixed: number) => Math.min(len * 0.1, fixed / 2)
 
@@ -346,8 +352,10 @@ export function ownWalls(sym: PlanSymbol, runs: GlassRun[]): Stretch[] {
   // Under the fixed parts either side of the way in (a sliding door slides past outside them: see the 3D model).
   if (door) {
     const parts = wayIn(sym, door.u1 - door.u0, doorsOf(sym))
-    out.push({ side: door.side, u0: door.u0, u1: door.u0 + parts.fixed })
-    if (parts.rest) out.push({ side: door.side, u0: door.u1 - parts.rest, u1: door.u1 })
+    // From the side's start, or its end.
+    const from = (p0: number, p1: number) => (sym.fixedAtEnd ? { u0: door.u1 - p1, u1: door.u1 - p0 } : { u0: door.u0 + p0, u1: door.u0 + p1 })
+    out.push({ side: door.side, ...from(0, parts.fixed) })
+    if (parts.rest) out.push({ side: door.side, ...from(door.u1 - door.u0 - parts.rest, door.u1 - door.u0) })
   }
   // Where two meet round a corner, the one on the left or right stops at the other (the front's or back's) inside face.
   return out.map((s) => {
