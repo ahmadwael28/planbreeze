@@ -83,7 +83,7 @@ import { useUi } from '@/store/ui'
 import { LengthInput, NumberInput, TextInput } from './LengthInput'
 import { CeilingSection, GroupLightSection, GrooveLightWalls, HiddenLightControls, LightSection, SwitchSection } from './LightingProps'
 import { Choice } from './Choice'
-import { doorRun, doorsOf, fixedPart, headOf, headPoint, showerGlass, showerRuns } from '@/model/shower'
+import { doorRun, doorsOf, headOf, headPoint, showerGlass, showerRuns, wayIn } from '@/model/shower'
 import { FloorSection, WallsSection } from './FinishProps'
 
 function Section({ title, action, children, className }: { title?: ReactNode; action?: ReactNode; children: ReactNode; className?: string }) {
@@ -1229,7 +1229,7 @@ function ShowerGlass({ sym }: { sym: PlanSymbol }) {
   const doors = doorsOf(sym)
   const door = doorRun(showerRuns(sym, sides, floor.symbols))
   const doorLen = door ? door.u1 - door.u0 : 0
-  const fixed = fixedPart(sym, doorLen, doors)
+  const parts = wayIn(sym, doorLen, doors)
   return (
     <>
     <Choice
@@ -1353,25 +1353,66 @@ function ShowerGlass({ sym }: { sym: PlanSymbol }) {
           {(id) => (
             <LengthInput
               id={id}
-              value={Math.round(fixed * 10) / 10}
+              value={Math.round(parts.fixed * 10) / 10}
               units={units}
               min={15}
               onChange={(v) => updateSymbol(sym.id, (s) => void (s.fixedLength = Math.round(v * 10) / 10))}
             />
           )}
         </Field>
+        <Field label={sym.walkIn ? t('Way in width') : t('Door width')}>
+          {(id) => (
+            <LengthInput
+              id={id}
+              value={Math.round(parts.door * 10) / 10}
+              units={units}
+              min={30}
+              onChange={(v) => updateSymbol(sym.id, (s) => void (s.doorWidth = Math.round(v * 10) / 10))}
+            />
+          )}
+        </Field>
         <p className="text-xs text-muted-foreground">
-          {doors === 'walk-in'
-            ? t('Along the side with the way in; the rest of it is open.')
-            : doors === 'hinged'
-              ? t('Along the side with the door, which hangs on its glass; the rest of it is the door.')
-              : t('Along the side with the door; the door slides past it.')}{' '}
-          {sym.fixedLength !== undefined && (
-            <button className="underline underline-offset-2 hover:text-foreground" onClick={() => updateSymbol(sym.id, (s) => void delete s.fixedLength)}>
+          {parts.rest > 0
+            ? sym.halfWall !== undefined
+              ? t('Past it, the half wall and its glass carry on to the end of the side.')
+              : t('Past it, fixed glass to the end of the side.')
+            : t('It takes the rest of the side.')}{' '}
+          {(sym.fixedLength !== undefined || sym.doorWidth !== undefined) && (
+            <button
+              className="underline underline-offset-2 hover:text-foreground"
+              onClick={() =>
+                updateSymbol(sym.id, (s) => {
+                  delete s.fixedLength
+                  delete s.doorWidth
+                })
+              }
+            >
               {t('As usual')}
             </button>
           )}
         </p>
+        {doors === 'hinged' && (
+          <>
+            <Choice
+              label={t('Opens')}
+              value={sym.swingIn ? 'in' : 'out'}
+              onChange={(v) => updateSymbol(sym.id, (s) => void (v === 'in' ? (s.swingIn = true) : delete s.swingIn))}
+              options={[
+                { value: 'out', label: t('Outwards') },
+                { value: 'in', label: t('Inwards') },
+              ]}
+            />
+            <Choice
+              label={t('Hinges')}
+              value={sym.hingeFar ? 'far' : 'near'}
+              onChange={(v) => updateSymbol(sym.id, (s) => void (v === 'far' ? (s.hingeFar = true) : delete s.hingeFar))}
+              options={[
+                { value: 'near', label: sym.halfWall !== undefined ? t('On the half wall side') : t('By the fixed glass') },
+                { value: 'far', label: t('At the other end') },
+              ]}
+            />
+          </>
+        )}
       </>
     )}
     </>

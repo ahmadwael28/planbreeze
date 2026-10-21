@@ -2,8 +2,8 @@ import type { ReactNode } from 'react'
 import { lightHex } from './lighting'
 import type { PlanTheme } from './theme'
 import type { CeilingStyle, MirrorShape, PlanSymbol } from './types'
-import { doorRun, doorsOf, fixedPart, HALF_WALL_THICKNESS, headInModel, headOf, headPoint, ownWalls, showerGlass, slidingPane, stretchBox } from './shower'
-import type { ColumnBox, GlassRun, ShowerDoors, ShowerSide } from './shower'
+import { doorRun, doorsOf, HALF_WALL_THICKNESS, headInModel, headOf, headPoint, ownWalls, showerGlass, slideOverlap, stretchBox, wayIn } from './shower'
+import type { ColumnBox, GlassRun, ShowerDoors, ShowerSide, WayIn } from './shower'
 
 export type SymbolCategory =
   | 'Doors & Windows'
@@ -611,7 +611,16 @@ function ceilingIcon(style: CeilingStyle, t: PlanTheme) {
  * A straight shower's door on the plan, on its stretch of glass: two panes on their tracks for a sliding one, or the
  * door's swing out of the shower from its hinge on the fixed pane (as in 3D).
  */
-function showerDoor(k: ReturnType<typeof kit>, run: GlassRun, w: number, d: number, doors: ShowerDoors, fixed: number, onWall = false) {
+function showerDoor(
+  k: ReturnType<typeof kit>,
+  run: GlassRun,
+  w: number,
+  d: number,
+  doors: ShowerDoors,
+  parts: WayIn,
+  sym?: Pick<PlanSymbol, 'halfWall' | 'hingeFar' | 'swingIn'>,
+) {
+  const onWall = !!sym?.halfWall
   // Drawn as on the front (u along x, out toward +y), then turned onto its side; on a half wall, along its middle (a
   // sliding door's outer pane outside it).
   const side = { front: `translate(0,${d / 2})`, back: `translate(0,${-d / 2}) rotate(180)`, right: `translate(${w / 2},0) rotate(-90)`, left: `translate(${-w / 2},0) rotate(90)` }[run.side]
@@ -620,34 +629,40 @@ function showerDoor(k: ReturnType<typeof kit>, run: GlassRun, w: number, d: numb
   // Along the side (u) to across the drawing: turned onto the back or right, it runs the other way.
   const x = (u: number) => (run.side === 'front' || run.side === 'left' ? u : -u)
   const { u0, u1 } = run
-  const len = u1 - u0
+  // The door (or the open way in) from d0 to d1, fixed glass before it and, if there's any, past it.
+  const d0 = u0 + parts.fixed
+  const d1 = d0 + parts.door
+  const panes = parts.rest ? [[u0, d0], [d1, u1]] : [[u0, d0]]
   if (doors === 'walk-in') {
-    // A walk-in: its glass panel (a double line, as glass is drawn), and the way in open beside it.
-    const pl = fixed
+    // A walk-in: its glass panels (a double line, as glass is drawn), and the way in open beside them.
     return (
       <g transform={at}>
-        {[-1.6, 1.6].map((y) => (
-          <line key={y} x1={x(u0)} y1={y} x2={x(u0 + pl)} y2={y} {...k.thin} />
-        ))}
+        {panes.flatMap(([p0, p1]) => [-1.6, 1.6].map((y) => <line key={`${p0}:${y}`} x1={x(p0)} y1={y} x2={x(p1)} y2={y} {...k.thin} />))}
       </g>
     )
   }
   if (doors === 'sliding') {
-    const sw = slidingPane(len, fixed)
+    const ov = slideOverlap(u1 - u0, parts.fixed)
+    const fy = onWall ? -mid : -2
+    const sy = onWall ? 2.5 : 1.5
     return (
       <g transform={at}>
-        <line x1={x(u0)} y1={onWall ? -mid : -2} x2={x(u0 + fixed)} y2={onWall ? -mid : -2} {...k.line} />
-        <line x1={x(u1 - sw)} y1={onWall ? 2.5 : 1.5} x2={x(u1)} y2={onWall ? 2.5 : 1.5} {...k.line} />
+        {panes.map(([p0, p1]) => (
+          <line key={p0} x1={x(p0)} y1={fy} x2={x(p1)} y2={fy} {...k.line} />
+        ))}
+        <line x1={x(d0 - ov)} y1={sy} x2={x(parts.rest ? d1 + ov : d1)} y2={sy} {...k.line} />
       </g>
     )
   }
-  const hinge = x(u0 + fixed)
-  const free = x(u1)
+  // Hinged at one end, swinging out of the shower (or into it: drawn inside), its path dashed.
+  const hinge = x(sym?.hingeFar ? d1 : d0)
+  const free = x(sym?.hingeFar ? d0 : d1)
   const leaf = Math.abs(free - hinge)
+  const out = sym?.swingIn ? -1 : 1
   return (
     <g transform={at}>
-      <line x1={hinge} y1={0} x2={hinge} y2={leaf} {...k.thin} />
-      <path d={`M${free},0 A${leaf},${leaf} 0 0 ${free > hinge ? 1 : 0} ${hinge},${leaf}`} {...k.thin} strokeDasharray="4 3" />
+      <line x1={hinge} y1={0} x2={hinge} y2={out * leaf} {...k.thin} />
+      <path d={`M${free},0 A${leaf},${leaf} 0 0 ${free > hinge === out > 0 ? 1 : 0} ${hinge},${out * leaf}`} {...k.thin} strokeDasharray="4 3" />
     </g>
   )
 }
@@ -2146,7 +2161,7 @@ export const SYMBOLS: SymbolDef[] = [
             })}
           <circle cx={0} cy={0} r={4} {...k.s()} />
           {showerHeadMark(sym, w, d, t, sym?.screens ?? ['front'], around?.columns)}
-          {door && showerDoor(k, door, w, d, doorsOf(sym ?? {}), fixedPart(sym ?? {}, door.u1 - door.u0, doorsOf(sym ?? {})), !!sym?.halfWall)}
+          {door && showerDoor(k, door, w, d, doorsOf(sym ?? {}), wayIn(sym ?? {}, door.u1 - door.u0, doorsOf(sym ?? {})), sym)}
         </>
       )
     },

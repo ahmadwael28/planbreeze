@@ -112,8 +112,27 @@ export function fixedPart(sym: Pick<PlanSymbol, 'fixedLength'>, len: number, doo
   return Math.min(Math.max(len - WAY_IN, len / 2), Math.max(15, sym.fixedLength))
 }
 
-/** A sliding door's moving pane beside a fixed part `fixed` long (that side `len` long): how wide it is, overlapping it. */
-export const slidingPane = (len: number, fixed: number) => len - fixed + Math.min(len * 0.1, fixed / 2)
+/** The parts of a shower's side with its way in, along it from its start (cm). */
+export interface WayIn {
+  /** The fixed part (on the half wall, if there's one). */
+  fixed: number
+  /** The door, or the open way in. */
+  door: number
+  /** Fixed again past it, to the end of the side (on the half wall too); none if the door takes the rest. */
+  rest: number
+}
+
+/** How a shower's side with its way in (`len` long) is shared: the fixed part, the door as wide as it's made, the rest. */
+export function wayIn(sym: Pick<PlanSymbol, 'fixedLength' | 'doorWidth'>, len: number, doors: ShowerDoors): WayIn {
+  const fixed = fixedPart(sym, len, doors)
+  const room = len - fixed
+  const door = sym.doorWidth === undefined ? room : Math.min(room, Math.max(Math.min(WAY_IN, room), sym.doorWidth))
+  // Too little left past it for a pane: the door takes it.
+  return room - door < 8 ? { fixed, door: room, rest: 0 } : { fixed, door, rest: room - door }
+}
+
+/** How far a sliding door's pane overlaps the fixed glass either side of it (its side `len` long, `fixed` before it). */
+export const slideOverlap = (len: number, fixed: number) => Math.min(len * 0.1, fixed / 2)
 
 /** A walk-in shower's glass panel along its way in (`len` long): what's left beside it, 50 to 70 cm, is the way in. */
 export function walkInPanel(len: number) {
@@ -324,8 +343,12 @@ export function ownWalls(sym: PlanSymbol, runs: GlassRun[]): Stretch[] {
   if (!sym.halfWall) return []
   const out: Stretch[] = runs.filter((g) => g.own).map(({ side, u0, u1 }) => ({ side, u0, u1 }))
   const door = doorRun(runs)
-  // As far as the panel goes, or the fixed pane beside the door (a sliding one slides past outside it: see the 3D model).
-  if (door) out.push({ side: door.side, u0: door.u0, u1: door.u0 + fixedPart(sym, door.u1 - door.u0, doorsOf(sym)) })
+  // Under the fixed parts either side of the way in (a sliding door slides past outside them: see the 3D model).
+  if (door) {
+    const parts = wayIn(sym, door.u1 - door.u0, doorsOf(sym))
+    out.push({ side: door.side, u0: door.u0, u1: door.u0 + parts.fixed })
+    if (parts.rest) out.push({ side: door.side, u0: door.u1 - parts.rest, u1: door.u1 })
+  }
   // Where two meet round a corner, the one on the left or right stops at the other (the front's or back's) inside face.
   return out.map((s) => {
     if (s.side !== 'left' && s.side !== 'right') return s

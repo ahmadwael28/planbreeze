@@ -256,6 +256,12 @@ export interface PlanSymbol {
    * the door, and the half wall under it if there's one. As usual if left out.
    */
   fixedLength?: number
+  /** Showers: how wide their door (or open way in) is (cm), past the fixed part; the rest of that side if left out. */
+  doorWidth?: number
+  /** Showers with a hinged door: it opens into the shower (out of it if left out). */
+  swingIn?: boolean
+  /** Showers with a hinged door: it's hinged at its far end, not on the fixed glass beside it. */
+  hingeFar?: boolean
   /** Showers: their glass up to the ceiling (their door as tall as they're made, fixed glass over it), not `height` tall. */
   glassToCeiling?: boolean
   /** Walk-in showers: a bar holding their glass panel, from its free top corner across to the wall or up to the ceiling. */
