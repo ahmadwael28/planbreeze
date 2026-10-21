@@ -1,9 +1,24 @@
-import type { ReactNode } from 'react'
+import type { ReactNode, SVGProps } from 'react'
 import { lightHex } from './lighting'
 import type { PlanTheme } from './theme'
 import type { CeilingStyle, MirrorShape, PlanSymbol } from './types'
-import { doorRun, doorsOf, HALF_WALL_THICKNESS, headInModel, headOf, headPoint, ownWalls, showerGlass, slideOverlap, stretchBox, wayIn } from './shower'
-import type { ColumnBox, GlassRun, ShowerDoors, ShowerSide, WayIn } from './shower'
+import {
+  doorRun,
+  doorsOf,
+  fittingSpots,
+  HALF_WALL_THICKNESS,
+  headInModel,
+  headOf,
+  headPoint,
+  mixerPlace,
+  ownWalls,
+  seen,
+  showerGlass,
+  slideOverlap,
+  stretchBox,
+  wayIn,
+} from './shower'
+import type { ColumnBox, GlassRun, ShowerDoors, ShowerSide, WallPoint, WayIn } from './shower'
 
 export type SymbolCategory =
   | 'Doors & Windows'
@@ -674,20 +689,53 @@ function showerHeadMark(sym: PlanSymbol | undefined, w: number, d: number, t: Pl
   const p = headPoint(place, w, d, sym?.type === 'shower' ? columns : [])
   const stroke = { stroke: t.ink, vectorEffect: 'non-scaling-stroke', fill: 'none' } as const
   if (place.side === 'ceiling') {
+    // Its fittings on its mixer's wall: the first wall there is (a curved corner shower's back).
+    const own = sym ? glass.map((s) => seen(sym, s)) : []
+    const at = sym?.type === 'shower-quadrant' ? { side: 'back' as const, at: 0.32 } : mixerPlace(place, own)
     return (
       <g data-shower-head="">
-        <circle cx={p.x} cy={p.y} r={14} {...stroke} strokeWidth={1} strokeDasharray="3 2" />
+        {headFace(sym, p, true, true, { ...stroke, strokeWidth: 1, strokeDasharray: '3 2' })}
         <circle cx={p.x} cy={p.y} r={2.5} fill={t.ink} />
+        {sym && at && at.side !== 'ceiling' && showerFittingMarks(sym, headPoint(at, w, d, sym.type === 'shower' ? columns : []), w, d, t)}
       </g>
     )
   }
-  const tip = { x: p.x + p.nx * 22, y: p.y + p.ny * 22 }
+  const tip = { x: p.x + p.nx * (sym?.headShape === 'classic' ? 14 : 22), y: p.y + p.ny * (sym?.headShape === 'classic' ? 14 : 22) }
   return (
     <g data-shower-head="">
       <line x1={p.x} y1={p.y} x2={tip.x} y2={tip.y} {...stroke} strokeWidth={1.4} />
-      <circle cx={tip.x} cy={tip.y} r={7} {...stroke} strokeWidth={1.2} fill={t.fill} />
+      {headFace(sym, tip, false, p.ny !== 0, { ...stroke, strokeWidth: 1.2, fill: t.fill })}
       <circle cx={tip.x} cy={tip.y} r={2} fill={t.ink} />
+      {sym && showerFittingMarks(sym, p, w, d, t)}
     </g>
+  )
+}
+
+/** A shower head's face on the plan, its shape (from the ceiling a size bigger), centred at c. */
+function headFace(sym: PlanSymbol | undefined, c: { x: number; y: number }, big: boolean, alongX: boolean, style: SVGProps<SVGElement>) {
+  const s = big ? 2 : 1
+  const rect = (rw: number, rh: number) => <rect x={c.x - rw / 2} y={c.y - rh / 2} width={rw} height={rh} {...(style as SVGProps<SVGRectElement>)} />
+  if (sym?.headShape === 'square') return rect(14 * s, 14 * s)
+  if (sym?.headShape === 'rectangle') return alongX ? rect(20 * s, 12 * s) : rect(12 * s, 20 * s)
+  return <circle cx={c.x} cy={c.y} r={(sym?.headShape === 'classic' ? 4.5 : 7) * s} {...(style as SVGProps<SVGCircleElement>)} />
+}
+
+/** A shower's body jets (dots) and hand shower (its holder and handset) on the wall its mixer's on, at `mixer`. */
+function showerFittingMarks(sym: PlanSymbol, mixer: WallPoint, w: number, d: number, t: PlanTheme) {
+  const spots = fittingSpots(sym, mixer, w, d)
+  const hand = spots.hand
+  return (
+    <>
+      {spots.jets.map((s, i) => (
+        <circle key={i} cx={s.x + s.nx * 2} cy={s.y + s.ny * 2} r={2.6} fill={t.ink} />
+      ))}
+      {hand && (
+        <>
+          <line x1={hand.x} y1={hand.y} x2={hand.x + hand.nx * 7} y2={hand.y + hand.ny * 7} stroke={t.ink} strokeWidth={1.2} vectorEffect="non-scaling-stroke" />
+          <circle cx={hand.x + hand.nx * 9} cy={hand.y + hand.ny * 9} r={3.5} stroke={t.ink} strokeWidth={1.2} vectorEffect="non-scaling-stroke" fill={t.fill} />
+        </>
+      )}
+    </>
   )
 }
 

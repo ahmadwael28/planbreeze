@@ -25,6 +25,42 @@ export function showerGlass(sym: PlanSymbol, auto: () => ShowerSide[]): ShowerSi
 /** The order a head looks for a wall to go on, when it hasn't been placed. */
 const ORDER: ShowerSide[] = ['back', 'left', 'right', 'front']
 
+/**
+ * Where a shower's mixer is, in its own frame: under its head, or under a ceiling head on its first wall (`ownGlass`:
+ * its glass sides in that frame), in its middle; none with glass all round.
+ */
+export function mixerPlace(place: HeadPlace, ownGlass: ShowerSide[]): HeadPlace | undefined {
+  if (place.side !== 'ceiling') return place
+  const wall = ORDER.find((s) => !ownGlass.includes(s))
+  return wall && { side: wall, at: 0.5 }
+}
+
+/** A point on a shower's wall, in its own frame, and the way into the shower from there. */
+export interface WallPoint {
+  x: number
+  y: number
+  nx: number
+  ny: number
+}
+
+/** How high a shower's body jets are, up its wall (cm). */
+export const JET_HEIGHTS = [60, 90, 120]
+
+/**
+ * A shower's body jets and hand shower, on the wall its mixer's on (`mixer`, in a w × d shower's frame): the jets in a
+ * column beside it (two columns either side, six of them), the hand shower past them; kept clear of the corners.
+ */
+export function fittingSpots(sym: Pick<PlanSymbol, 'jets' | 'handShower'>, mixer: WallPoint, w: number, d: number) {
+  const alongX = mixer.ny !== 0
+  const half = (alongX ? w : d) / 2 - 8
+  const at = (off: number): WallPoint => {
+    const v = Math.max(-half, Math.min(half, (alongX ? mixer.x : mixer.y) + off))
+    return alongX ? { ...mixer, x: v } : { ...mixer, y: v }
+  }
+  const columns = sym.jets === 6 ? [-24, 24] : sym.jets === 3 ? [-24] : []
+  return { jets: columns.map(at), hand: sym.handShower ? at(sym.jets === 6 ? 38 : 26) : undefined }
+}
+
 export interface HeadPlace {
   side: ShowerSide | 'ceiling'
   /** How far along the side (0 … 1): left to right along the back or front, back to front along a side. */

@@ -9,8 +9,24 @@
  * costs few draw calls.
  */
 import * as THREE from 'three'
-import { columnBoxes, cornerTrim, doorRun, doorsOf, HALF_WALL_THICKNESS, headInModel, headOf, headPoint, ownWalls, showerGlass, showerRuns, slideOverlap, wayIn } from '@/model/shower'
-import type { ColumnBox, GlassRun, HeadPlace, Stretch } from '@/model/shower'
+import {
+  columnBoxes,
+  cornerTrim,
+  doorRun,
+  doorsOf,
+  fittingSpots,
+  HALF_WALL_THICKNESS,
+  headInModel,
+  headOf,
+  headPoint,
+  JET_HEIGHTS,
+  ownWalls,
+  showerGlass,
+  showerRuns,
+  slideOverlap,
+  wayIn,
+} from '@/model/shower'
+import type { ColumnBox, GlassRun, HeadPlace, Stretch, WallPoint } from '@/model/shower'
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js'
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js'
 import { WALL_WHITE } from '@/model/finishes'
@@ -1831,13 +1847,134 @@ function fridge(k: Kit, w: number, d: number, h: number) {
 const LEDGE_STONE = '#e8e3da'
 
 /**
+ * A toilet pan's outline seen from above, as its plan symbol draws it (`bw` wide, `len` long): flat at the back (z 0),
+ * full at the sides, round at the front; going round from its back right, past its front, to its back left and back.
+ */
+function panOutline(bw: number, len: number, n = 18): { x: number; z: number }[] {
+  const P = [
+    [bw * 0.36, 0],
+    [bw / 2, len * 0.35],
+    [bw / 2, len],
+    [0, len],
+  ]
+  const at = (t: number) => {
+    const u = 1 - t
+    const c = [u * u * u, 3 * u * u * t, 3 * u * t * t, t * t * t]
+    return { x: c.reduce((s, ci, i) => s + ci * P[i][0], 0), z: c.reduce((s, ci, i) => s + ci * P[i][1], 0) }
+  }
+  const right = Array.from({ length: n }, (_, i) => at(i / n))
+  const left = [...right].reverse().map((p) => ({ x: -p.x, z: p.z }))
+  const back = [1, 2, 3].map((i) => ({ x: -bw * 0.36 + bw * 0.72 * (i / 4), z: 0 }))
+  return [...right, { x: 0, z: len }, ...left, ...back]
+}
+
+/**
+ * A body through outlines at heights (seen from above, going round from +x toward +z; the same number of points in
+ * each), from the bottom up: smooth sides, capped flat top and bottom.
+ */
+function loft(rings: { y: number; pts: { x: number; z: number }[] }[], mat: Mat) {
+  const n = rings[0].pts.length
+  const pos: number[] = []
+  const idx: number[] = []
+  for (const r of rings) for (const p of r.pts) pos.push(p.x, r.y, p.z)
+  for (let i = 0; i + 1 < rings.length; i++) {
+    for (let j = 0; j < n; j++) {
+      const a = i * n + j
+      const b = i * n + ((j + 1) % n)
+      const c = (i + 1) * n + ((j + 1) % n)
+      const d = (i + 1) * n + j
+      idx.push(a, c, b, a, d, c)
+    }
+  }
+  // The caps on vertices of their own, for a crisp edge.
+  for (const [r, up] of [
+    [rings[0], false],
+    [rings[rings.length - 1], true],
+  ] as const) {
+    const base = pos.length / 3
+    pos.push(r.pts.reduce((s, p) => s + p.x, 0) / n, r.y, r.pts.reduce((s, p) => s + p.z, 0) / n)
+    for (const p of r.pts) pos.push(p.x, r.y, p.z)
+    for (let j = 0; j < n; j++) {
+      const a = base + 1 + j
+      const b = base + 1 + ((j + 1) % n)
+      if (up) idx.push(base, b, a)
+      else idx.push(base, a, b)
+    }
+  }
+  const geo = new THREE.BufferGeometry()
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3))
+  geo.setIndex(idx)
+  geo.computeVertexNormals()
+  return mesh(geo, mat)
+}
+
+/** A flat piece the shape of an outline (seen from above), maybe with holes, `t` thick from y, its edges rounded by r. */
+function slab(pts: { x: number; z: number }[], holes: { x: number; z: number }[][], t: number, r: number, y: number, z: number, mat: Mat) {
+  const shape = new THREE.Shape(pts.map((p) => new THREE.Vector2(p.x, -p.z)))
+  for (const h of holes) shape.holes.push(new THREE.Path(h.map((p) => new THREE.Vector2(p.x, -p.z))))
+  const geo = new THREE.ExtrudeGeometry(shape, { depth: t - 2 * r, bevelEnabled: true, bevelThickness: r, bevelSize: r, bevelSegments: 3, curveSegments: 6 })
+  geo.rotateX(-Math.PI / 2)
+  geo.translate(0, y + r, z)
+  return mesh(geo, mat)
+}
+
+/**
+ * A toilet's pan with its tank concealed behind it: smooth sided, flat at the back (against the wall or the box), its
+ * rim 40 cm up, hung clear of the floor or standing on it (back to wall); a slim seat, its lid shut, on two hinges.
+ * `back`: where its back is (z), `len` how far it comes out from there.
+ */
+function concealedPan(k: Kit, bw: number, len: number, back: number, onFloor: boolean) {
+  const g = new THREE.Group()
+  const white = k.q(COLORS.ceramic, 'gloss')
+  const satin = k.q(COLORS.white, 'satin')
+  const rim = 40
+  const outline = panOutline(bw, len)
+  // How it narrows going down (across, and toward the wall): hung, to a rounded underside; standing, barely, to a foot.
+  const steps = onFloor
+    ? [
+        [0, 0.955, 0.955],
+        [1.5, 0.95, 0.95],
+        [28, 0.965, 0.97],
+        [36, 0.99, 0.995],
+        [rim, 1, 1],
+      ]
+    : [
+        [20.5, 0.3, 0.22],
+        [21.3, 0.58, 0.46],
+        [22.8, 0.78, 0.66],
+        [25.5, 0.9, 0.82],
+        [30, 0.965, 0.93],
+        [36, 0.99, 0.99],
+        [rim, 1, 1],
+      ]
+  const body = loft(
+    steps.map(([y, kx, kz]) => ({ y, pts: outline.map((p) => ({ x: p.x * kx, z: p.z * kz })) })),
+    white,
+  )
+  body.position.z = back
+  g.add(body)
+  // The seat over the rim, its opening; the lid on it, short of the hinges at the back.
+  const hole = panOutline(bw * 0.58, len * 0.6).map((p) => ({ x: p.x, z: p.z + len * 0.22 }))
+  g.add(slab(outline, [hole], 2.4, 0.6, rim, back, satin))
+  const lid = outline.map((p) => ({ x: p.x * 0.97, z: 3.5 + p.z * ((len - 4) / len) }))
+  g.add(slab(lid, [], 2.2, 0.6, rim + 2.4, back, satin))
+  for (const x of [-bw * 0.24, bw * 0.24]) {
+    const pin = cylinder(1.1, 4, 0, 0, 0, k.q(COLORS.chrome, 'chrome'))
+    pin.rotation.z = Math.PI / 2
+    pin.position.set(x, rim + 2.6, back + 1.8)
+    g.add(pin)
+  }
+  return g
+}
+
+/**
  * A wall-hung toilet: its tank concealed in a box in front of the wall (a ledge with a stone shelf, or up to the
- * ceiling) or inside the wall, a flush plate where it can be reached, and the bowl hung clear of the floor. The box
- * here is plain; it's finished like the wall it's against when the wall has a finish (see buildScene).
+ * ceiling) or inside the wall, a flush plate where it can be reached, and the pan hung clear of the floor or standing
+ * on it, back to the wall. The box here is plain; it's finished like the wall it's against when the wall has a finish
+ * (see buildScene).
  */
 function wallHungToilet(k: Kit, sym: PlanSymbol, w: number, d: number, top: number) {
   const g = new THREE.Group()
-  const white = k.q(COLORS.ceramic, 'gloss')
   const satin = k.q(COLORS.white, 'satin')
   const boxD = tankBoxDepth(sym)
   const boxH = sym.tankBox === 'full' ? top : Math.min(ledgeHeight(sym), top)
@@ -1851,23 +1988,8 @@ function wallHungToilet(k: Kit, sym: PlanSymbol, w: number, d: number, top: numb
   const plateY = Math.min(boxH - 18, 100)
   g.add(rbox(22, 15, 1, 0.8, 0, plateY, back + 0.5, satin))
   for (const x of [-5, 5]) g.add(rbox(8.5, 11, 0.6, 0.6, x, plateY + 2, back + 1.2, k.q(x < 0 ? '#e9e9e6' : '#dcdcd8', 'satin')))
-  // The bowl, clear of the floor: its body narrowing to the wall, a seat and a closed lid at 40 cm.
-  const bw = Math.min(w, 38)
-  const len = d / 2 - back
-  const zb = back + len * 0.52
-  const s = len / bw
-  const body = mesh(new THREE.SphereGeometry(bw * 0.5, 28, 16, 0, Math.PI * 2, 0, Math.PI / 2), white)
-  body.rotation.x = Math.PI
-  body.scale.set(1, 0.42, s * 0.92)
-  body.position.set(0, 39, zb)
-  g.add(body)
-  g.add(rbox(bw * 0.7, 14, len * 0.45, 4, 0, 25, back + len * 0.22, white)) // where it meets the wall
-  const seat = mesh(new THREE.TorusGeometry(bw * 0.35, 2.3, 10, 32), satin)
-  seat.rotation.x = Math.PI / 2
-  seat.scale.set(1, s * 1.02, 0.7)
-  seat.position.set(0, 40.5, zb + 1)
-  g.add(seat)
-  g.add(cylinder(bw * 0.44, 2, 0, 41.5, zb + 1, satin, s * 1.02))
+  // The pan, from the box (or the wall) to its front.
+  g.add(concealedPan(k, Math.min(w, 38), d / 2 - back, back, !!sym.panOnFloor))
   return g
 }
 
@@ -2230,25 +2352,103 @@ function bathtub(k: Kit, w: number, d: number, h: number) {
  * A rain head where it's been put (see model/shower): on an arm out from its wall with a mixer below, or down from the
  * ceiling (`ceilingH`) in the middle with the mixer on the first wall there is (`mixerAt`: that wall's middle).
  */
-function showerHead(g: THREE.Group, chrome: Mat, head: HeadPlace, w: number, d: number, h: number, ceilingH: number, mixerAt?: HeadPlace, columns: ColumnBox[] = []) {
-  const mixer = (p: { x: number; y: number; nx: number; ny: number }) =>
-    g.add(rbox(p.ny !== 0 ? 14 : 4, 8, p.ny !== 0 ? 4 : 14, 2, p.x + p.nx * 2, 105, p.y + p.ny * 2, chrome))
+/** A shower's head, how it's shaped, and the fittings on the wall its mixer's on (see model/shower). */
+interface Fittings {
+  shape?: PlanSymbol['headShape']
+  jets?: PlanSymbol['jets']
+  hand?: PlanSymbol['handShower']
+}
+
+function showerHead(
+  g: THREE.Group,
+  k: Kit,
+  chrome: Mat,
+  head: HeadPlace,
+  w: number,
+  d: number,
+  h: number,
+  ceilingH: number,
+  mixerAt?: HeadPlace,
+  columns: ColumnBox[] = [],
+  fit: Fittings = {},
+) {
+  // Something with its axis along a wall's normal (out of the wall), centred at x, y, z.
+  const outward = (m: THREE.Object3D, p: WallPoint, x: number, y: number, z: number) => {
+    if (p.ny !== 0) m.rotation.x = Math.PI / 2
+    else m.rotation.z = Math.PI / 2
+    m.position.set(x, y, z)
+    g.add(m)
+    return m
+  }
+  const mixer = (p: WallPoint) => g.add(rbox(p.ny !== 0 ? 14 : 4, 8, p.ny !== 0 ? 4 : 14, 2, p.x + p.nx * 2, 105, p.y + p.ny * 2, chrome))
+  // The head, its face down at y, centred at x, z: from the ceiling a size bigger; a classic one tipped toward the
+  // room (`p`: its wall) on a short arm.
+  const face = (x: number, y: number, z: number, big: boolean, p?: WallPoint) => {
+    const s = big ? 1.35 : 1
+    const alongX = !p || p.ny !== 0
+    if (fit.shape === 'square') g.add(rbox(22 * s, 1.4, 22 * s, 0.6, x, y, z, chrome))
+    else if (fit.shape === 'rectangle') g.add(rbox((alongX ? 34 : 20) * s, 1.4, (alongX ? 20 : 34) * s, 0.6, x, y, z, chrome))
+    else if (fit.shape === 'classic') {
+      const bell = cylinder(3.2, 7, 0, 0, 0, chrome, 1, 6.5)
+      if (p && p.ny !== 0) bell.rotation.x = -p.ny * 0.6
+      else if (p) bell.rotation.z = p.nx * 0.6
+      bell.position.set(x, y + 2, z)
+      g.add(bell)
+    } else g.add(cylinder(11 * s, 1.6, x, y, z, chrome))
+  }
+  let base: WallPoint | undefined
   if (head.side === 'ceiling') {
     const c = headPoint(head, w, d)
     g.add(cylinder(1.1, Math.max(4, ceilingH - (h - 10.4)), c.x, h - 10.4, c.y, chrome, 1, 1.1, 12))
-    g.add(cylinder(15, 1.6, c.x, h - 12, c.y, chrome))
-    if (mixerAt) mixer(headPoint(mixerAt, w, d, columns))
-    return
+    face(c.x, h - 12, c.y, true)
+    if (mixerAt) mixer((base = headPoint(mixerAt, w, d, columns)))
+  } else {
+    // On its wall, or on the face of a column standing there; a classic head on a shorter arm.
+    const p = headPoint(head, w, d, columns)
+    const reach = fit.shape === 'classic' ? 14 : 25
+    outward(cylinder(1.1, reach, 0, 0, 0, chrome, 1, 1.1, 12), p, p.x + (p.nx * reach) / 2, h - 10, p.y + (p.ny * reach) / 2)
+    face(p.x + p.nx * reach, h - 12, p.y + p.ny * reach, false, p)
+    mixer((base = p))
   }
-  // On its wall, or on the face of a column standing there.
-  const p = headPoint(head, w, d, columns)
-  const arm = cylinder(1.1, 25, 0, 0, 0, chrome, 1, 1.1, 12)
-  if (p.ny !== 0) arm.rotation.x = Math.PI / 2
-  else arm.rotation.z = Math.PI / 2
-  arm.position.set(p.x + p.nx * 12.5, h - 10, p.y + p.ny * 12.5)
-  g.add(arm)
-  g.add(cylinder(11, 1.6, p.x + p.nx * 25, h - 12, p.y + p.ny * 25, chrome))
-  mixer(p)
+  if (!base) return
+  const spots = fittingSpots({ jets: fit.jets, handShower: fit.hand }, base, w, d)
+  // Body jets: round chrome plates on the wall, a dark nozzle in each.
+  const dark = k.q('#2b2b2e', 'satin')
+  for (const s of spots.jets) {
+    for (const y of JET_HEIGHTS) {
+      outward(cylinder(3.6, 1, 0, 0, 0, chrome), s, s.x + s.nx * 0.5, y, s.y + s.ny * 0.5)
+      outward(cylinder(1.5, 1.2, 0, 0, 0, dark), s, s.x + s.nx * 0.8, y, s.y + s.ny * 0.8)
+    }
+  }
+  // A hand shower: on a slide rail (or a holder on the wall), its hose looping down from under the mixer.
+  const hand = spots.hand
+  if (hand) {
+    const at = (p: WallPoint, out: number, y: number) => new THREE.Vector3(p.x + p.nx * out, y, p.y + p.ny * out)
+    const rail = fit.hand === 'rail'
+    const hy = rail ? 150 : 115
+    if (rail) {
+      g.add(cylinder(0.9, 90, hand.x + hand.nx * 4, 95, hand.y + hand.ny * 4, chrome, 1, 0.9, 12))
+      for (const y of [97, 181]) outward(cylinder(1.4, 4, 0, 0, 0, chrome, 1, 1.4, 12), hand, hand.x + hand.nx * 2, y + 1, hand.y + hand.ny * 2)
+    }
+    g.add(rbox(4.5, 4, 4.5, 1, hand.x + hand.nx * (rail ? 4.5 : 2.5), hy - 2, hand.y + hand.ny * (rail ? 4.5 : 2.5), chrome))
+    // The handset in it, tipped a little toward the room, its head facing in.
+    const set = new THREE.Group()
+    set.add(cylinder(1.5, 18, 0, -18, 0, chrome, 1, 1.3, 16))
+    const rose = cylinder(5.5, 2.2, 0, 0, 0, chrome)
+    rose.rotation.x = Math.PI / 2
+    rose.position.set(0, 3, 1.5)
+    set.add(rose)
+    const out = rail ? 7.5 : 5.5
+    set.position.copy(at(hand, out, hy + 16))
+    set.rotation.y = Math.atan2(hand.nx, hand.ny)
+    set.rotateX(0.25)
+    g.add(set)
+    // The hose, from under the mixer down in a loop and up to the handset's end.
+    const from = at(base, 4, 100)
+    const to = at(hand, out, hy - 3)
+    const curve = new THREE.CatmullRomCurve3([from, from.clone().lerp(to, 0.35).setY(62).add(new THREE.Vector3(base.nx * 6, 0, base.ny * 6)), to.clone().setY(70), to])
+    g.add(mesh(new THREE.TubeGeometry(curve, 32, 0.7, 8), chrome))
+  }
 }
 
 /** A shower with glass on the given sides (model frame: +x right, +z front); the others are walls. */
@@ -2274,6 +2474,7 @@ function shower(
     hingeFar?: boolean
     fixedAtEnd?: boolean
   } = {},
+  fittings: Fittings = {},
 ) {
   const g = new THREE.Group()
   const tray = 5
@@ -2423,12 +2624,22 @@ function shower(
   // Rain head where it's been put, and a mixer on its wall.
   const sides = new Set(runs.map((r) => r.side))
   const wall = (['back', 'left', 'right', 'front'] as const).find((s) => !sides.has(s))
-  showerHead(g, chrome, head, w, d, h, ceilingH, wall && { side: wall, at: 0.5 }, columns)
+  showerHead(g, k, chrome, head, w, d, h, ceilingH, wall && { side: wall, at: 0.5 }, columns, fittings)
   return g
 }
 
 /** A curved corner shower: walls on the back and left, a quarter-round glass front with sliding or hinged doors. */
-function quadrantShower(k: Kit, w: number, d: number, h: number, glass: Mat, doors: 'hinged' | 'sliding', head: HeadPlace, ceilingH: number) {
+function quadrantShower(
+  k: Kit,
+  w: number,
+  d: number,
+  h: number,
+  glass: Mat,
+  doors: 'hinged' | 'sliding',
+  head: HeadPlace,
+  ceilingH: number,
+  fittings: Fittings = {},
+) {
   const g = new THREE.Group()
   const tray = 5
   const shape = new THREE.Shape()
@@ -2497,7 +2708,7 @@ function quadrantShower(k: Kit, w: number, d: number, h: number, glass: Mat, doo
   }
   // Rain head where it's been put (from the ceiling: over the middle of the quarter), and a mixer on its wall.
   const over = head.side === 'ceiling' ? { side: 'ceiling' as const, at: 0.5 } : head
-  showerHead(g, chrome, over, w, d, h, ceilingH, { side: 'back', at: 0.32 })
+  showerHead(g, k, chrome, over, w, d, h, ceilingH, { side: 'back', at: 0.32 }, [], fittings)
   return g
 }
 
@@ -3359,11 +3570,16 @@ export function symbolModel(
           hingeFar: sym.hingeFar,
           fixedAtEnd: sym.fixedAtEnd,
         },
+        { shape: sym.headShape, jets: sym.jets, hand: sym.handShower },
       )
       break
     }
     case 'shower-quadrant':
-      g = quadrantShower(k, w, d, h, k.glass(), sym.doors ?? 'sliding', headInModel(sym, headOf(sym, showerGlass(sym, () => []))), ceilingH)
+      g = quadrantShower(k, w, d, h, k.glass(), sym.doors ?? 'sliding', headInModel(sym, headOf(sym, showerGlass(sym, () => []))), ceilingH, {
+        shape: sym.headShape,
+        jets: sym.jets,
+        hand: sym.handShower,
+      })
       break
     case 'wall-post':
       g = wallPost(k, w, d, floorH)

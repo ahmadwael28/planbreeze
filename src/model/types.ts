@@ -296,6 +296,12 @@ export interface PlanSymbol {
    * own frame); or from the ceiling (a rain shower), in the middle. By default on the first wall, in its middle.
    */
   showerHead?: { side: 'front' | 'back' | 'left' | 'right' | 'ceiling'; at?: number }
+  /** Showers: the shape of their head (round if left out). */
+  headShape?: 'square' | 'rectangle' | 'classic'
+  /** Showers: body jets on the wall their mixer's on, in a column of three or two columns. */
+  jets?: 3 | 6
+  /** Showers: a hand shower on a hose, on a slide rail or a holder on the wall, beside the mixer. */
+  handShower?: 'rail' | 'holder'
   /** Toilets: hung on the wall with its tank concealed behind it, rather than standing on the floor with its own. */
   mount?: 'wall'
   /**
@@ -309,6 +315,8 @@ export interface PlanSymbol {
   glassTop?: boolean
   /** A wall-hung toilet's tank box: how far it comes out from the wall (cm; TANK_BOX if left out). */
   tankDepth?: number
+  /** Toilets with a concealed tank: the pan stands on the floor against the wall or box (back to wall), not hung. */
+  panOnFloor?: boolean
   /** A wall-hung toilet's tank box, a ledge: how high it comes up, under its shelf (cm; LEDGE_HEIGHT if left out). */
   tankHeight?: number
   /** Shower benches (built-in or across a corner): held on the wall, clear of the floor. */

@@ -871,23 +871,28 @@ function ToiletMount({ sym }: { sym: PlanSymbol }) {
   return (
     <>
       <Choice
-        label={t('Mounting')}
-        value={sym.mount ?? 'floor'}
+        label={t('Type')}
+        value={sym.mount !== 'wall' ? 'floor' : sym.panOnFloor ? 'back' : 'wall'}
         onChange={(v) =>
           updateSymbol(sym.id, (s) => {
-            if (v === 'wall') {
-              s.mount = 'wall'
-              reshape(s, s.tankBox === 'none' ? TOILET_SIZES.wall : [TOILET_SIZES.box[0], TOILET_SIZES.wall[1] + tankBoxDepth(s)])
-            } else {
+            if (v === 'floor') {
               delete s.mount
               delete s.tankBox
+              delete s.panOnFloor
               reshape(s, TOILET_SIZES.floor)
+              return
             }
+            // Its tank concealed, the pan hung on the wall or standing on the floor against it (back to wall).
+            if (s.mount !== 'wall') reshape(s, s.tankBox === 'none' ? TOILET_SIZES.wall : [TOILET_SIZES.box[0], TOILET_SIZES.wall[1] + tankBoxDepth(s)])
+            s.mount = 'wall'
+            if (v === 'back') s.panOnFloor = true
+            else delete s.panOnFloor
           })
         }
         options={[
-          { value: 'floor', label: t('Floor-standing') },
+          { value: 'floor', label: t('With its tank') },
           { value: 'wall', label: t('Wall-hung') },
+          { value: 'back', label: t('Back to wall') },
         ]}
       />
       {sym.mount === 'wall' && (
@@ -1426,6 +1431,47 @@ function ShowerGlass({ sym }: { sym: PlanSymbol }) {
         )}
       </>
     )}
+    </>
+  )
+}
+
+/** A shower head's shape, and the body jets and hand shower on the wall its mixer's on. */
+function ShowerFittings({ sym }: { sym: PlanSymbol }) {
+  return (
+    <>
+      <Choice
+        label={t('Head shape')}
+        value={sym.headShape ?? 'round'}
+        onChange={(v) => updateSymbol(sym.id, (s) => void (v === 'round' ? delete s.headShape : (s.headShape = v)))}
+        options={[
+          { value: 'round', label: t('Round') },
+          { value: 'square', label: t('Square') },
+          { value: 'rectangle', label: t('Rectangular') },
+          { value: 'classic', label: t('Classic') },
+        ]}
+      />
+      <Choice
+        label={t('Body jets')}
+        value={String(sym.jets ?? 0)}
+        onChange={(v) => updateSymbol(sym.id, (s) => void (v === '0' ? delete s.jets : (s.jets = v === '6' ? 6 : 3)))}
+        options={[
+          { value: '0', label: t('None') },
+          { value: '3', label: '3' },
+          { value: '6', label: '6' },
+        ]}
+      />
+      <Choice
+        label={t('Hand shower')}
+        value={sym.handShower ?? 'none'}
+        onChange={(v) => updateSymbol(sym.id, (s) => void (v === 'none' ? delete s.handShower : (s.handShower = v)))}
+        options={[
+          { value: 'none', label: t('None') },
+          { value: 'rail', label: t('On a slide rail') },
+          { value: 'holder', label: t('On a holder') },
+        ]}
+      >
+        {(sym.jets || sym.handShower) && <p className="text-xs text-muted-foreground">{t('On the wall with the mixer, beside it.')}</p>}
+      </Choice>
     </>
   )
 }
@@ -2099,6 +2145,7 @@ function SymbolProps({ sym, units }: { sym: PlanSymbol; units: Units }) {
         {def?.fullHeight && <p className="text-xs text-muted-foreground">{t("Floor to ceiling, whatever the room's height.")}</p>}
         {sym.type === 'shower' && <ShowerGlass sym={sym} />}
         {(sym.type === 'shower' || sym.type === 'shower-quadrant') && <ShowerHeadPicker sym={sym} />}
+        {(sym.type === 'shower' || sym.type === 'shower-quadrant') && <ShowerFittings sym={sym} />}
         {sym.type === 'toilet' && <ToiletMount sym={sym} />}
         {partition && <PartitionOptions sym={sym} />}
         {STYLES[sym.type] && (
