@@ -655,6 +655,20 @@ function showerHeadMark(sym: PlanSymbol | undefined, w: number, d: number, t: Pl
   )
 }
 
+/** Walls standing on their own: finished like their room's walls (the first), or painted. */
+export const PARTITION_FINISHES: FrameColor[] = [
+  { name: "Like the room's walls", hex: '#f3f1ec' },
+  { name: 'White', hex: '#f6f5f2' },
+  { name: 'Light grey', hex: '#d6d6d2' },
+  { name: 'Charcoal', hex: '#3b3b3e' },
+  { name: 'Sage', hex: '#a8b5a0' },
+  { name: 'Terracotta', hex: '#c0765a' },
+  { name: 'Navy', hex: '#34435e' },
+]
+
+/** A wall standing on its own: how high its top is (cm), the floor's walls' height if it goes up to the ceiling. */
+export const partitionTop = (sym: Pick<PlanSymbol, 'partial' | 'height'>, floorH: number) => (sym.partial ? Math.min(sym.height, floorH) : floorH)
+
 /** Recesses in a wall (part of its depth), lined with the wall's finish. */
 export const NICHES = new Set(['shower-niche', 'wall-niche'])
 
@@ -2731,6 +2745,31 @@ export const SYMBOLS: SymbolDef[] = [
     frames: OUTFITS,
     frameLabel: 'Outfit',
     render: (w, d, t, sym) => personGlyph(w, d, t, sym),
+  },
+  {
+    // A wall standing on its own in a room (drawn with the Wall tool, end to end): up to the ceiling or lower, maybe
+    // with glass above it; finished like the room's walls or painted.
+    type: 'partition',
+    name: 'Wall',
+    keywords: 'wall partition half wall pony wall low wall divider stub freestanding screen',
+    category: 'Other',
+    width: 120,
+    depth: 10,
+    height: 110,
+    frames: PARTITION_FINISHES,
+    frameLabel: 'Finish',
+    render: (w, d, t, sym) => {
+      const k = kit(t)
+      // Up to the ceiling, as the walls are drawn; lower, lighter, with its outline; glass over it, a line along it.
+      return sym?.partial ? (
+        <>
+          <rect x={-w / 2} y={-d / 2} width={w} height={d} fill={t.wall} fillOpacity={0.45} stroke={t.wall} strokeWidth={1} vectorEffect="non-scaling-stroke" />
+          {sym.glassTop && <line x1={-w / 2} y1={0} x2={w / 2} y2={0} {...k.thin} stroke={t.ink} />}
+        </>
+      ) : (
+        <rect x={-w / 2} y={-d / 2} width={w} height={d} fill={t.wall} />
+      )
+    },
   },
   {
     // A column partly built into a wall, standing out of it into the room.

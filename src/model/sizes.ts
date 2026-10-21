@@ -104,6 +104,7 @@ const RULES: Record<string, Rules> = {
   column: { width: [10, 200], depth: [10, 200] },
   beam: { width: [40, 2000], depth: [10, 120], height: [10, 150] },
   'wall-post': { width: [10, 200], depth: [5, 100] },
+  partition: { width: [10, 3000], depth: [4, 60], height: [10, 600] },
 }
 
 /** The limits on one size of an item (fixed: always its standard size), or null if it can be anything. */

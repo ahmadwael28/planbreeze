@@ -58,7 +58,7 @@ if (import.meta.env.DEV) {
 // three.js is only downloaded when the 3D view is first opened.
 const Viewer3D = lazy(() => import('@/components/Viewer3D'))
 
-const TOOL_KEYS: Record<string, Tool> = { v: 'select', m: 'area', p: 'room', r: 'rect', b: 'balcony', t: 'terrace', h: 'pan', d: 'dimension', s: 'divide' }
+const TOOL_KEYS: Record<string, Tool> = { v: 'select', m: 'area', p: 'room', r: 'rect', b: 'balcony', t: 'terrace', h: 'pan', d: 'dimension', s: 'divide', l: 'partition' }
 
 const HINTS: Partial<Record<Tool, string>> = {
   room: 'Click to place corners · type a length + Enter for exact walls · Enter / double-click / click the first corner to finish · Esc to cancel',

@@ -276,6 +276,10 @@ export interface PlanSymbol {
    * default) or up to the ceiling, or inside the wall itself (nothing stands out, only its flush plate shows).
    */
   tankBox?: 'ledge' | 'full' | 'none'
+  /** Walls standing on their own: lower than the ceiling, `height` tall (up to the ceiling, as the floor's walls are, if left out). */
+  partial?: boolean
+  /** Walls standing on their own, lower than the ceiling: glass from their top up to it. */
+  glassTop?: boolean
   /** A wall-hung toilet's tank box: how far it comes out from the wall (cm; TANK_BOX if left out). */
   tankDepth?: number
   /** Shower benches (built-in or across a corner): held on the wall, clear of the floor. */
@@ -411,7 +415,7 @@ export interface ItemRef {
   id: string
 }
 
-export type Tool = 'select' | 'area' | 'room' | 'rect' | 'balcony' | 'terrace' | 'pan' | 'dimension' | 'wire' | 'divide'
+export type Tool = 'select' | 'area' | 'room' | 'rect' | 'balcony' | 'terrace' | 'pan' | 'dimension' | 'wire' | 'divide' | 'partition'
 
 /** What the 2D plan emphasizes: furniture layout, or the ceiling & lighting plan. */
 export type PlanLayer = 'plan' | 'lighting'

@@ -52,7 +52,7 @@ export const BACK_TO_WALL = new Set([
 ])
 
 /** Left where they're put: they settle onto seats, or are only notes. */
-const LOOSE = new Set(['person', 'label'])
+const LOOSE = new Set(['person', 'label', 'partition'])
 
 export interface MagnetOptions {
   /** How close (cm) a side has to come to a wall to be pulled against it. */

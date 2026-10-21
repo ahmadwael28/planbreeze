@@ -28,6 +28,7 @@ import { formatLength, gridSpacing, parseLength, snapStep } from '@/model/units'
 import type { Dimension, Floor, PlanSymbol, Point, Pose, Room, SavedView } from '@/model/types'
 import {
   addDimension,
+  addPartition,
   addOutdoor,
   addRoom,
   selectionBox,
@@ -92,7 +93,7 @@ type Drag = DragBase &
   )
 
 /** What to do next with each tool, by touch (the keyboard-free counterpart of the hints in App). */
-function touchHint(tool: string, step: { corners: number; dim: number; cut: boolean; wiring: boolean }): string {
+function touchHint(tool: string, step: { corners: number; dim: number; cut: boolean; wiring: boolean; wall: boolean }): string {
   switch (tool) {
     case 'room':
       return step.corners === 0
@@ -112,6 +113,8 @@ function touchHint(tool: string, step: { corners: number; dim: number; cut: bool
       return step.dim === 0 ? t('Tap where the dimension starts') : step.dim === 1 ? t('Tap where it ends') : t('Tap where the dimension line goes')
     case 'divide':
       return step.cut ? t('Tap across the room where the line ends') : t('Tap a wall (or corner) where the dividing line starts')
+    case 'partition':
+      return step.wall ? t('Tap where the wall ends') : t('Tap where the wall starts: on a wall, a corner or anywhere')
     case 'wire':
       return step.wiring ? t('Tap lights to connect or disconnect them · tap another switch to wire it') : t('Tap a switch, then the lights it controls')
     case 'pan':
@@ -342,6 +345,8 @@ export function Canvas() {
   const [cursor, setCursor] = useState<Point | null>(null)
   const [typed, setTyped] = useState('')
   const [dimDraft, setDimDraft] = useState<{ a: Point; b?: Point } | null>(null)
+  /** Drawing a wall on its own: where it starts, once that's been tapped. */
+  const [wallStart, setWallStart] = useState<Point | null>(null)
   /** Dividing a room: the room, and where the line between its parts starts. */
   const [cut, setCut] = useState<{ roomId: string; a: Point } | null>(null)
   const [shiftHeld, setShiftHeld] = useState(false)
@@ -469,6 +474,7 @@ export function Canvas() {
     setRectPreview(null)
     setDimDraft(null)
     setCut(null)
+    setWallStart(null)
   }, [tool, floorId])
 
   const screenPos = (e: { clientX: number; clientY: number }): Point => {
@@ -589,6 +595,21 @@ export function Canvas() {
   const dimEnd = (a: Point, raw: Point) => {
     const v = pointSnap(raw)
     return v.vertex ? v.p : snapFree(snapAngle(a, raw))
+  }
+
+  /**
+   * Where a wall on its own starts (or ends, `from` its start: square to it, or at 45°, when it's near) near `p`: on a
+   * room's wall (its face, at a corner if one's close, else in line with the grid or other corners), at a corner, or on
+   * the grid.
+   */
+  const wallPoint = (p: Point, from?: Point): Point => {
+    const zoom = useEditor.getState().view.zoom
+    const raw = from ? snapAngle(from, p) : p
+    const v = pointSnap(raw)
+    if (v.vertex) return v.p
+    const on = outlinePoint(raw)
+    if (on && dist(on.p, raw) < 16 / zoom) return on.p
+    return snapFree(raw)
   }
 
   const dimOffset = (a: Point, b: Point, cursor: Point) => {
@@ -718,6 +739,17 @@ export function Canvas() {
           description: 'No wall between them: each has its own floor, ceiling and lights. Rename them in their properties.',
         })
       } else toast("That line doesn't divide the room in two", { description: 'Start on one wall and end on another, across the room.' })
+      return
+    }
+    if (st.tool === 'partition') {
+      if (e.pointerType !== 'mouse') setCursor(w)
+      if (!wallStart) setWallStart(wallPoint(w))
+      else {
+        const end = wallPoint(w, wallStart)
+        if (dist(end, wallStart) < 5) return
+        addPartition(wallStart, end)
+        setWallStart(null)
+      }
       return
     }
     if (st.tool === 'dimension') {
@@ -931,7 +963,7 @@ export function Canvas() {
     }
 
     const w = toWorld(s)
-    if (st.tool === 'room' || st.tool === 'dimension' || st.tool === 'divide') setCursor(w)
+    if (st.tool === 'room' || st.tool === 'dimension' || st.tool === 'divide' || st.tool === 'partition') setCursor(w)
     if (e.shiftKey !== shiftHeld) setShiftHeld(e.shiftKey)
 
     const d = drag.current
@@ -1364,7 +1396,7 @@ export function Canvas() {
         }
       }
     }
-    if (kind === 'vertex' || ['dimension', 'rect', 'balcony', 'terrace', 'divide'].includes(st.tool)) return
+    if (kind === 'vertex' || ['dimension', 'rect', 'balcony', 'terrace', 'divide', 'partition'].includes(st.tool)) return
     // Double-click a room (or anything in it) to bring it to the middle of the screen; outside them, the whole floor.
     const fl = currentFloor(st)
     const w = toWorld(screenPos(e))
@@ -1422,6 +1454,9 @@ export function Canvas() {
     else if (dimDraft) dimPreview = { id: 'preview', a: dimDraft.a, b: dimEnd(dimDraft.a, cursor), offset: 0 }
   }
   const dimCursor = tool === 'dimension' && cursor && !dimDraft ? pointSnap(cursor) : null
+  // A wall being drawn: from where it starts to where it would end, as thick as the walls, and how long it is.
+  const wallEnd = tool === 'partition' && cursor ? wallPoint(cursor, wallStart ?? undefined) : null
+  const wallDraft = wallStart && wallEnd && dist(wallStart, wallEnd) > 1 ? { a: wallStart, b: wallEnd } : null
 
   const drawCursor = tool === 'room' && cursor ? drawSnap(cursor, drawPts) : null
 
@@ -1701,6 +1736,37 @@ export function Canvas() {
             <DimensionGraphic d={dimPreview} units={units} scale={zoom} theme={theme} />
           </g>
         )}
+        {tool === 'partition' && (
+          <g pointerEvents="none">
+            {wallDraft &&
+              (() => {
+                const { a, b } = wallDraft
+                const n = mul(normalize({ x: -(b.y - a.y), y: b.x - a.x }), project.defaultWallThickness / 2)
+                const pts = [add(a, n), add(b, n), sub(b, n), sub(a, n)]
+                const m = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 }
+                return (
+                  <>
+                    <polygon points={pts.map((q) => `${q.x},${q.y}`).join(' ')} fill={theme.wall} fillOpacity={0.75} />
+                    <text
+                      x={m.x}
+                      y={m.y - px(12)}
+                      fontSize={px(12)}
+                      fontWeight={600}
+                      textAnchor="middle"
+                      fill={theme.label}
+                      stroke={theme.paper}
+                      strokeWidth={px(3)}
+                      paintOrder="stroke"
+                    >
+                      {formatLength(dist(a, b), units)}
+                    </text>
+                  </>
+                )
+              })()}
+            {wallStart && <circle cx={wallStart.x} cy={wallStart.y} r={px(4)} className="draw-point" />}
+            {wallEnd && <circle cx={wallEnd.x} cy={wallEnd.y} r={px(4)} className="draw-point" />}
+          </g>
+        )}
         {(dimCursor || dimDraft) && (
           <g pointerEvents="none">
             {dimDraft && <circle cx={dimDraft.a.x} cy={dimDraft.a.y} r={px(4)} className="draw-point" />}
@@ -1956,9 +2022,9 @@ export function Canvas() {
     </svg>
     {touch && tool !== 'select' && (
       <TouchToolBar
-        hint={touchHint(tool, { corners: drawPts.length, dim: dimDraft ? (dimDraft.b ? 2 : 1) : 0, cut: !!cut, wiring: !!wireSwitch })}
+        hint={touchHint(tool, { corners: drawPts.length, dim: dimDraft ? (dimDraft.b ? 2 : 1) : 0, cut: !!cut, wiring: !!wireSwitch, wall: !!wallStart })}
         corners={tool === 'room' ? drawPts.length : 0}
-        busy={(tool === 'room' && drawPts.length > 0) || (tool === 'dimension' && !!dimDraft) || (tool === 'divide' && !!cut)}
+        busy={(tool === 'room' && drawPts.length > 0) || (tool === 'dimension' && !!dimDraft) || (tool === 'divide' && !!cut) || (tool === 'partition' && !!wallStart)}
         typed={typed}
         onTyped={setTyped}
         onWall={(dir) => {
@@ -1985,6 +2051,7 @@ export function Canvas() {
           setTyped('')
           setDimDraft(null)
           setCut(null)
+          setWallStart(null)
         }}
         onDone={() => {
           useEditor.getState().setTool('select')

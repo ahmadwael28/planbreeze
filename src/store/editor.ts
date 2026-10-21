@@ -465,6 +465,29 @@ export function addSymbol(type: string, at?: Point, rotation = 0, wall?: PlanSym
 }
 
 /**
+ * A wall standing on its own from a to b (a partition: drawn end to end with the Wall tool), as thick as the plan's
+ * walls and up to the ceiling; picked, for its height and finish to be set.
+ */
+export function addPartition(a: Point, b: Point) {
+  const st = useEditor.getState()
+  const len = dist(a, b)
+  if (len < 5) return null
+  const r1 = (v: number) => Math.round(v * 10) / 10
+  const sym: PlanSymbol = {
+    ...newSymbol('partition', r1((a.x + b.x) / 2), r1((a.y + b.y) / 2)),
+    width: r1(len),
+    depth: st.project.defaultWallThickness,
+    height: 110,
+    rotation: Math.round(((Math.atan2(b.y - a.y, b.x - a.x) * 180) / Math.PI) * 100) / 100,
+  }
+  st.commit((d) => {
+    draftFloor(d).symbols.push(sym)
+  })
+  useEditor.setState({ selection: { kind: 'symbol', id: sym.id }, tool: 'select' })
+  return sym
+}
+
+/**
  * Turn free-standing columns into ones built into the nearest wall, or back, as one undo step. Returns how many
  * changed (columns with no wall near enough to build them into stay as they are).
  */

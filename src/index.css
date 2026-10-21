@@ -199,6 +199,8 @@
 .plan-canvas.tool-balcony,
 .plan-canvas.tool-terrace,
 .plan-canvas.tool-area,
+.plan-canvas.tool-partition,
+.plan-canvas.tool-partition [data-kind],
 .plan-canvas.tool-area [data-kind],
 .plan-canvas.tool-room [data-kind],
 .plan-canvas.tool-rect [data-kind],

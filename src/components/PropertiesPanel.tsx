@@ -1119,6 +1119,53 @@ function VanityOptions({ sym, units }: { sym: PlanSymbol; units: Units }) {
   )
 }
 
+/**
+ * A wall standing on its own: up to the ceiling, a half wall (or as high as it's made), with glass above it up to the
+ * ceiling or open; finished like its room's walls or painted (see its finish).
+ */
+function PartitionOptions({ sym }: { sym: PlanSymbol }) {
+  const height = !sym.partial ? 'full' : sym.height === 110 ? 'half' : 'custom'
+  return (
+    <>
+      <Choice
+        label={t('Reaches')}
+        value={height}
+        onChange={(v) =>
+          updateSymbol(sym.id, (s) => {
+            if (v === 'full') {
+              delete s.partial
+              delete s.glassTop
+              return
+            }
+            s.partial = true
+            if (v === 'half') s.height = 110
+            else if (height === 'full' || s.height === 110) s.height = 150
+          })
+        }
+        options={[
+          { value: 'full', label: t('The ceiling') },
+          { value: 'half', label: t('Half height') },
+          { value: 'custom', label: t('Custom height') },
+        ]}
+      />
+      {sym.partial && (
+        <Choice
+          label={t('Above it')}
+          value={sym.glassTop ? 'glass' : 'open'}
+          onChange={(v) => updateSymbol(sym.id, (s) => void (v === 'glass' ? (s.glassTop = true) : delete s.glassTop))}
+          options={[
+            { value: 'open', label: t('Open') },
+            { value: 'glass', label: t('Glass to the ceiling') },
+          ]}
+        />
+      )}
+      <p className="text-xs text-muted-foreground">
+        {sym.frame ? t('Painted all round.') : t("Finished like the room's walls (their tiles, if they're tiled), on both sides and its ends.")}
+      </p>
+    </>
+  )
+}
+
 function ShowerGlass({ sym }: { sym: PlanSymbol }) {
   const floor = useFloor()
   const auto = !sym.screens
@@ -1713,6 +1760,7 @@ function SymbolProps({ sym, units }: { sym: PlanSymbol; units: Units }) {
   const pose = symbolPose(sym, floor.rooms)
   const isLabel = sym.type === 'label'
   const beam = sym.type === 'beam'
+  const partition = sym.type === 'partition'
   // For a door or window: the wall's length and the gaps to its two ends.
   const wallLen =
     sym.wall && wallRoom
@@ -1759,9 +1807,13 @@ function SymbolProps({ sym, units }: { sym: PlanSymbol; units: Units }) {
         {sym.type === 'tv' && <TvSize sym={sym} />}
         {(
           [
-            ['width', isRound(sym.type) ? t('Diameter') : beam ? t('Length') : t('Width'), true],
-            ['depth', isLabel ? t('Text size') : beam ? t('Width') : t('Depth'), !sym.wall && !isRound(sym.type)],
-            ['height', sym.type === 'gypsum-box' ? t('Drop') : beam ? t('Below the ceiling') : def?.fixture === 'switch' ? t('Mount height') : t('Height'), !isLabel && !def?.fullHeight],
+            ['width', isRound(sym.type) ? t('Diameter') : beam || partition ? t('Length') : t('Width'), true],
+            ['depth', isLabel ? t('Text size') : beam ? t('Width') : partition ? t('Thickness') : t('Depth'), !sym.wall && !isRound(sym.type)],
+            [
+              'height',
+              sym.type === 'gypsum-box' ? t('Drop') : beam ? t('Below the ceiling') : def?.fixture === 'switch' ? t('Mount height') : t('Height'),
+              !isLabel && !def?.fullHeight && (!partition || !!sym.partial),
+            ],
           ] as [Dim, string, boolean][]
         ).map(([dim, label, shown]) => {
           if (!shown || sym.type === 'person') return null
@@ -1804,6 +1856,7 @@ function SymbolProps({ sym, units }: { sym: PlanSymbol; units: Units }) {
         {sym.type === 'shower' && <ShowerGlass sym={sym} />}
         {(sym.type === 'shower' || sym.type === 'shower-quadrant') && <ShowerHeadPicker sym={sym} />}
         {sym.type === 'toilet' && <ToiletMount sym={sym} />}
+        {partition && <PartitionOptions sym={sym} />}
         {STYLES[sym.type] && (
           <Field label={t('Style')}>
             {(id) => (

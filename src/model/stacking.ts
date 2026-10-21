@@ -3,7 +3,7 @@
  * TV unit below it, the upper of two switches over the lower one, a person over the sofa they sit on.
  */
 import { personSupport } from './people'
-import { CEILING_AC, styleOf, SYMBOL_MAP, vanityMirror, vanityMirrors } from './symbols'
+import { CEILING_AC, partitionTop, styleOf, SYMBOL_MAP, vanityMirror, vanityMirrors } from './symbols'
 import type { Floor, PlanSymbol } from './types'
 
 /** Items hung from the ceiling wherever they're placed. */
@@ -26,6 +26,8 @@ export function heightsOf(sym: PlanSymbol, floor: Floor): { top: number; bottom:
   // Labels are read over everything.
   if (sym.type === 'label') return { top: 1e6, bottom: 1e6 }
   if (HUNG.has(sym.type)) return { top: floor.height, bottom: floor.height - sym.height }
+  // A wall standing on its own: up to the ceiling (or its glass is), or as high as it's made.
+  if (sym.type === 'partition') return { top: sym.glassTop ? floor.height : partitionTop(sym, floor.height), bottom: 0 }
   // A range hood's chimney goes up to the ceiling.
   if (sym.type === 'range-hood' && styleOf(sym) !== 'built-in') return { top: floor.height, bottom }
   if (sym.type === 'person') {

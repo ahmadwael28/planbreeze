@@ -40,6 +40,7 @@ import {
   vanitySinks,
   WASHER_BAY,
   NICHES,
+  partitionTop,
   tankBoxDepth,
   worktopOf,
 } from '@/model/symbols'
@@ -2505,6 +2506,25 @@ function blind(k: Kit, sym: PlanSymbol, w: number, d: number, h: number, top: nu
 }
 
 /** A column built into a wall, floor to ceiling, with skirting along its three exposed faces. */
+/**
+ * A wall standing on its own: up to the ceiling or lower, painted (or plain, to be finished like its room's walls: see
+ * buildScene); lower, maybe with glass in a slim black frame from its top up to the ceiling.
+ */
+function partition(k: Kit, sym: PlanSymbol, w: number, d: number, floorH: number, ceilingH: number) {
+  const g = new THREE.Group()
+  const top = partitionTop(sym, floorH)
+  const paint = sym.frame ? (frameOf(sym)?.hex ?? COLORS.wall) : COLORS.wall
+  g.add(box(w, top, d, 0, 0, 0, k.q(paint)))
+  if (sym.partial && sym.glassTop && ceilingH - top > 5) {
+    const gh = ceilingH - top
+    const black = k.q('#1f1f22', 'metal')
+    g.add(box(w - 2, gh, 0.8, 0, top, 0, k.glass()))
+    for (const y of [top, ceilingH - 2.5]) g.add(box(w, 2.5, 3, 0, y, 0, black))
+    for (const s of [-1, 1]) g.add(box(2.5, gh, 3, s * (w / 2 - 1.25), top, 0, black))
+  }
+  return g
+}
+
 function wallPost(k: Kit, w: number, d: number, floorH: number) {
   const g = new THREE.Group()
   g.add(box(w, floorH, d, 0, 0, 0, k.q(COLORS.wall)))
@@ -3213,6 +3233,9 @@ export function symbolModel(
       break
     case 'wall-post':
       g = wallPost(k, w, d, floorH)
+      break
+    case 'partition':
+      g = partition(k, sym, w, d, floorH, ceilingH)
       break
     case 'curtain':
       g = curtain(k, sym, w, d, ceilingH, wash)

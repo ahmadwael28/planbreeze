@@ -2,6 +2,7 @@ import type { ReactNode } from 'react'
 import type { LucideIcon } from 'lucide-react'
 import {
   Armchair,
+  BrickWall,
   Cable,
   Fence,
   Hand,
@@ -40,6 +41,7 @@ const TOOLS: { tool: Tool; icon: LucideIcon; label: string; key: string }[] = [
   { tool: 'balcony', icon: Fence, label: 'Draw balcony (drag)', key: 'B' },
   { tool: 'terrace', icon: Trees, label: 'Draw terrace (drag)', key: 'T' },
   { tool: 'divide', icon: Scissors, label: 'Divide a room in two, with no wall between', key: 'S' },
+  { tool: 'partition', icon: BrickWall, label: 'Draw a wall on its own (click its two ends)', key: 'L' },
   { tool: 'dimension', icon: Ruler, label: 'Dimension line', key: 'D' },
   { tool: 'pan', icon: Hand, label: 'Pan', key: 'H' },
 ]
@@ -51,6 +53,7 @@ const DRAW_TOOLS: { tool: Tool; icon: LucideIcon; label: string; key: string }[]
   { tool: 'balcony', icon: Fence, label: 'Balcony (drag)', key: 'B' },
   { tool: 'terrace', icon: Trees, label: 'Terrace (drag)', key: 'T' },
   { tool: 'divide', icon: Scissors, label: 'Divide a room in two, with no wall between', key: 'S' },
+  { tool: 'partition', icon: BrickWall, label: 'Wall on its own (its two ends)', key: 'L' },
 ]
 
 export function zoomBy(f: number) {

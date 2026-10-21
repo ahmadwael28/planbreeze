@@ -4,7 +4,7 @@ import { add, bbox, dist, dot, inwardNormal, labelPoint, mul, normalize, pointIn
 import { isSelected } from '@/model/items'
 import { isOpen, isOutdoor, railingRuns, roomOuter, symbolPose, wallEnds } from '@/model/project'
 import { floorOrigin } from '@/model/divide'
-import { CEILING_AC, NICHES, styleOf, SYMBOL_MAP, tankBoxDepth } from '@/model/symbols'
+import { CEILING_AC, NICHES, partitionTop, styleOf, SYMBOL_MAP, tankBoxDepth } from '@/model/symbols'
 import type { PlanTheme } from '@/model/theme'
 import type { Floor, PlanSymbol, Point, Project, Room, Selection, Surface } from '@/model/types'
 import { startsAtFloor, wallBands, wallSurfaceAt } from '@/model/finishes'
@@ -415,7 +415,7 @@ export function buildProjectGroup(project: Project, opts: BuildOptions): THREE.G
       const hl = isSelected(sel, 'symbol', sym.id)
       // Curtains and blinds hang from the ceiling above them (up in a curtain pocket if there's one), air conditioning
       // is set into it, and a wall-hung toilet's tank box can go up to it.
-      const hangs = ['curtain', 'blind', 'range-hood', 'toilet'].includes(sym.type) || CEILING_AC.has(sym.type)
+      const hangs = ['curtain', 'blind', 'range-hood', 'toilet', 'partition'].includes(sym.type) || CEILING_AC.has(sym.type)
       // People sit or lie on whatever they're on, at its height.
       const on = sym.type === 'person' ? personSupport(sym, floor.symbols) : null
       // A vanity's mirror goes on the wall behind it, however far its back is from it.
@@ -517,6 +517,39 @@ export function buildProjectGroup(project: Project, opts: BuildOptions): THREE.G
               ? undersideTri([v3((-flip * w) / 2, y, -d / 2), v3((flip * w) / 2, y, -d / 2), v3((-flip * w) / 2, y, d / 2)], uL + w / 2)
               : rectGeo(v3(-w / 2, y, -d / 2), v3(1, 0, 0), v3(0, 0, 1), w, built.depth, uL, 0)
             clad.add(mesh(geo, matAt(low.surface)))
+          }
+          obj.add(clad)
+        }
+      }
+      // A wall standing on its own is finished like its room's walls (tiles to their height, paint above…) on both its
+      // faces and its ends, the finish carrying on round it; unless it's painted.
+      if (sym.type === 'partition' && !sym.frame) {
+        const room = floor.rooms.find((r) => pointInPolygon(pose, r.points))
+        const s = room?.walls
+        if (s) {
+          const w = sym.width
+          const d = sym.depth
+          const top = partitionTop(sym, floor.height)
+          // Each face from A to B left to right as seen (x along it, z across), and where it starts along the finish.
+          const faces: { A: [number, number]; B: [number, number]; u0: number }[] = [
+            { A: [-w / 2, d / 2], B: [w / 2, d / 2], u0: 0 },
+            { A: [w / 2, d / 2], B: [w / 2, -d / 2], u0: w },
+            { A: [w / 2, -d / 2], B: [-w / 2, -d / 2], u0: w + d },
+            { A: [-w / 2, -d / 2], B: [-w / 2, d / 2], u0: 2 * w + d },
+          ]
+          const clad = new THREE.Group()
+          clad.scale.x = sym.flipX ? -1 : 1
+          for (const band of wallBands(s, floor.height)) {
+            const z1 = Math.min(band.z1, top)
+            if (z1 - band.z0 < 0.5) continue
+            for (const fc of faces) {
+              const A = v3(fc.A[0], band.z0, fc.A[1])
+              const along = v3(fc.B[0], band.z0, fc.B[1]).sub(A)
+              const len = along.length()
+              along.normalize()
+              const out = along.clone().cross(up)
+              clad.add(mesh(rectGeo(A.addScaledVector(out, 0.3), along, up, len, z1 - band.z0, fc.u0, band.z0), wallMat(band.surface)))
+            }
           }
           obj.add(clad)
         }
