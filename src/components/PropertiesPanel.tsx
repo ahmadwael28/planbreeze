@@ -31,10 +31,11 @@ import { cn } from '@/lib/utils'
 import { area, dist, dot, normalize, perimeter, pointInPolygon, sub } from '@/model/geometry'
 import { wallBehind } from '@/model/walls'
 import { alcoveFit, wallColumns, wallSign } from '@/model/developed'
+import { ceilingHeightAt } from '@/model/lighting'
 import { DEFAULT_RAILING, isOpen, isOutdoor, keepBack, ledgeNear, linedUp, OUTDOOR, RAILING_THICKNESS, ROOM_COLORS, roomOuter, setWallLength, symbolPose } from '@/model/project'
 import { wallAcross } from '@/model/divide'
 import { beamSpan } from '@/model/beams'
-import { ALCOVE_SILL, stoneSill, CABINETS, curtainLayers, frameOf, givesLight, hasGlass, LEDGE_HEIGHT, LEDGE_RANGE, ledgeHeight, NICHES, SKIN_TONES, TANK_BOX, TANK_BOX_RANGE, tankBoxDepth, vanityLight, vanitySinks, WASHER_BAY, STYLES, styleOf, SYMBOL_MAP, tvInches, tvSize, WORKTOPS, worktopOf, hasWorktop } from '@/model/symbols'
+import { ALCOVE_SILL, alcoveOpenings, stoneSill, CABINETS, curtainLayers, frameOf, givesLight, hasGlass, LEDGE_HEIGHT, LEDGE_RANGE, ledgeHeight, NICHES, SKIN_TONES, TANK_BOX, TANK_BOX_RANGE, tankBoxDepth, vanityLight, vanitySinks, WASHER_BAY, STYLES, styleOf, SYMBOL_MAP, tvInches, tvSize, WORKTOPS, worktopOf, hasWorktop } from '@/model/symbols'
 import type { Worktop } from '@/model/symbols'
 import type { FrameColor } from '@/model/symbols'
 import { formatArea, formatLength } from '@/model/units'
@@ -194,7 +195,7 @@ function WorktopPicker({ sym, label }: { sym: PlanSymbol; label?: string }) {
           <Button
             variant="link"
             size="sm"
-            className="h-auto px-0 text-xs"
+            className="h-auto max-w-full min-w-0 shrink px-0 text-start text-xs whitespace-normal"
             onClick={() =>
               useEditor.getState().commit((d) => {
                 const ids = new Set(others.map((s) => s.id))
@@ -1166,11 +1167,28 @@ function AlcoveOptions({ sym, units }: { sym: PlanSymbol; units: Units }) {
   const floor = useFloor()
   const fit = alcoveFit(floor, sym)
   const fits = fit && Math.abs(fit.x - sym.x) < 0.5 && Math.abs(fit.y - sym.y) < 0.5 && Math.abs(fit.width - sym.width) < 0.5 && Math.abs(fit.depth - sym.depth) < 0.5
+  // Whether they all fit under the ceiling there, as high as they're made.
+  const ceiling = ceilingHeightAt(floor, sym)
+  const open = alcoveOpenings(sym, ceiling)
+  const cut = open.length < (sym.stack ?? 1) || open.some(([a, b]) => b - a < sym.height - 0.5)
   return (
     <div className="space-y-3 rounded-lg bg-muted/60 p-3">
       <p className="text-xs text-muted-foreground">
         {t("The space beside a column in the wall, built up from the floor and down from the ceiling round the niches, flush with the column and finished like the walls (their tiles, if they're tiled).")}
       </p>
+      <Choice
+        label={t('Built up')}
+        value={sym.onlyNiches ? 'niches' : 'full'}
+        onChange={(v) => updateSymbol(sym.id, (s) => void (v === 'niches' ? (s.onlyNiches = true) : delete s.onlyNiches))}
+        options={[
+          { value: 'full', label: t('Floor to ceiling') },
+          { value: 'niches', label: t('Just the niches') },
+        ]}
+      >
+        {sym.onlyNiches && (
+          <p className="text-xs text-muted-foreground">{t('Just a slab under and over each niche: the space below and above stays open (for a shower seat, say).')}</p>
+        )}
+      </Choice>
       {fit && !fits && (
         <Button variant="outline" size="sm" className="w-full" onClick={() => updateSymbol(sym.id, (s) => void Object.assign(s, fit))}>
           {t('Fill the space beside the column')}
@@ -1191,11 +1209,13 @@ function AlcoveOptions({ sym, units }: { sym: PlanSymbol; units: Units }) {
         ]}
       >
         {sym.stack && <p className="text-xs text-muted-foreground">{t('One over another, each as high as set, a little apart.')}</p>}
+        {cut && <p className="text-xs text-amber-600 dark:text-amber-400">{t("They don't all fit under the ceiling: lower them, or make them less high.")}</p>}
       </Choice>
       <label className="flex items-center justify-between gap-2 text-sm">
         <span>{t('Stone sill')}</span>
         <Switch size="sm" checked={stoneSill(sym)} onCheckedChange={(on) => updateSymbol(sym.id, (s) => void (s.stoneSill = on))} />
       </label>
+      {stoneSill(sym) && <WorktopPicker sym={sym} label={t('Stone')} />}
       <label className="flex items-center justify-between gap-2 text-sm">
         <span>{t('Glass shelf')}</span>
         <Switch size="sm" checked={!!sym.shelf} onCheckedChange={(on) => updateSymbol(sym.id, (s) => void (s.shelf = on || undefined))} />
@@ -2271,6 +2291,7 @@ function SymbolProps({ sym, units }: { sym: PlanSymbol; units: Units }) {
               <span>{t('Stone sill')}</span>
               <Switch size="sm" checked={stoneSill(sym)} onCheckedChange={(on) => updateSymbol(sym.id, (s) => void (s.stoneSill = on))} />
             </label>
+            {stoneSill(sym) && <WorktopPicker sym={sym} label={t('Stone')} />}
             <label className="flex items-center justify-between gap-2 text-sm">
               <span>{t('Glass shelf')}</span>
               <Switch size="sm" checked={!!sym.shelf} onCheckedChange={(on) => updateSymbol(sym.id, (s) => void (s.shelf = on || undefined))} />

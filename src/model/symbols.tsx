@@ -809,21 +809,46 @@ function niche(w: number, d: number, t: PlanTheme, sym?: PlanSymbol) {
 /** Whether a niche has a stone sill: as chosen, or a shower niche's (sloping the water out) unless it's been taken off. */
 export const stoneSill = (sym: Pick<PlanSymbol, 'type' | 'stoneSill'>) => sym.stoneSill ?? sym.type === 'shower-niche'
 
-/** An alcove niche's sill, usually, and the solid between niches one over another (cm). */
+/**
+ * An alcove niche's sill, usually; the solid between niches one over another; and the slab under and over them when
+ * it's just the niches (or over the top one, under the ceiling) (cm).
+ */
 export const ALCOVE_SILL = 100
 export const ALCOVE_GAP = 15
+export const ALCOVE_SLAB = 6
 
 /**
- * The niches in an alcove (a space between a column built into a wall and the wall next to it, or another column),
- * filled in round them from the floor and down from the ceiling: from and to where each is (cm up from the floor),
- * from its sill up, one over another.
+ * The niches in an alcove (a space between a column built into a wall and the wall next to it, or another column):
+ * from and to where each is (cm up from the floor), from its sill up, one over another; all under the ceiling (`top`),
+ * a slab's thickness under it: one going past that is cut short, one with no room left out.
  */
-export function alcoveOpenings(sym: Pick<PlanSymbol, 'elevation' | 'height' | 'stack'>): [number, number][] {
+export function alcoveOpenings(sym: Pick<PlanSymbol, 'elevation' | 'height' | 'stack'>, top = Infinity): [number, number][] {
   const y0 = sym.elevation ?? ALCOVE_SILL
-  return Array.from({ length: sym.stack ?? 1 }, (_, i) => {
+  const out: [number, number][] = []
+  for (let i = 0; i < (sym.stack ?? 1); i++) {
     const a = y0 + i * (sym.height + ALCOVE_GAP)
-    return [a, a + sym.height]
-  })
+    const b = Math.min(a + sym.height, top - ALCOVE_SLAB)
+    if (b - a >= 10) out.push([a, b])
+  }
+  return out
+}
+
+/**
+ * What's built in an alcove round its niches (from and to, cm up from the floor): from the floor up to the first and
+ * between them on up to the ceiling (`top`); or, just the niches, a slab under and over each (and between them).
+ */
+export function alcoveSolids(sym: Pick<PlanSymbol, 'elevation' | 'height' | 'stack' | 'onlyNiches'>, top: number): [number, number][] {
+  const open = alcoveOpenings(sym, top)
+  if (!open.length) return sym.onlyNiches ? [] : [[0, top]]
+  const out: [number, number][] = []
+  let y = sym.onlyNiches ? Math.max(0, open[0][0] - ALCOVE_SLAB) : 0
+  for (const [a, b] of open) {
+    if (a > y) out.push([y, a])
+    y = b
+  }
+  const end = sym.onlyNiches ? Math.min(top, y + ALCOVE_SLAB) : top
+  if (end > y) out.push([y, end])
+  return out
 }
 
 /** Air conditioning in the ceiling (a gypsum one, or the slab): set into it wherever they're placed. */
@@ -2104,10 +2129,21 @@ export const SYMBOLS: SymbolDef[] = [
     height: 60,
     render: (w, d, t, sym) => {
       const k = kit(t)
-      // Built up to the ceiling, as walls are drawn (lighter); the niche in it dashed, a shelf across it.
+      // Built up to the ceiling, as walls are drawn (lighter; just the niches, only outlined); the niche in it dashed,
+      // a shelf across it.
       return (
         <>
-          <rect x={-w / 2} y={-d / 2} width={w} height={d} fill={t.wall} fillOpacity={0.55} stroke={t.wall} strokeWidth={1} vectorEffect="non-scaling-stroke" />
+          <rect
+            x={-w / 2}
+            y={-d / 2}
+            width={w}
+            height={d}
+            fill={t.wall}
+            fillOpacity={sym?.onlyNiches ? 0 : 0.55}
+            stroke={t.wall}
+            strokeWidth={1}
+            vectorEffect="non-scaling-stroke"
+          />
           <rect x={-w / 2 + 1.5} y={-d / 2 + 1.5} width={Math.max(0, w - 3)} height={Math.max(0, d - 3)} {...k.thin} fill="none" strokeDasharray="3 2" />
           {sym?.shelf && <line x1={-w / 2 + 1.5} y1={0} x2={w / 2 - 1.5} y2={0} {...k.thin} />}
         </>

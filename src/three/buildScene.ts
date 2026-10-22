@@ -4,7 +4,7 @@ import { add, bbox, dist, dot, inwardNormal, labelPoint, mul, normalize, pointIn
 import { isSelected } from '@/model/items'
 import { isOpen, isOutdoor, railingRuns, roomOuter, symbolPose, wallEnds } from '@/model/project'
 import { floorOrigin } from '@/model/divide'
-import { alcoveOpenings, CEILING_AC, ledgeHeight, NICHES, partitionTop, stoneSill, styleOf, SYMBOL_MAP, tankBoxDepth } from '@/model/symbols'
+import { alcoveOpenings, alcoveSolids, CEILING_AC, ledgeHeight, NICHES, partitionTop, stoneSill, styleOf, SYMBOL_MAP, tankBoxDepth } from '@/model/symbols'
 import type { PlanTheme } from '@/model/theme'
 import type { Floor, PlanSymbol, Point, Project, Room, Selection, Surface, WallSurface } from '@/model/types'
 import { openSides } from '@/model/guides'
@@ -147,16 +147,16 @@ function builtBox(
   caps?: { y: number; up: boolean }[]
 } | null {
   if (sym.type === 'alcove-niche') {
-    const open = alcoveOpenings(sym).filter(([a]) => a < ceilingH)
-    const spans: [number, number][] = []
-    let y = 0
-    for (const [a, b] of open) {
-      if (a > y) spans.push([y, a])
-      y = Math.min(b, ceilingH)
-    }
-    if (ceilingH > y) spans.push([y, ceilingH])
-    const caps = open.flatMap(([a, b]) => [...(stoneSill(sym) ? [] : [{ y: a, up: true }]), ...(b < ceilingH ? [{ y: b, up: false }] : [])])
-    return { depth: sym.depth, y0: 0, y1: ceilingH, corner: false, under: false, spans, caps }
+    const spans = alcoveSolids(sym, ceilingH)
+    if (!spans.length) return null
+    // The tops and undersides of what's built that show (not at the floor or the ceiling); a niche's sill not, under
+    // a stone one.
+    const sills = new Set(alcoveOpenings(sym, ceilingH).map(([a]) => a))
+    const caps = spans.flatMap(([y0, y1]) => [
+      ...(y0 > 0.5 ? [{ y: y0, up: false }] : []),
+      ...(y1 < ceilingH - 0.5 && !(stoneSill(sym) && sills.has(y1)) ? [{ y: y1, up: true }] : []),
+    ])
+    return { depth: sym.depth, y0: spans[0][0], y1: spans[spans.length - 1][1], corner: false, under: false, spans, caps }
   }
   if (sym.type === 'toilet' && sym.mount === 'wall' && sym.tankBox !== 'none') {
     return { depth: tankBoxDepth(sym), y0: 0, y1: sym.tankBox === 'full' ? ceilingH : Math.min(ledgeHeight(sym), ceilingH), corner: false, under: false }
@@ -653,7 +653,7 @@ export function buildProjectGroup(project: Project, opts: BuildOptions): THREE.G
       obj.traverse((o) => (o.userData.pick = pick))
       group.add(obj)
       // Cabinets with LEDs inside: their lights, placed like the cabinet.
-      const leds = sym.led ? cabinetLeds(sym, wallGap) : null
+      const leds = sym.led ? cabinetLeds(sym, wallGap, sym.type === 'alcove-niche' ? ceilingHeightAt(floor, pose) : undefined) : null
       if (leds) {
         const lit = cabinetLights(sym, leds, floor, floor.rooms.find((r) => pointInPolygon(pose, r.points))?.id, handles)
         lit.position.copy(obj.position)

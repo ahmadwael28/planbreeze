@@ -329,7 +329,7 @@ export interface PlanSymbol {
   stool?: boolean
   /** Kept as it is when rooms are designed (see model/design). */
   keep?: boolean
-  /** Kitchen units, islands, a vanity's stone top: the worktop (one of WORKTOPS). */
+  /** Kitchen units, islands, a vanity's stone top, a niche's stone sill: the worktop (one of WORKTOPS). */
   top?: string
   /** Kitchen islands: a hob or a sink in the top (a plain worktop if left out). */
   islandTop?: 'hob' | 'sink'
@@ -344,6 +344,11 @@ export interface PlanSymbol {
   shelf?: boolean
   /** Alcove niches: two or three niches, one over another (one if left out). */
   stack?: 2 | 3
+  /**
+   * Alcove niches: just a slab under and over each (and between them), the space below and above left open (for a
+   * shower seat, say), not built up from the floor to the ceiling.
+   */
+  onlyNiches?: boolean
   /** Niches: a stone sill, a little proud of the wall (a shower niche's has one unless this is false). */
   stoneSill?: boolean
   /** Bathroom vanities: one sink (default) or two. */

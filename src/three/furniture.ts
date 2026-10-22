@@ -57,6 +57,7 @@ import {
   WASHER_BAY,
   NICHES,
   alcoveOpenings,
+  alcoveSolids,
   stoneSill,
   LEDGE_SHELF,
   ledgeHeight,
@@ -1417,7 +1418,7 @@ function haloMap(shape: MirrorShape, w: number, h: number, spread: number) {
   return map
 }
 
-export function cabinetLeds(sym: PlanSymbol, wallGap = 0): CabinetLeds | null {
+export function cabinetLeds(sym: PlanSymbol, wallGap = 0, ceilingH = Infinity): CabinetLeds | null {
   const { width: w, depth: d, height: h } = sym
   if (sym.type === 'wall-cabinet') {
     // Under it, along the front, lighting the counter.
@@ -1430,8 +1431,8 @@ export function cabinetLeds(sym: PlanSymbol, wallGap = 0): CabinetLeds | null {
     return { strips: xs.map((x) => ({ x, y: -0.5, z, len: 5, axis: 'x' as const })), spots: xs.map((x) => ({ x, y: -1, z, angle: 0.9, intensity: 3 })) }
   }
   if (sym.type === 'alcove-niche') {
-    // Along the top of each niche, at the front, lighting what stands in it.
-    const open = alcoveOpenings(sym)
+    // Along the top of each niche (under the ceiling), at the front, lighting what stands in it.
+    const open = alcoveOpenings(sym, ceilingH)
     return {
       strips: open.map(([, b]) => ({ x: 0, y: b - 1.2, z: d / 2 - 1.5, len: w - 2, axis: 'x' as const })),
       spots: open.map(([, b]) => ({ x: 0, y: b - 2, z: 0, angle: 1.2, intensity: 2 / open.length })),
@@ -2941,32 +2942,29 @@ function wallPost(k: Kit, w: number, d: number, floorH: number) {
   return g
 }
 
-/** A shower niche's own parts (the recess itself is cut into the wall): a stone sill, and a glass shelf if it has one. */
 /**
- * Niches in an alcove: the space built up from the floor and down from the ceiling round them (plain here; finished
- * like the walls in buildScene), each open back to the wall, maybe with a glass shelf across it.
+ * Niches in an alcove: the space built up round them, from the floor and down from the ceiling (or just a slab under
+ * and over each), plain here (finished like the walls in buildScene); each open back to the wall, under the ceiling,
+ * maybe with a stone sill and a glass shelf across it.
  */
 function alcoveNiche(k: Kit, sym: PlanSymbol, w: number, d: number, ceilingH: number) {
   const g = new THREE.Group()
   const body = k.q(WALL_WHITE, 'satin')
-  let y = 0
-  for (const [a, b] of alcoveOpenings(sym)) {
-    if (a >= ceilingH) break
-    if (a > y) g.add(box(w, a - y, d, 0, y, 0, body))
+  for (const [y0, y1] of alcoveSolids(sym, ceilingH)) g.add(box(w, y1 - y0, d, 0, y0, 0, body))
+  for (const [a, b] of alcoveOpenings(sym, ceilingH)) {
     // Its sill in stone, a little proud of the front, if it's chosen.
-    if (stoneSill(sym)) g.add(box(w, 2, d + 1.5, 0, a - 2, 0.75, k.q(COLORS.stone, 'satin')))
-    if (sym.shelf) g.add(box(w - 0.6, 0.8, d - 1.2, 0, (a + Math.min(b, ceilingH)) / 2, 0.6, k.glass()))
-    y = Math.min(b, ceilingH)
+    if (stoneSill(sym)) g.add(box(w, 2, d + 1.5, 0, a - 2, 0.75, k.top()))
+    if (sym.shelf) g.add(box(w - 0.6, 0.8, d - 1.2, 0, (a + b) / 2, 0.6, k.glass()))
   }
-  if (ceilingH > y) g.add(box(w, ceilingH - y, d, 0, y, 0, body))
   return g
 }
 
+/** A shower niche's own parts (the recess itself is cut into the wall): a stone sill, and a glass shelf if it has one. */
 function showerNiche(k: Kit, sym: PlanSymbol, w: number, h: number, wallT: number) {
   const g = new THREE.Group()
   const r = nicheDepth(wallT)
   // A stone sill (a shower niche's, unless it's been taken off, sloping the water out), else just the wall's.
-  if (stoneSill(sym)) g.add(box(w + 1, 1.5, r + 1.5, 0, -1.2, wallT / 2 - r / 2 + 0.75, k.q(COLORS.stone, 'satin')))
+  if (stoneSill(sym)) g.add(box(w + 1, 1.5, r + 1.5, 0, -1.2, wallT / 2 - r / 2 + 0.75, k.top()))
   if (sym.shelf) g.add(box(w - 0.6, 0.8, r - 0.6, 0, h / 2, wallT / 2 - r / 2, k.glass()))
   return g
 }
