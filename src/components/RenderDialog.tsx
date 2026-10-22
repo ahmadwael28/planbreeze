@@ -8,8 +8,11 @@ import { Slider } from '@/components/ui/slider'
 import { Switch } from '@/components/ui/switch'
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
 import { t } from '@/i18n'
+import { useLayout } from '@/hooks/use-layout'
 import { currentFloor, useEditor } from '@/store/editor'
 import { useUi } from '@/store/ui'
+import { estimate } from '@/three/renderQuality'
+import type { RenderTuning } from '@/three/renderQuality'
 import { viewAspect } from '@/three/renderSource'
 import type { RenderJob } from '@/three/render'
 
@@ -22,12 +25,15 @@ const SIZES = [
   { id: '4k', name: '4K', long: 3840 },
 ] as const
 
-/** How long it goes on: samples (passes over every pixel), each taking a little grain away. */
-const QUALITIES = [
-  { id: 'draft', name: 'Draft', samples: 64 },
-  { id: 'good', name: 'Good', samples: 300 },
-  { id: 'best', name: 'Best', samples: 1200 },
-] as const
+/**
+ * How long it goes on: samples (passes over every pixel, each taking a little grain away), how many times light's
+ * followed as it bounces, and how many pixels it's traced at (the rest filled in, sharp, by the grain filter).
+ */
+const QUALITIES: { id: 'draft' | 'good' | 'best'; name: string; samples: number; tuning: Partial<RenderTuning> }[] = [
+  { id: 'draft', name: 'Draft', samples: 24, tuning: { bounces: 3, pixels: 350_000 } },
+  { id: 'good', name: 'Good', samples: 64, tuning: { bounces: 4, pixels: 500_000 } },
+  { id: 'best', name: 'Best', samples: 200, tuning: { bounces: 5, pixels: 1_000_000 } },
+]
 
 type Phase = 'setup' | 'preparing' | 'rendering' | 'done'
 
@@ -55,6 +61,12 @@ const clock = (ms: number) => {
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`
 }
 
+/** A time to wait, roughly: to 5 s under a minute, then to the minute. */
+const roughly = (ms: number) => {
+  const s = ms / 1000
+  return s < 55 ? t('{n} s', { n: Math.max(5, Math.round(s / 5) * 5) }) : t('{n} min', { n: Math.round(s / 60) })
+}
+
 /**
  * A realistic render of the 3D view as it's seen: path traced (see three/render), at a size and a quality, shown as
  * it's drawn (the grain going as the samples come in), to stop when it's good enough, then save or copy.
@@ -62,22 +74,29 @@ const clock = (ms: number) => {
 export function RenderDialog() {
   const open = useUi((s) => s.renderOpen)
   const setOpen = useUi((s) => s.openRender)
-  const [size, setSize] = useState<(typeof SIZES)[number]['id']>('full')
-  const [quality, setQuality] = useState<(typeof QUALITIES)[number]['id']>('good')
+  // On a phone: no 4K (too much for it), and a draft to start with.
+  const layout = useLayout()
+  const phone = layout.compact && layout.touch
+  const sizes = phone ? SIZES.filter((s) => s.id !== '4k') : SIZES
+  const [size, setSize] = useState<(typeof SIZES)[number]['id']>(phone ? 'hd' : 'full')
+  const [quality, setQuality] = useState<(typeof QUALITIES)[number]['id']>(phone ? 'draft' : 'good')
   const [smooth, setSmooth] = useState(true)
-  // A little brighter than the view: lit only by its lights and the sky, with no fill light added.
-  const [exposure, setExposure] = useState(1.4)
+  // Brighter or darker than a camera would make it (see render: it's metered).
+  const [exposure, setExposure] = useState(1)
   const [phase, setPhase] = useState<Phase>('setup')
   const [prepared, setPrepared] = useState(0)
+  const [compiling, setCompiling] = useState(false)
   const [samples, setSamples] = useState(0)
+  const [perSample, setPerSample] = useState(0)
   const [started, setStarted] = useState(0)
   const [now, setNow] = useState(0)
   const job = useRef<RenderJob | null>(null)
   const abort = useRef<AbortController | null>(null)
   const preview = useRef<HTMLDivElement>(null)
-  const target = QUALITIES.find((q) => q.id === quality)!.samples
+  const q = QUALITIES.find((x) => x.id === quality)!
+  const target = q.samples
 
-  const long = SIZES.find((s) => s.id === size)!.long
+  const long = (sizes.find((s) => s.id === size) ?? sizes[0]).long
   const aspect = open ? viewAspect() : 16 / 9
   const even = (n: number) => Math.max(2, Math.round(n / 2) * 2)
   const [w, h] = aspect >= 1 ? [long, even(long / aspect)] : [even(long * aspect), long]
@@ -108,7 +127,9 @@ export function RenderDialog() {
     useEditor.setState({ selection: null })
     setPhase('preparing')
     setPrepared(0)
+    setCompiling(false)
     setSamples(0)
+    setPerSample(0)
     setStarted(performance.now())
     setNow(performance.now())
     const ctl = new AbortController()
@@ -122,12 +143,15 @@ export function RenderDialog() {
         samples: target,
         exposure,
         smooth,
+        tuning: q.tuning,
         signal: ctl.signal,
         onProgress: (p) => {
           if (ctl.signal.aborted) return
           setPhase(p.phase)
           setPrepared(p.prepared)
+          setCompiling(p.compiling)
           setSamples(p.samples)
+          setPerSample(p.perSample)
         },
         onLost: () => {
           toast.error(t('The graphics card stopped the render'), { description: t('Try a smaller size, or close other tabs using 3D.') })
@@ -165,6 +189,12 @@ export function RenderDialog() {
   const shown = phase === 'rendering' || phase === 'done'
   const elapsed = clock(now - started)
   const fraction = phase === 'preparing' ? prepared : Math.min(1, samples / target)
+  // How long it should take here (as the last render went), and how long it's got left.
+  const expected = open && phase === 'setup' ? estimate(w, h, target, q.tuning) : null
+  const left = perSample > 0 ? (target - samples) * perSample : 0
+  const getting = compiling
+    ? t('Getting the graphics card ready: the first time, a minute or two…')
+    : t('Getting the scene ready… {pct}%', { pct: Math.round(prepared * 100) })
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
@@ -182,7 +212,7 @@ export function RenderDialog() {
             {!shown && (
               <div className="absolute inset-0 grid place-content-center justify-items-center gap-2 p-6 text-center text-sm text-muted-foreground">
                 <Aperture className="size-10 opacity-60" />
-                {phase === 'preparing' ? t('Getting the scene ready… {pct}%', { pct: Math.round(prepared * 100) }) : t('Set it up, then start: the picture shows here as it’s drawn.')}
+                {phase === 'preparing' ? getting : t('Set it up, then start: the picture shows here as it’s drawn.')}
               </div>
             )}
           </div>
@@ -192,7 +222,7 @@ export function RenderDialog() {
             <div className="flex-1 space-y-4 overflow-y-auto p-4">
               <Row label={t('Size')}>
                 <ToggleGroup type="single" variant="outline" size="sm" value={size} onValueChange={(v) => v && setSize(v as typeof size)} disabled={busy} className="w-full">
-                  {SIZES.map((s) => (
+                  {sizes.map((s) => (
                     <ToggleGroupItem key={s.id} value={s.id} className={`flex-1 ${on}`}>
                       {s.name}
                     </ToggleGroupItem>
@@ -210,7 +240,10 @@ export function RenderDialog() {
                     </ToggleGroupItem>
                   ))}
                 </ToggleGroup>
-                <p className="text-xs text-muted-foreground">{t('{n} samples: more, less grain, longer to wait.', { n: target })}</p>
+                <p className="text-xs text-muted-foreground">
+                  {t('{n} samples: more, less grain, longer to wait.', { n: target })}
+                  {expected !== null && <> {t('About {time} on this device.', { time: roughly(expected) })}</>}
+                </p>
               </Row>
               <Row label={t('Brightness')}>
                 <Slider
@@ -244,9 +277,11 @@ export function RenderDialog() {
                   </div>
                   <p className="text-xs text-muted-foreground tabular-nums">
                     {phase === 'preparing'
-                      ? t('Getting the scene ready… {pct}%', { pct: Math.round(prepared * 100) })
+                      ? getting
                       : phase === 'rendering'
-                        ? t('{n} of {total} samples · {time}', { n: samples, total: target, time: elapsed })
+                        ? left > 0
+                          ? t('{n} of {total} samples · {time} · about {left} left', { n: samples, total: target, time: elapsed, left: roughly(left) })
+                          : t('{n} of {total} samples · {time}', { n: samples, total: target, time: elapsed })
                         : t('Done: {n} samples', { n: samples })}
                   </p>
                 </div>

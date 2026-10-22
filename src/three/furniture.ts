@@ -208,6 +208,8 @@ export class Materials {
     let m = this.cache.get(key) as THREE.MeshStandardMaterial | undefined
     if (!m) {
       m = new THREE.MeshStandardMaterial({ color: '#e8eeee', metalness: 1, roughness: 0.05, envMap: mirrorRoomMap(), envMapIntensity: mirrorLevel })
+      // A flat mirror, for the realistic render (see renderFilter): what's seen in it is drawn as if through it.
+      m.userData.mirror = true
       if (highlight) {
         m.emissive = new THREE.Color('#2563eb')
         m.emissiveIntensity = 0.45

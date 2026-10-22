@@ -11,6 +11,10 @@ export interface RenderSource {
   /** The fixtures' lights (on, or off: at 0). */
   lights: VirtualLight[]
   camera: THREE.PerspectiveCamera
+  /** The room the camera's in (walking inside), or what it looks at from outside; and where that is (world). */
+  room: string | null
+  inside: boolean
+  focus: THREE.Vector3
   sun: THREE.DirectionalLight
   /** 0 at night … 1 by day. */
   daylight: number

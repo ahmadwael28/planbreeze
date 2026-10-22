@@ -861,6 +861,14 @@ export default function Viewer3D() {
       objects: [ctx.content, ctx.ground].filter((o): o is THREE.Group | THREE.Mesh => !!o),
       lights: ((ctx.content?.userData.lightHandles ?? []) as LightHandle[]).flatMap((h) => h.lights),
       camera: ctx.camera,
+      ...(() => {
+        const inside = roomAt(ctx.camera.position, false)
+        return {
+          room: (inside ?? roomAt(ctx.controls.target, true))?.id ?? null,
+          inside: !!inside,
+          focus: (inside ? ctx.camera.position : ctx.controls.target).clone(),
+        }
+      })(),
       sun: ctx.sun,
       // The sun is 2.4 × the daylight squared (see the light state below).
       daylight: Math.sqrt(Math.max(0, ctx.sun.intensity) / 2.4),
