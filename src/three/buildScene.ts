@@ -4,7 +4,7 @@ import { add, bbox, dist, dot, inwardNormal, labelPoint, mul, normalize, pointIn
 import { isSelected } from '@/model/items'
 import { isOpen, isOutdoor, railingRuns, roomOuter, symbolPose, wallEnds } from '@/model/project'
 import { floorOrigin } from '@/model/divide'
-import { alcoveOpenings, CEILING_AC, ledgeHeight, NICHES, partitionTop, styleOf, SYMBOL_MAP, tankBoxDepth } from '@/model/symbols'
+import { alcoveOpenings, CEILING_AC, ledgeHeight, NICHES, partitionTop, stoneSill, styleOf, SYMBOL_MAP, tankBoxDepth } from '@/model/symbols'
 import type { PlanTheme } from '@/model/theme'
 import type { Floor, PlanSymbol, Point, Project, Room, Selection, Surface, WallSurface } from '@/model/types'
 import { openSides } from '@/model/guides'
@@ -155,7 +155,7 @@ function builtBox(
       y = Math.min(b, ceilingH)
     }
     if (ceilingH > y) spans.push([y, ceilingH])
-    const caps = open.flatMap(([a, b]) => [{ y: a, up: true }, ...(b < ceilingH ? [{ y: b, up: false }] : [])])
+    const caps = open.flatMap(([a, b]) => [...(stoneSill(sym) ? [] : [{ y: a, up: true }]), ...(b < ceilingH ? [{ y: b, up: false }] : [])])
     return { depth: sym.depth, y0: 0, y1: ceilingH, corner: false, under: false, spans, caps }
   }
   if (sym.type === 'toilet' && sym.mount === 'wall' && sym.tankBox !== 'none') {

@@ -57,6 +57,7 @@ import {
   WASHER_BAY,
   NICHES,
   alcoveOpenings,
+  stoneSill,
   LEDGE_SHELF,
   ledgeHeight,
   partitionCrown,
@@ -2952,6 +2953,8 @@ function alcoveNiche(k: Kit, sym: PlanSymbol, w: number, d: number, ceilingH: nu
   for (const [a, b] of alcoveOpenings(sym)) {
     if (a >= ceilingH) break
     if (a > y) g.add(box(w, a - y, d, 0, y, 0, body))
+    // Its sill in stone, a little proud of the front, if it's chosen.
+    if (stoneSill(sym)) g.add(box(w, 2, d + 1.5, 0, a - 2, 0.75, k.q(COLORS.stone, 'satin')))
     if (sym.shelf) g.add(box(w - 0.6, 0.8, d - 1.2, 0, (a + Math.min(b, ceilingH)) / 2, 0.6, k.glass()))
     y = Math.min(b, ceilingH)
   }
@@ -2962,8 +2965,8 @@ function alcoveNiche(k: Kit, sym: PlanSymbol, w: number, d: number, ceilingH: nu
 function showerNiche(k: Kit, sym: PlanSymbol, w: number, h: number, wallT: number) {
   const g = new THREE.Group()
   const r = nicheDepth(wallT)
-  // A shower niche's sill is stone, sloping the water out; a wall niche's is just the wall's.
-  if (sym.type === 'shower-niche') g.add(box(w + 1, 1.5, r + 1.5, 0, -1.2, wallT / 2 - r / 2 + 0.75, k.q(COLORS.stone, 'satin')))
+  // A stone sill (a shower niche's, unless it's been taken off, sloping the water out), else just the wall's.
+  if (stoneSill(sym)) g.add(box(w + 1, 1.5, r + 1.5, 0, -1.2, wallT / 2 - r / 2 + 0.75, k.q(COLORS.stone, 'satin')))
   if (sym.shelf) g.add(box(w - 0.6, 0.8, r - 0.6, 0, h / 2, wallT / 2 - r / 2, k.glass()))
   return g
 }

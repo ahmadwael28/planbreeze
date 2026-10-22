@@ -34,7 +34,7 @@ import { alcoveFit, wallColumns, wallSign } from '@/model/developed'
 import { DEFAULT_RAILING, isOpen, isOutdoor, keepBack, ledgeNear, linedUp, OUTDOOR, RAILING_THICKNESS, ROOM_COLORS, roomOuter, setWallLength, symbolPose } from '@/model/project'
 import { wallAcross } from '@/model/divide'
 import { beamSpan } from '@/model/beams'
-import { ALCOVE_SILL, CABINETS, curtainLayers, frameOf, givesLight, hasGlass, LEDGE_HEIGHT, LEDGE_RANGE, ledgeHeight, NICHES, SKIN_TONES, TANK_BOX, TANK_BOX_RANGE, tankBoxDepth, vanityLight, vanitySinks, WASHER_BAY, STYLES, styleOf, SYMBOL_MAP, tvInches, tvSize, WORKTOPS, worktopOf, hasWorktop } from '@/model/symbols'
+import { ALCOVE_SILL, stoneSill, CABINETS, curtainLayers, frameOf, givesLight, hasGlass, LEDGE_HEIGHT, LEDGE_RANGE, ledgeHeight, NICHES, SKIN_TONES, TANK_BOX, TANK_BOX_RANGE, tankBoxDepth, vanityLight, vanitySinks, WASHER_BAY, STYLES, styleOf, SYMBOL_MAP, tvInches, tvSize, WORKTOPS, worktopOf, hasWorktop } from '@/model/symbols'
 import type { Worktop } from '@/model/symbols'
 import type { FrameColor } from '@/model/symbols'
 import { formatArea, formatLength } from '@/model/units'
@@ -1193,6 +1193,10 @@ function AlcoveOptions({ sym, units }: { sym: PlanSymbol; units: Units }) {
         {sym.stack && <p className="text-xs text-muted-foreground">{t('One over another, each as high as set, a little apart.')}</p>}
       </Choice>
       <label className="flex items-center justify-between gap-2 text-sm">
+        <span>{t('Stone sill')}</span>
+        <Switch size="sm" checked={stoneSill(sym)} onCheckedChange={(on) => updateSymbol(sym.id, (s) => void (s.stoneSill = on))} />
+      </label>
+      <label className="flex items-center justify-between gap-2 text-sm">
         <span>{t('Glass shelf')}</span>
         <Switch size="sm" checked={!!sym.shelf} onCheckedChange={(on) => updateSymbol(sym.id, (s) => void (s.shelf = on || undefined))} />
       </label>
@@ -1202,6 +1206,7 @@ function AlcoveOptions({ sym, units }: { sym: PlanSymbol; units: Units }) {
         </span>
         <Switch size="sm" checked={!!sym.led} onCheckedChange={(on) => updateSymbol(sym.id, (s) => void (s.led = on || undefined))} />
       </label>
+      {sym.led && <LightSection sym={sym} units={units} />}
     </div>
   )
 }
@@ -2262,6 +2267,10 @@ function SymbolProps({ sym, units }: { sym: PlanSymbol; units: Units }) {
               )}
             </Field>
             <p className="-mt-2 text-xs text-muted-foreground">{t('To the bottom of the niche, its sill.')}</p>
+            <label className="flex items-center justify-between gap-2 text-sm">
+              <span>{t('Stone sill')}</span>
+              <Switch size="sm" checked={stoneSill(sym)} onCheckedChange={(on) => updateSymbol(sym.id, (s) => void (s.stoneSill = on))} />
+            </label>
             <label className="flex items-center justify-between gap-2 text-sm">
               <span>{t('Glass shelf')}</span>
               <Switch size="sm" checked={!!sym.shelf} onCheckedChange={(on) => updateSymbol(sym.id, (s) => void (s.shelf = on || undefined))} />

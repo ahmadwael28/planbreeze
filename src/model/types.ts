@@ -344,6 +344,8 @@ export interface PlanSymbol {
   shelf?: boolean
   /** Alcove niches: two or three niches, one over another (one if left out). */
   stack?: 2 | 3
+  /** Niches: a stone sill, a little proud of the wall (a shower niche's has one unless this is false). */
+  stoneSill?: boolean
   /** Bathroom vanities: one sink (default) or two. */
   sinks?: number
   /** Bathroom vanities: standing on the floor rather than hung on the wall. */

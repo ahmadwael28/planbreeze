@@ -806,6 +806,9 @@ function niche(w: number, d: number, t: PlanTheme, sym?: PlanSymbol) {
   )
 }
 
+/** Whether a niche has a stone sill: as chosen, or a shower niche's (sloping the water out) unless it's been taken off. */
+export const stoneSill = (sym: Pick<PlanSymbol, 'type' | 'stoneSill'>) => sym.stoneSill ?? sym.type === 'shower-niche'
+
 /** An alcove niche's sill, usually, and the solid between niches one over another (cm). */
 export const ALCOVE_SILL = 100
 export const ALCOVE_GAP = 15
