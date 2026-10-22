@@ -284,6 +284,29 @@ function MoreMenu({ compact, openFile }: { compact: boolean; openFile: () => voi
 }
 
 /**
+ * The 2D / 3D switch's icons, played as the view's chosen and on hover (see index.css): a plan drawing itself, a
+ * square rising into a cube.
+ */
+function ViewModeIcon({ mode }: { mode: '2d' | '3d' }) {
+  const line = { fill: 'none', stroke: 'currentColor', strokeWidth: 2, strokeLinecap: 'round', strokeLinejoin: 'round' } as const
+  return mode === '2d' ? (
+    <svg viewBox="0 0 24 24" className="vm-icon vm-2d size-4" aria-hidden>
+      <path d="M4 4h16v16H4z" pathLength={100} data-draw="" {...line} />
+      <path d="M4 12h7v8" pathLength={100} data-draw="" {...line} />
+      <path d="M15 20a5 5 0 0 0-5-5" pathLength={100} data-draw="" {...line} strokeWidth={1.5} />
+    </svg>
+  ) : (
+    <svg viewBox="0 0 24 24" className="vm-icon vm-3d size-4" aria-hidden>
+      <g data-back="">
+        <path d="M9 3h12v12" {...line} />
+      </g>
+      <path d="M3 9l6-6M15 9l6-6M15 21l6-6" pathLength={100} data-grow="" {...line} />
+      <path d="M3 9h12v12H3z" {...line} />
+    </svg>
+  )
+}
+
+/**
  * The bar along the top. Wide screens show everything; smaller ones keep the essentials (plans, saving, undo, 2D / 3D)
  * and put the rest in a menu, so nothing is cut off.
  */
@@ -359,6 +382,7 @@ export function TopBar({ onToggleSidebar, sidebarOpen }: Props) {
                   : cn('data-[state=on]:bg-primary data-[state=on]:text-primary-foreground', compact ? 'px-2.5' : 'px-3'),
               )}
             >
+              <ViewModeIcon mode={m} />
               {m.toUpperCase()}
             </ToggleGroupItem>
           ))}

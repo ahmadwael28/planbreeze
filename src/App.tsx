@@ -302,6 +302,26 @@ function useAdaptivePanel() {
   )
 }
 
+/**
+ * A button (or switch, or a choice) clicked with the mouse or a tap doesn't keep the keyboard: the plan or the 3D view
+ * has it again, for its keys (Space would otherwise press the button again, the arrows move along a choice, and walking
+ * in 3D would wait for a click on it). Chosen by keyboard, it keeps it; in dialogs and menus too.
+ */
+function useFocusBackToView() {
+  useEffect(() => {
+    const onClick = (e: MouseEvent) => {
+      if (e.detail === 0) return
+      const el = document.activeElement
+      if (!(el instanceof HTMLElement) || !(e.target instanceof Node) || !el.contains(e.target)) return
+      if (!el.matches('button, [role="radio"], [role="switch"], [role="tab"], [role="checkbox"]')) return
+      if (el.closest('[role="dialog"], [role="alertdialog"], [role="menu"], [role="listbox"], [data-radix-popper-content-wrapper], [data-keep-focus]')) return
+      el.blur()
+    }
+    document.addEventListener('click', onClick)
+    return () => document.removeEventListener('click', onClick)
+  }, [])
+}
+
 export default function App() {
   const sidebarOpen = useUi((s) => s.sidebarOpen)
   const setSidebarOpen = useUi((s) => s.setSidebarOpen)
@@ -317,6 +337,7 @@ export default function App() {
   useEffect(loadInitialProject, [])
   useEffect(() => void initCloud(), [])
   useKeyboardShortcuts()
+  useFocusBackToView()
   useAutosave()
   useAdaptivePanel()
 

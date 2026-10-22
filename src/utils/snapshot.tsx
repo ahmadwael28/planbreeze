@@ -1,5 +1,6 @@
 import { toast } from 'sonner'
-import { t } from '@/i18n'
+import { isRtl, t } from '@/i18n'
+import { getLayout } from '@/hooks/use-layout'
 import { currentFloor, useEditor } from '@/store/editor'
 
 /**
@@ -38,6 +39,71 @@ function copy(blob: Promise<Blob>): Promise<boolean> {
   }
 }
 
+/** Where what's shown is (the plan or the 3D view, between the bars), and whether to keep still (reduced motion). */
+const viewArea = () => document.querySelector('main')
+const still = () => window.matchMedia('(prefers-reduced-motion: reduce)').matches
+
+/** The shutter: the view flashes white as it's taken. */
+function flash() {
+  const area = viewArea()
+  if (!area || still()) return
+  const r = area.getBoundingClientRect()
+  const el = document.createElement('div')
+  Object.assign(el.style, { position: 'fixed', left: `${r.left}px`, top: `${r.top}px`, width: `${r.width}px`, height: `${r.height}px`, background: '#fff', pointerEvents: 'none', zIndex: '60' })
+  document.body.appendChild(el)
+  el.animate([{ opacity: 0.85 }, { opacity: 0 }], { duration: 450, easing: 'cubic-bezier(.2,.7,.3,1)' }).onfinish = () => el.remove()
+  // Gone even if the animation never ends (in a hidden tab, say).
+  setTimeout(() => el.remove(), 1500)
+}
+
+/**
+ * The picture, from the whole view, shrinks and flies to the corner where it's then shown (where the toasts come:
+ * the bottom corner, or the top on a phone), tipping a little on the way, and fades into it.
+ */
+function fly(url: string) {
+  const area = viewArea()
+  if (!area || still()) return
+  const r = area.getBoundingClientRect()
+  const img = document.createElement('img')
+  img.src = url
+  img.alt = ''
+  Object.assign(img.style, {
+    position: 'fixed',
+    left: `${r.left}px`,
+    top: `${r.top}px`,
+    width: `${r.width}px`,
+    height: `${r.height}px`,
+    objectFit: 'contain',
+    pointerEvents: 'none',
+    zIndex: '61',
+    filter: 'drop-shadow(0 12px 28px rgb(0 0 0 / 0.35))',
+    transformOrigin: 'center',
+  })
+  document.body.appendChild(img)
+  // Where it lands: a thumbnail about the toast's picture's size, in its corner.
+  const w = Math.min(220, window.innerWidth * 0.5)
+  const s = w / r.width
+  const h = r.height * s
+  const top = getLayout().compact
+  const x = top ? window.innerWidth / 2 : isRtl() ? 24 + w / 2 : window.innerWidth - 24 - w / 2
+  const y = top ? 24 + h / 2 : window.innerHeight - 24 - h / 2
+  const dx = x - (r.left + r.width / 2)
+  const dy = y - (r.top + r.height / 2)
+  const tilt = isRtl() ? 4 : -4
+  img
+    .animate(
+      [
+        { transform: 'none', opacity: 1 },
+        { transform: 'scale(0.94)', opacity: 1, offset: 0.18 },
+        { transform: `translate(${dx}px, ${dy}px) scale(${s}) rotate(${tilt}deg)`, opacity: 1, offset: 0.85 },
+        { transform: `translate(${dx}px, ${dy}px) scale(${s}) rotate(0deg)`, opacity: 0 },
+      ],
+      { duration: 820, easing: 'cubic-bezier(.45,.05,.25,1)' },
+    )
+    .addEventListener('finish', () => img.remove())
+  setTimeout(() => img.remove(), 2500)
+}
+
 /** Take a snapshot of what's showing (the 3D view or the plan), copy it, and offer to save it. */
 export function takeSnapshot() {
   const three = useEditor.getState().viewMode === '3d' && !!capture3d
@@ -45,9 +111,11 @@ export function takeSnapshot() {
   const blob = three ? capture3d!() : import('./plan-snapshot').then((m) => m.planSnapshot())
   const copied = copy(blob)
   const id = `snapshot-${name}`
+  flash()
   blob.then(
     (b) => {
       const url = URL.createObjectURL(b)
+      fly(url)
       const show = (ok: boolean) =>
         toast(ok ? t('Snapshot copied') : t('Snapshot taken'), {
           id,

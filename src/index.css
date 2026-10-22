@@ -632,3 +632,45 @@ html[data-phone='true'] *::-webkit-scrollbar {
   border-bottom-left-radius: 14px;
   border-bottom-right-radius: 14px;
 }
+
+/*
+ * The 2D / 3D switch's icons (see TopBar): as the view's chosen, and on hover, the plan draws itself and the square
+ * rises into a cube.
+ */
+.vm-2d [data-draw],
+.vm-3d [data-grow] {
+  stroke-dasharray: 100;
+}
+[data-state='on'] > .vm-2d [data-draw],
+button:hover > .vm-2d [data-draw] {
+  animation: vm-draw 0.7s ease-out both;
+}
+[data-state='on'] > .vm-3d [data-grow],
+button:hover > .vm-3d [data-grow] {
+  animation: vm-draw 0.55s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+[data-state='on'] > .vm-3d [data-back],
+button:hover > .vm-3d [data-back] {
+  animation: vm-rise 0.55s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+@keyframes vm-draw {
+  from {
+    stroke-dashoffset: 100;
+  }
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+@keyframes vm-rise {
+  from {
+    transform: translate(-6px, 6px);
+  }
+  to {
+    transform: none;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .vm-icon * {
+    animation: none !important;
+  }
+}
