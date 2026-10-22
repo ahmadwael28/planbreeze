@@ -339,9 +339,11 @@ export interface PlanSymbol {
   towel?: boolean
   /**
    * Shower niches: a glass shelf across the middle. Walls standing on their own, lower than the ceiling: a stone shelf
-   * on top, as a wall-hung toilet's box has (as high as its, at half height).
+   * on top, as a wall-hung toilet's box has (as high as its, at half height). Alcove niches: a glass shelf in each.
    */
   shelf?: boolean
+  /** Alcove niches: two or three niches, one over another (one if left out). */
+  stack?: 2 | 3
   /** Bathroom vanities: one sink (default) or two. */
   sinks?: number
   /** Bathroom vanities: standing on the floor rather than hung on the wall. */

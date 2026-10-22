@@ -124,6 +124,7 @@ export default {
   Column: 'عمود',
   'Column in a wall': 'عمود داخل حائط',
   'Half wall': 'نصف حائط',
+  'Alcove niche': 'كوّة بجانب عمود',
   'Half wall with glass': 'نصف حائط بزجاج',
   Beam: 'كمرة',
   Person: 'شخص',

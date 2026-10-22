@@ -30,11 +30,11 @@ import { usePlanTheme } from '@/hooks/use-plan-theme'
 import { cn } from '@/lib/utils'
 import { area, dist, dot, normalize, perimeter, pointInPolygon, sub } from '@/model/geometry'
 import { wallBehind } from '@/model/walls'
-import { wallColumns, wallSign } from '@/model/developed'
+import { alcoveFit, wallColumns, wallSign } from '@/model/developed'
 import { DEFAULT_RAILING, isOpen, isOutdoor, keepBack, ledgeNear, linedUp, OUTDOOR, RAILING_THICKNESS, ROOM_COLORS, roomOuter, setWallLength, symbolPose } from '@/model/project'
 import { wallAcross } from '@/model/divide'
 import { beamSpan } from '@/model/beams'
-import { CABINETS, curtainLayers, frameOf, givesLight, hasGlass, LEDGE_HEIGHT, LEDGE_RANGE, ledgeHeight, NICHES, SKIN_TONES, TANK_BOX, TANK_BOX_RANGE, tankBoxDepth, vanityLight, vanitySinks, WASHER_BAY, STYLES, styleOf, SYMBOL_MAP, tvInches, tvSize, WORKTOPS, worktopOf, hasWorktop } from '@/model/symbols'
+import { ALCOVE_SILL, CABINETS, curtainLayers, frameOf, givesLight, hasGlass, LEDGE_HEIGHT, LEDGE_RANGE, ledgeHeight, NICHES, SKIN_TONES, TANK_BOX, TANK_BOX_RANGE, tankBoxDepth, vanityLight, vanitySinks, WASHER_BAY, STYLES, styleOf, SYMBOL_MAP, tvInches, tvSize, WORKTOPS, worktopOf, hasWorktop } from '@/model/symbols'
 import type { Worktop } from '@/model/symbols'
 import type { FrameColor } from '@/model/symbols'
 import { formatArea, formatLength } from '@/model/units'
@@ -1159,6 +1159,54 @@ function VanityOptions({ sym, units }: { sym: PlanSymbol; units: Units }) {
 }
 
 /**
+ * Niches in an alcove: how high (from the floor), one or more over one another, a glass shelf, a light; and fitting it
+ * into the space beside a column in the wall.
+ */
+function AlcoveOptions({ sym, units }: { sym: PlanSymbol; units: Units }) {
+  const floor = useFloor()
+  const fit = alcoveFit(floor, sym)
+  const fits = fit && Math.abs(fit.x - sym.x) < 0.5 && Math.abs(fit.y - sym.y) < 0.5 && Math.abs(fit.width - sym.width) < 0.5 && Math.abs(fit.depth - sym.depth) < 0.5
+  return (
+    <div className="space-y-3 rounded-lg bg-muted/60 p-3">
+      <p className="text-xs text-muted-foreground">
+        {t("The space beside a column in the wall, built up from the floor and down from the ceiling round the niches, flush with the column and finished like the walls (their tiles, if they're tiled).")}
+      </p>
+      {fit && !fits && (
+        <Button variant="outline" size="sm" className="w-full" onClick={() => updateSymbol(sym.id, (s) => void Object.assign(s, fit))}>
+          {t('Fill the space beside the column')}
+        </Button>
+      )}
+      <Field label={t('Height from floor')}>
+        {(id) => <LengthInput id={id} value={sym.elevation ?? ALCOVE_SILL} units={units} min={0} onChange={(v) => updateSymbol(sym.id, (s) => void (s.elevation = v))} />}
+      </Field>
+      <p className="-mt-2 text-xs text-muted-foreground">{t('To the bottom of the niche, its sill.')}</p>
+      <Choice
+        label={t('Niches')}
+        value={String(sym.stack ?? 1)}
+        onChange={(v) => updateSymbol(sym.id, (s) => void (v === '1' ? delete s.stack : (s.stack = v === '3' ? 3 : 2)))}
+        options={[
+          { value: '1', label: '1' },
+          { value: '2', label: '2' },
+          { value: '3', label: '3' },
+        ]}
+      >
+        {sym.stack && <p className="text-xs text-muted-foreground">{t('One over another, each as high as set, a little apart.')}</p>}
+      </Choice>
+      <label className="flex items-center justify-between gap-2 text-sm">
+        <span>{t('Glass shelf')}</span>
+        <Switch size="sm" checked={!!sym.shelf} onCheckedChange={(on) => updateSymbol(sym.id, (s) => void (s.shelf = on || undefined))} />
+      </label>
+      <label className="flex items-center justify-between gap-2 text-sm">
+        <span className="flex items-center gap-1.5">
+          <Lightbulb className="size-4" /> {t('LED strip')}
+        </span>
+        <Switch size="sm" checked={!!sym.led} onCheckedChange={(on) => updateSymbol(sym.id, (s) => void (s.led = on || undefined))} />
+      </label>
+    </div>
+  )
+}
+
+/**
  * A wall standing on its own: up to the ceiling, a half wall (or as high as it's made), with glass above it up to the
  * ceiling or open; finished like its room's walls or painted (see its finish).
  */
@@ -2194,6 +2242,7 @@ function SymbolProps({ sym, units }: { sym: PlanSymbol; units: Units }) {
           </Field>
         )}
         {(sym.type === 'curtain' || sym.type === 'blind') && <FabricControls sym={sym} />}
+        {sym.type === 'alcove-niche' && <AlcoveOptions sym={sym} units={units} />}
         {NICHES.has(sym.type) && (
           <div className="space-y-3 rounded-lg bg-muted/60 p-3">
             <p className="text-xs text-muted-foreground">

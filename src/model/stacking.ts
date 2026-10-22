@@ -33,6 +33,8 @@ export function heightsOf(sym: PlanSymbol, floor: Floor): { top: number; bottom:
   }
   // A wall standing on its own: up to the ceiling (or its glass is), or as high as it's made (with its shelf).
   if (sym.type === 'partition') return { top: sym.glassTop ? floor.height : partitionCrown(sym, floor.height), bottom: 0 }
+  // Niches in an alcove: built up from the floor to the ceiling round them.
+  if (sym.type === 'alcove-niche') return { top: floor.height, bottom: 0 }
   // A range hood's chimney goes up to the ceiling.
   if (sym.type === 'range-hood' && styleOf(sym) !== 'built-in') return { top: floor.height, bottom }
   if (sym.type === 'person') {

@@ -4,7 +4,7 @@ import { add, bbox, dist, dot, inwardNormal, labelPoint, mul, normalize, pointIn
 import { isSelected } from '@/model/items'
 import { isOpen, isOutdoor, railingRuns, roomOuter, symbolPose, wallEnds } from '@/model/project'
 import { floorOrigin } from '@/model/divide'
-import { CEILING_AC, ledgeHeight, NICHES, partitionTop, styleOf, SYMBOL_MAP, tankBoxDepth } from '@/model/symbols'
+import { alcoveOpenings, CEILING_AC, ledgeHeight, NICHES, partitionTop, styleOf, SYMBOL_MAP, tankBoxDepth } from '@/model/symbols'
 import type { PlanTheme } from '@/model/theme'
 import type { Floor, PlanSymbol, Point, Project, Room, Selection, Surface, WallSurface } from '@/model/types'
 import { openSides } from '@/model/guides'
@@ -133,7 +133,31 @@ function gapToWall(sym: PlanSymbol, pose: { x: number; y: number; rotation: numb
  * and to what heights, whether it's across a corner (its front the diagonal) and whether its underside shows. A
  * wall-hung toilet's tank box (to its shelf or the ceiling) and a shower bench (to its stone top).
  */
-function builtBox(sym: PlanSymbol, ceilingH: number) {
+function builtBox(
+  sym: PlanSymbol,
+  ceilingH: number,
+): {
+  depth: number
+  y0: number
+  y1: number
+  corner: boolean
+  under: boolean
+  /** Built in stretches (from and to), not all of y0 to y1: round niches, their sills (up) and tops (down) showing. */
+  spans?: [number, number][]
+  caps?: { y: number; up: boolean }[]
+} | null {
+  if (sym.type === 'alcove-niche') {
+    const open = alcoveOpenings(sym).filter(([a]) => a < ceilingH)
+    const spans: [number, number][] = []
+    let y = 0
+    for (const [a, b] of open) {
+      if (a > y) spans.push([y, a])
+      y = Math.min(b, ceilingH)
+    }
+    if (ceilingH > y) spans.push([y, ceilingH])
+    const caps = open.flatMap(([a, b]) => [{ y: a, up: true }, ...(b < ceilingH ? [{ y: b, up: false }] : [])])
+    return { depth: sym.depth, y0: 0, y1: ceilingH, corner: false, under: false, spans, caps }
+  }
   if (sym.type === 'toilet' && sym.mount === 'wall' && sym.tankBox !== 'none') {
     return { depth: tankBoxDepth(sym), y0: 0, y1: sym.tankBox === 'full' ? ceilingH : Math.min(ledgeHeight(sym), ceilingH), corner: false, under: false }
   }
@@ -417,7 +441,7 @@ export function buildProjectGroup(project: Project, opts: BuildOptions): THREE.G
       const hl = isSelected(sel, 'symbol', sym.id)
       // Curtains and blinds hang from the ceiling above them (up in a curtain pocket if there's one), air conditioning
       // is set into it, and a wall-hung toilet's tank box can go up to it.
-      const hangs = ['curtain', 'blind', 'range-hood', 'toilet', 'partition', 'shower'].includes(sym.type) || CEILING_AC.has(sym.type)
+      const hangs = ['curtain', 'blind', 'range-hood', 'toilet', 'partition', 'shower', 'alcove-niche'].includes(sym.type) || CEILING_AC.has(sym.type)
       // People sit or lie on whatever they're on, at its height.
       const on = sym.type === 'person' ? personSupport(sym, floor.symbols) : null
       // A vanity's mirror goes on the wall behind it, however far its back is from it.
@@ -532,17 +556,29 @@ export function buildProjectGroup(project: Project, opts: BuildOptions): THREE.G
           const bands = wallBands(s, floor.height)
           const matAt = (surface: Surface) => wallMat(surface, walled.extents.get(`${at.room.id}|${at.edge}|${JSON.stringify(surface)}`))
           for (const band of bands) {
-            const z0 = Math.max(band.z0, built.y0)
-            const z1 = Math.min(band.z1, built.y1)
-            if (z1 - z0 < 0.5) continue
-            for (const f of faces) {
-              const A = v3(f.A[0], z0, f.A[1])
-              const along = v3(f.B[0], z0, f.B[1]).sub(A)
-              const len = along.length()
-              along.normalize()
-              const out = along.clone().cross(up)
-              clad.add(mesh(rectGeo(A.addScaledVector(out, 0.3), along, up, len, z1 - z0, f.u0, z0), matAt(band.surface)))
+            for (const [s0, s1] of built.spans ?? [[built.y0, built.y1]]) {
+              const z0 = Math.max(band.z0, s0)
+              const z1 = Math.min(band.z1, s1)
+              if (z1 - z0 < 0.5) continue
+              for (const f of faces) {
+                const A = v3(f.A[0], z0, f.A[1])
+                const along = v3(f.B[0], z0, f.B[1]).sub(A)
+                const len = along.length()
+                along.normalize()
+                const out = along.clone().cross(up)
+                clad.add(mesh(rectGeo(A.addScaledVector(out, 0.3), along, up, len, z1 - z0, f.u0, z0), matAt(band.surface)))
+              }
             }
+          }
+          // The sills and tops of its niches, in the finish at their height.
+          for (const cap of built.caps ?? []) {
+            const band = bands.find((x) => cap.y >= x.z0 && cap.y < x.z1) ?? bands[bands.length - 1]
+            if (!band) continue
+            const y = cap.y + (cap.up ? 0.3 : -0.3)
+            const geo = cap.up
+              ? rectGeo(v3(-w / 2, y, zf), v3(1, 0, 0), v3(0, 0, -1), w, built.depth, uL, 0)
+              : rectGeo(v3(-w / 2, y, -d / 2), v3(1, 0, 0), v3(0, 0, 1), w, built.depth, uL, 0)
+            clad.add(mesh(geo, matAt(band.surface)))
           }
           // A floating bench's underside, in the finish it has at its bottom (across a corner, a triangle).
           const low = built.under && (bands.find((band) => built.y0 < band.z1) ?? bands[0])
@@ -606,6 +642,8 @@ export function buildProjectGroup(project: Project, opts: BuildOptions): THREE.G
       if (sym.type === 'ac-split') elevation = Math.max(0, Math.min(elevation, ceilingHeightAt(floor, pose) - sym.height - 10))
       // A range hood stays under the ceiling.
       if (sym.type === 'range-hood') elevation = Math.max(0, Math.min(elevation, ceilingHeightAt(floor, pose) - sym.height))
+      // Niches in an alcove are built up from the floor: how high is their sill's.
+      if (sym.type === 'alcove-niche') elevation = 0
       obj.position.set(pose.x, floorBase + elevation, pose.y)
       obj.rotation.y = (-pose.rotation * Math.PI) / 180
       obj.scale.set(sym.flipX ? -1 : 1, 1, sym.flipY ? -1 : 1)

@@ -22,6 +22,7 @@ import { fixSizes } from '@/model/sizes'
 import type { Clip } from '@/model/items'
 import { CEILING_STYLES, mergeRoomLights, OTHER_LIGHTS, pruneControls, remapEdges, remapEdgeValues, ROOM_LIGHTS } from '@/model/lighting'
 import { columnIntoWall, dimensionPoints, findWallSnap, isOpen, isOutdoor, ledgeNear, moveWall, roomOuter, symbolPose } from '@/model/project'
+import { alcoveFit } from '@/model/developed'
 import { dividePoints, healOpenings, joinPoints, openedPoints, sharedStretch, wallAcross } from '@/model/divide'
 import { beamSpan } from '@/model/beams'
 import { personDepth, personSupport } from '@/model/people'
@@ -445,6 +446,8 @@ export function addSymbol(type: string, at?: Point, rotation = 0, wall?: PlanSym
   if (def?.wall) sym.depth = st0.project.defaultWallThickness
   // A half wall lines up with the box of a wall-hung toilet in its room.
   if (sym.type === 'partition' && sym.partial && sym.height === LEDGE_HEIGHT) sym.height = ledgeNear(floor0, p) ?? sym.height
+  // Niches in an alcove fill the space beside a column in the wall, when there's one there.
+  if (sym.type === 'alcove-niche') Object.assign(sym, alcoveFit(floor0, p) ?? {})
   // A switch is named after its room (Kitchen S1…).
   if (def?.fixture === 'switch') sym.label = newSwitchLabel(floor0, switchRoom(sym, floor0.rooms))
   if (def?.fixture === 'cove') {

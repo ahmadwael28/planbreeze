@@ -806,6 +806,23 @@ function niche(w: number, d: number, t: PlanTheme, sym?: PlanSymbol) {
   )
 }
 
+/** An alcove niche's sill, usually, and the solid between niches one over another (cm). */
+export const ALCOVE_SILL = 100
+export const ALCOVE_GAP = 15
+
+/**
+ * The niches in an alcove (a space between a column built into a wall and the wall next to it, or another column),
+ * filled in round them from the floor and down from the ceiling: from and to where each is (cm up from the floor),
+ * from its sill up, one over another.
+ */
+export function alcoveOpenings(sym: Pick<PlanSymbol, 'elevation' | 'height' | 'stack'>): [number, number][] {
+  const y0 = sym.elevation ?? ALCOVE_SILL
+  return Array.from({ length: sym.stack ?? 1 }, (_, i) => {
+    const a = y0 + i * (sym.height + ALCOVE_GAP)
+    return [a, a + sym.height]
+  })
+}
+
 /** Air conditioning in the ceiling (a gypsum one, or the slab): set into it wherever they're placed. */
 export const CEILING_AC = new Set(['ac-cassette', 'ac-slot', 'ac-square', 'ac-round', 'ac-return'])
 
@@ -2070,6 +2087,29 @@ export const SYMBOLS: SymbolDef[] = [
     sill: 100,
     wall: true,
     render: niche,
+  },
+  {
+    // Niches in an alcove (between a column in a wall and the wall next to it): the space filled in from the floor and
+    // down from the ceiling, flush with the column, finished like the walls; the niches open back to the wall.
+    type: 'alcove-niche',
+    name: 'Alcove niche',
+    keywords: 'niche alcove recess shelf column gap between built in shower bathroom display',
+    category: 'Bathroom',
+    alsoIn: ['Living', 'Bedroom'],
+    width: 30,
+    depth: 20,
+    height: 60,
+    render: (w, d, t, sym) => {
+      const k = kit(t)
+      // Built up to the ceiling, as walls are drawn (lighter); the niche in it dashed, a shelf across it.
+      return (
+        <>
+          <rect x={-w / 2} y={-d / 2} width={w} height={d} fill={t.wall} fillOpacity={0.55} stroke={t.wall} strokeWidth={1} vectorEffect="non-scaling-stroke" />
+          <rect x={-w / 2 + 1.5} y={-d / 2 + 1.5} width={Math.max(0, w - 3)} height={Math.max(0, d - 3)} {...k.thin} fill="none" strokeDasharray="3 2" />
+          {sym?.shelf && <line x1={-w / 2 + 1.5} y1={0} x2={w / 2 - 1.5} y2={0} {...k.thin} />}
+        </>
+      )
+    },
   },
   {
     // A seat in a shower: built against the wall, finished like it, with a stone top; or a teak one folding down.

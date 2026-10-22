@@ -56,6 +56,7 @@ import {
   vanitySinks,
   WASHER_BAY,
   NICHES,
+  alcoveOpenings,
   LEDGE_SHELF,
   ledgeHeight,
   partitionCrown,
@@ -1426,6 +1427,14 @@ export function cabinetLeds(sym: PlanSymbol, wallGap = 0): CabinetLeds | null {
     const xs = w >= 80 ? [-w / 4, w / 4] : [0]
     const z = styleOf(sym) === 'built-in' ? d / 2 - 8 : d / 6
     return { strips: xs.map((x) => ({ x, y: -0.5, z, len: 5, axis: 'x' as const })), spots: xs.map((x) => ({ x, y: -1, z, angle: 0.9, intensity: 3 })) }
+  }
+  if (sym.type === 'alcove-niche') {
+    // Along the top of each niche, at the front, lighting what stands in it.
+    const open = alcoveOpenings(sym)
+    return {
+      strips: open.map(([, b]) => ({ x: 0, y: b - 1.2, z: d / 2 - 1.5, len: w - 2, axis: 'x' as const })),
+      spots: open.map(([, b]) => ({ x: 0, y: b - 2, z: 0, angle: 1.2, intensity: 2 / open.length })),
+    }
   }
   if (NICHES.has(sym.type)) {
     // Along the top of the recess, lighting what stands in it.
@@ -2932,6 +2941,24 @@ function wallPost(k: Kit, w: number, d: number, floorH: number) {
 }
 
 /** A shower niche's own parts (the recess itself is cut into the wall): a stone sill, and a glass shelf if it has one. */
+/**
+ * Niches in an alcove: the space built up from the floor and down from the ceiling round them (plain here; finished
+ * like the walls in buildScene), each open back to the wall, maybe with a glass shelf across it.
+ */
+function alcoveNiche(k: Kit, sym: PlanSymbol, w: number, d: number, ceilingH: number) {
+  const g = new THREE.Group()
+  const body = k.q(WALL_WHITE, 'satin')
+  let y = 0
+  for (const [a, b] of alcoveOpenings(sym)) {
+    if (a >= ceilingH) break
+    if (a > y) g.add(box(w, a - y, d, 0, y, 0, body))
+    if (sym.shelf) g.add(box(w - 0.6, 0.8, d - 1.2, 0, (a + Math.min(b, ceilingH)) / 2, 0.6, k.glass()))
+    y = Math.min(b, ceilingH)
+  }
+  if (ceilingH > y) g.add(box(w, ceilingH - y, d, 0, y, 0, body))
+  return g
+}
+
 function showerNiche(k: Kit, sym: PlanSymbol, w: number, h: number, wallT: number) {
   const g = new THREE.Group()
   const r = nicheDepth(wallT)
@@ -3689,6 +3716,9 @@ export function symbolModel(
     case 'shower-niche':
     case 'wall-niche':
       g = showerNiche(k, sym, w, h, wallT)
+      break
+    case 'alcove-niche':
+      g = alcoveNiche(k, sym, w, d, ceilingH)
       break
     case 'shower-bench':
       g = showerBench(k, sym, w, d, h)
