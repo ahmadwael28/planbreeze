@@ -311,22 +311,28 @@ export function vanityMirrors(sym: PlanSymbol): { x: number; y: number; w: numbe
   if (above === 'none') return []
   const s = vanitySinks(sym)
   const cw = s.x1 - s.x0
-  const bottom = sym.height + (above === 'cabinet' ? 30 : 25)
+  const size = above === 'plain' ? sym.mirrorSize : undefined
+  // A tall one comes down nearer the top and goes up to about a door's height.
+  const bottom = sym.height + (above === 'cabinet' ? 30 : size === 'tall' ? 15 : 25)
+  const tall = Math.max(90, 215 - bottom)
   if (above === 'cabinet') return [{ x: (s.x0 + s.x1) / 2, y: bottom, w: cw, h: 70, shape: 'rect' }]
   const shape = sym.mirrorShape ?? 'rect'
   const each = cw / s.xs.length
+  const big = size === 'big'
   if (EACH_BASIN.includes(shape)) {
+    // A round one can't be tall: tall or big, it's a bigger circle.
+    const d = size ? Math.min(each - 8, 90) : Math.min(each - 12, 70)
     const [w, h] =
-      shape === 'round' ? [Math.min(each - 12, 70), Math.min(each - 12, 70)]
-      : shape === 'oval' ? [Math.min(each * 0.62, 60), 85]
-      : shape === 'arch' ? [Math.min(each * 0.72, 70), 95]
-      : [Math.min(each * 0.55, 55), 95]
+      shape === 'round' ? [d, d]
+      : shape === 'oval' ? [Math.min(each * (big ? 0.75 : 0.62), big ? 75 : 60), big ? 105 : size === 'tall' ? tall : 85]
+      : shape === 'arch' ? [Math.min(each * (big ? 0.85 : 0.72), big ? 90 : 70), big ? 115 : size === 'tall' ? tall : 95]
+      : [Math.min(each * (big ? 0.68 : 0.55), big ? 68 : 55), big ? 115 : size === 'tall' ? tall : 95]
     return s.xs.map((x) => ({ x, y: bottom, w, h, shape }))
   }
-  // One across: over the sink (or the two), within the cabinet.
-  const w = s.xs.length === 2 ? Math.min(cw - 6, 150) : Math.min(cw - 6, 100)
+  // One across: over the sink (or the two), within the cabinet; a big one all across it.
+  const w = big ? Math.min(cw - 2, 200) : s.xs.length === 2 ? Math.min(cw - 6, 150) : Math.min(cw - 6, 100)
   const x = Math.min(s.x1 - w / 2, Math.max(s.x0 + w / 2, s.xs.reduce((a, b) => a + b, 0) / s.xs.length))
-  return [{ x, y: bottom, w, h: 80, shape }]
+  return [{ x, y: bottom, w, h: big ? 100 : size === 'tall' ? tall : 80, shape }]
 }
 
 export const DRESSING_STYLES: ItemStyle[] = [

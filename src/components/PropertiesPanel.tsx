@@ -1106,6 +1106,16 @@ function VanityOptions({ sym, units }: { sym: PlanSymbol; units: Units }) {
               </div>
             )}
           </Field>
+          <Choice
+            label={t('Size')}
+            value={sym.mirrorSize ?? 'standard'}
+            onChange={(v) => updateSymbol(sym.id, (s) => void (v === 'standard' ? delete s.mirrorSize : (s.mirrorSize = v)))}
+            options={[
+              { value: 'standard', label: t('Standard') },
+              { value: 'big', label: t('Big') },
+              { value: 'tall', label: t('Tall') },
+            ]}
+          />
           <Field label={t('Frame')}>
             {(id) => (
               <div id={id} role="radiogroup" className="flex flex-wrap items-center gap-1.5 py-1">

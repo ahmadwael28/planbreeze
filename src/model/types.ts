@@ -363,6 +363,8 @@ export interface PlanSymbol {
    * under a mirror cabinet, or behind it. Behind a mirror, under a cabinet, if left out.
    */
   mirrorLight?: 'back' | 'front' | 'bar' | 'under'
+  /** A vanity's mirror: bigger (wider and taller), or tall (coming down nearer the top, up to about a door's height). */
+  mirrorSize?: 'big' | 'tall'
   /** Kitchen upper cabinets: glass doors or open shelves instead of solid doors. */
   fronts?: 'glass' | 'open'
   /** People: standing (default), sitting or lying down (see model/people). */

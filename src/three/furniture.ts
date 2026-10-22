@@ -115,6 +115,43 @@ const FINISHES: Record<Finish, { roughness: number; metalness: number; flat?: bo
   cloth: { roughness: 0.95, metalness: 0, double: true },
 }
 
+/**
+ * What a mirror shows, with no real reflection to show: a soft room round it, a light ceiling over walls going darker
+ * to the floor (and a wall's corner or two), so it reads as a mirror on any wall.
+ */
+let mirrorRoom: THREE.Texture | undefined
+function mirrorRoomMap() {
+  if (mirrorRoom) return mirrorRoom
+  const canvas = document.createElement('canvas')
+  canvas.width = 256
+  canvas.height = 128
+  const c = canvas.getContext('2d')!
+  const fade = c.createLinearGradient(0, 0, 0, 128)
+  fade.addColorStop(0, '#f6f5f2')
+  fade.addColorStop(0.36, '#dedbd5')
+  fade.addColorStop(0.5, '#b4b0a9')
+  fade.addColorStop(0.72, '#8f8a83')
+  fade.addColorStop(1, '#605c56')
+  c.fillStyle = fade
+  c.fillRect(0, 0, 256, 128)
+  c.fillStyle = 'rgba(0,0,0,0.1)'
+  for (const u of [64, 192]) c.fillRect(u - 5, 34, 10, 94)
+  mirrorRoom = new THREE.CanvasTexture(canvas)
+  mirrorRoom.mapping = THREE.EquirectangularReflectionMapping
+  mirrorRoom.colorSpace = THREE.SRGBColorSpace
+  return mirrorRoom
+}
+
+/** Mirrors' materials, to dim what they show with the daylight (see mirrorDaylight). */
+const mirrorMats = new Set<THREE.MeshStandardMaterial>()
+let mirrorLevel = 1
+
+/** How much of their soft room mirrors show: the daylight (0 at night … 1 by day), a little at night. */
+export function mirrorDaylight(t: number) {
+  mirrorLevel = 0.18 + 0.72 * Math.max(0, Math.min(1, t))
+  for (const m of mirrorMats) m.envMapIntensity = mirrorLevel
+}
+
 /** Caches materials per color and finish so the scene uses as few as possible. */
 export class Materials {
   private cache = new Map<string, THREE.Material>()
@@ -157,6 +194,22 @@ export class Materials {
     let m = this.cache.get(key)
     if (!m) {
       m = new THREE.MeshStandardMaterial({ color, transparent: true, opacity, roughness: 1, side: THREE.DoubleSide, depthWrite: false })
+      this.cache.set(key, m)
+    }
+    return m
+  }
+
+  /** A mirror's glass: silvered, showing a soft room (see mirrorRoomMap), picked out when highlighted. */
+  mirror(highlight = false): THREE.Material {
+    const key = `mirror|${highlight}`
+    let m = this.cache.get(key) as THREE.MeshStandardMaterial | undefined
+    if (!m) {
+      m = new THREE.MeshStandardMaterial({ color: '#e8eeee', metalness: 1, roughness: 0.05, envMap: mirrorRoomMap(), envMapIntensity: mirrorLevel })
+      if (highlight) {
+        m.emissive = new THREE.Color('#2563eb')
+        m.emissiveIntensity = 0.45
+      }
+      mirrorMats.add(m)
       this.cache.set(key, m)
     }
     return m
@@ -556,6 +609,8 @@ export function personModel(sym: PlanSymbol, mats: Materials, hl: boolean, on?: 
 interface Kit {
   q: (color: string, finish?: Finish) => Mat
   glass: () => Mat
+  /** A mirror's glass. */
+  mirror: () => Mat
   tinted: () => Mat
   sheer: (color: string, opacity: number) => Mat
   /** The item's worktop (or `id`'s), laid by where it is in the room. */
@@ -730,7 +785,7 @@ function dressingTable(k: Kit, sym: PlanSymbol, w: number, d: number, h: number)
   const style = styleOf(sym)
   const body = style === 'classic' ? k.q(COLORS.wood, 'wood') : k.q('#f2f0ea', 'satin')
   const trim = style === 'classic' ? k.q(COLORS.woodDark, 'wood') : k.q('#c9a86a', 'metal')
-  const glass = k.q('#dbe6ec', 'gloss')
+  const glass = k.mirror()
   g.add(rbox(w, 3, d, 1, 0, h - 3, 0, body))
   // Drawers either side, a shallow one over the knee space.
   const dw = w * 0.3
@@ -1330,19 +1385,30 @@ function haloMap(shape: MirrorShape, w: number, h: number, spread: number) {
   // twice its size).
   c.fillStyle = '#000'
   c.fillRect(0, 0, canvas.width, canvas.height)
-  c.fillStyle = c.shadowColor = 'rgb(150,150,150)'
-  c.shadowBlur = spread * px * 0.42
-  c.beginPath()
-  mirrorOutline(shape, w, h, 0.5)
-    .getPoints(64)
-    .forEach((p, i) => {
-      const x = (p.x + W / 2) * px
-      const y = (H / 2 - p.y) * px
-      if (i) c.lineTo(x, y)
-      else c.moveTo(x, y)
-    })
-  c.closePath()
-  c.fill()
+  const outline = () => {
+    c.beginPath()
+    mirrorOutline(shape, w, h, 0.5)
+      .getPoints(64)
+      .forEach((p, i) => {
+        const x = (p.x + W / 2) * px
+        const y = (H / 2 - p.y) * px
+        if (i) c.lineTo(x, y)
+        else c.moveTo(x, y)
+      })
+    c.closePath()
+  }
+  // A wide soft glow, and a brighter, tighter one over it right round the mirror's edge.
+  c.fillStyle = c.shadowColor = 'rgb(200,200,200)'
+  for (const [blur, n] of [
+    [0.55, 2],
+    [0.22, 2],
+  ] as const) {
+    c.shadowBlur = spread * px * blur
+    for (let i = 0; i < n; i++) {
+      outline()
+      c.fill()
+    }
+  }
   const map = new THREE.CanvasTexture(canvas)
   map.colorSpace = THREE.SRGBColorSpace
   haloMaps.set(key, map)
@@ -1372,23 +1438,30 @@ export function cabinetLeds(sym: PlanSymbol, wallGap = 0): CabinetLeds | null {
     const wallZ = -d / 2 - wallGap
     const mirrors = vanityMirrors(sym)
     const light = vanityLight(sym)
-    const face = mirrors.map((m) => ({ x: m.x, y: m.y + m.h * 0.55, z: wallZ + 12, angle: 1.3, intensity: 3 / mirrors.length + 1 }))
+    // The light it gives the top, from just under each mirror (or its bar), down: none of it in front of the glass,
+    // where it would show in it as a bright patch.
+    const under = (z: number) => mirrors.map((m) => ({ x: m.x, y: m.y - 1, z, angle: 1.2, intensity: 3 / mirrors.length + 1 }))
     if (light === 'back') {
-      const spread = 26
+      const spread = 34
       return {
         strips: [],
-        spots: face,
+        spots: under(wallZ + 2),
         halos: mirrors.map((m) => ({
-          geo: new THREE.PlaneGeometry(m.w + 2 * spread, m.h + 2 * spread).translate(m.x, m.y + m.h / 2, wallZ + 0.6),
+          geo: new THREE.PlaneGeometry(m.w + 2 * spread, m.h + 2 * spread).translate(m.x, m.y + m.h / 2, wallZ + 1.2),
           map: haloMap(m.shape, m.w, m.h, spread),
         })),
       }
     }
     if (light === 'front') {
       const z = wallZ + mirrorOff(sym) + 0.7
-      return { strips: [], spots: face, lenses: mirrors.map((m) => new THREE.ShapeGeometry(mirrorRing(m.shape, m.w, m.h, -3, -4.6), 48).translate(m.x, m.y + m.h / 2, z)) }
+      return { strips: [], spots: under(z + 1.5), lenses: mirrors.map((m) => new THREE.ShapeGeometry(mirrorRing(m.shape, m.w, m.h, -3, -4.6), 48).translate(m.x, m.y + m.h / 2, z)) }
     }
-    if (light === 'bar') return { strips: mirrors.map((m) => ({ x: m.x, y: m.y + m.h + 3.8, z: wallZ + 5, len: Math.min(m.w * 0.75, 70) - 4, axis: 'x' as const })), spots: face }
+    if (light === 'bar') {
+      return {
+        strips: mirrors.map((m) => ({ x: m.x, y: m.y + m.h + 3.8, z: wallZ + 5, len: Math.min(m.w * 0.75, 70) - 4, axis: 'x' as const })),
+        spots: mirrors.map((m) => ({ x: m.x, y: m.y + m.h + 3, z: wallZ + 6, angle: 1.2, intensity: 3 / mirrors.length + 1 })),
+      }
+    }
     if (mirrors.length) {
       const [m] = mirrors
       return { strips: [{ x: m.x, y: m.y - 0.5, z: wallZ + 11, len: m.w - 8, axis: 'x' }], spots: [{ x: m.x, y: m.y - 1, z: wallZ + 10, angle: 1.2, intensity: 5 }] }
@@ -2036,7 +2109,7 @@ function washbasin(k: Kit, w: number, d: number, h: number) {
   g.add(cylinder(1.8, 26, 0, h, tz, chrome, 1, 2.2, 16))
   g.add(box(2.4, 2.4, 13, 0, h + 23, tz + 6, chrome))
   g.add(box(1, 1, 7, 2.6, h + 24, tz + 2, chrome)) // lever
-  g.add(rbox(Math.min(w, 90), 75, 2, 1, 0, h + 30, -d / 2 + 1, k.q(COLORS.mirror, 'gloss')))
+  g.add(rbox(Math.min(w, 90), 75, 2, 1, 0, h + 30, -d / 2 + 1, k.mirror()))
   return g
 }
 
@@ -2299,7 +2372,7 @@ function bathVanity(k: Kit, sym: PlanSymbol, w: number, d: number, h: number, ga
   // On the wall over it.
   const wallZ = -d / 2 - gap
   const above = sym.mirror ?? 'cabinet'
-  const mirrorMat = k.q(COLORS.mirror, 'gloss')
+  const mirrorMat = k.mirror()
   if (above === 'cabinet') {
     const [m] = vanityMirrors(sym)
     const cd = 14
@@ -2348,10 +2421,6 @@ function bathtub(k: Kit, w: number, d: number, h: number) {
   return g
 }
 
-/**
- * A rain head where it's been put (see model/shower): on an arm out from its wall with a mixer below, or down from the
- * ceiling (`ceilingH`) in the middle with the mixer on the first wall there is (`mixerAt`: that wall's middle).
- */
 /** A shower's head, how it's shaped, and the fittings on the wall its mixer's on (see model/shower). */
 interface Fittings {
   shape?: PlanSymbol['headShape']
@@ -2359,6 +2428,11 @@ interface Fittings {
   hand?: PlanSymbol['handShower']
 }
 
+/**
+ * A shower's head where it's been put (see model/shower), in its shape: on an arm out from its wall with a mixer below,
+ * or down from the ceiling (`ceilingH`) in the middle with the mixer on the first wall there is (`mixerAt`); and its
+ * body jets and hand shower by the mixer.
+ */
 function showerHead(
   g: THREE.Group,
   k: Kit,
@@ -3419,6 +3493,7 @@ export function symbolModel(
   const k: Kit = {
     q: (color, finish) => mats.get(color, hl, finish),
     glass: () => mats.glass(),
+    mirror: () => mats.mirror(hl),
     tinted: () => mats.tinted(),
     sheer: (color, opacity) => mats.sheer(color, opacity),
     top: (id) => worktopMaterial(worktopOf({ top: id ?? sym.top }), hl),

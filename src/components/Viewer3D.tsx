@@ -39,7 +39,7 @@ import { buildProjectGroup, SLAB } from '@/three/buildScene'
 import { loadImages } from '@/lib/images'
 import type { FloorFilter, PickInfo } from '@/three/buildScene'
 import { KEY_HELP, KeyboardNav, NUMPAD_HELP } from '@/three/keyboardNav'
-import { poseDoor } from '@/three/furniture'
+import { mirrorDaylight, poseDoor } from '@/three/furniture'
 import { applyLightState, DETAIL_DISTANCE } from '@/three/lighting3d'
 import type { LightHandle } from '@/three/lighting3d'
 import { LightPool } from '@/three/lightPool'
@@ -1288,6 +1288,7 @@ export default function Viewer3D() {
     ctx.scene.background = mix('#070a12', dayBg, t)
     ;(ctx.ground.material as THREE.MeshStandardMaterial).color.copy(mix('#0d0f14', theme.dark ? '#1f1f23' : '#e7e5e4', t))
     ctx.hemi.intensity = 0.04 + (theme.dark ? 1.6 : 2.2) * t
+    mirrorDaylight(t)
     ctx.sun.intensity = 2.4 * t * t
     ctx.sun.castShadow = t > 0.15
     ctx.renderer.shadowMap.needsUpdate = true
