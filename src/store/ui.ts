@@ -11,6 +11,8 @@ interface UiState {
   projectsOpen: boolean
   printOpen: boolean
   shareOpen: boolean
+  /** The realistic render's dialog (see RenderDialog). */
+  renderOpen: boolean
   importTarget: ImportTarget | null
   /** A viewpoint the 3D viewer should go to as soon as it's ready (`saved:<view id>` or `room:<room id>`). */
   pendingView: string | null
@@ -33,6 +35,7 @@ interface UiState {
   openProjects: (open: boolean) => void
   openPrint: (open: boolean) => void
   openShare: (open: boolean) => void
+  openRender: (open: boolean) => void
   openImport: (target: ImportTarget | null) => void
   setPendingView: (id: string | null) => void
   setLibraryCollapsed: (cats: string[]) => void
@@ -51,6 +54,7 @@ export const useUi = create<UiState>((set) => ({
   projectsOpen: false,
   printOpen: false,
   shareOpen: false,
+  renderOpen: false,
   importTarget: null,
   pendingView: null,
   libraryCollapsed: [],
@@ -66,6 +70,7 @@ export const useUi = create<UiState>((set) => ({
   openProjects: (projectsOpen) => set({ projectsOpen }),
   openPrint: (printOpen) => set({ printOpen }),
   openShare: (shareOpen) => set({ shareOpen }),
+  openRender: (renderOpen) => set({ renderOpen }),
   openImport: (importTarget) => set({ importTarget }),
   setPendingView: (pendingView) => set({ pendingView }),
   setLibraryCollapsed: (libraryCollapsed) => set({ libraryCollapsed }),

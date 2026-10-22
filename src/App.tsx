@@ -10,6 +10,7 @@ import { FloorBar } from '@/components/FloorBar'
 import { GuidedTour } from '@/components/GuidedTour'
 import { ImportWizard } from '@/components/ImportWizard'
 import { PrintDialog } from '@/components/PrintDialog'
+import { RenderDialog } from '@/components/RenderDialog'
 import { ProjectsDialog } from '@/components/ProjectsDialog'
 import { Sidebar } from '@/components/Sidebar'
 import { StartDialog } from '@/components/StartDialog'
@@ -391,6 +392,7 @@ export default function App() {
       <StartDialog />
       <ImportWizard />
       <PrintDialog />
+      <RenderDialog />
       <SignInDialog />
       <ShareDialog />
       <ConflictDialog />

@@ -3,6 +3,7 @@ import type { ReactNode } from 'react'
 import { useTheme } from '@/components/theme-provider'
 import type { Theme } from '@/components/theme-provider'
 import {
+  Aperture,
   CircleHelp,
   Camera,
   Download,
@@ -248,6 +249,11 @@ function MoreMenu({ compact, openFile }: { compact: boolean; openFile: () => voi
         <DropdownMenuItem onSelect={takeSnapshot}>
           <Camera /> {t('Snapshot')}
         </DropdownMenuItem>
+        {useEditor.getState().viewMode === '3d' && (
+          <DropdownMenuItem onSelect={() => useUi.getState().openRender(true)}>
+            <Aperture /> {t('Realistic render')}
+          </DropdownMenuItem>
+        )}
         <DropdownMenuSub>
           <DropdownMenuSubTrigger>
             <Download /> {t('Export / import')}
@@ -428,6 +434,13 @@ export function TopBar({ onToggleSidebar, sidebarOpen }: Props) {
                 <Camera />
               </Button>
             </Tip>
+            {viewMode === '3d' && (
+              <Tip label={t('Realistic render: light bouncing round the rooms, as a camera sees it')}>
+                <Button variant="ghost" size="icon" aria-label={t('Realistic render')} onClick={() => useUi.getState().openRender(true)}>
+                  <Aperture />
+                </Button>
+              </Tip>
+            )}
             <DropdownMenu>
               <Tip label={t('Export / import')}>
                 <DropdownMenuTrigger asChild>

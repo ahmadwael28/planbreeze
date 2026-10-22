@@ -47,6 +47,7 @@ import type { PoolRoom, VirtualLight } from '@/three/lightPool'
 import { computeViewpoints, floorBase, LENSES, planFlight, stepFlight, verticalFov } from '@/three/viewpoints'
 import type { Flight, Lens, Viewpoint } from '@/three/viewpoints'
 import { setCapture3d } from '@/utils/snapshot'
+import { setRenderSource } from '@/three/renderSource'
 import { PhoneSheet, usePhone } from '@/components/ui/phone-sheet'
 
 /** The scene is modeled in cm and shown in meters, so light falloff is physically plausible. */
@@ -856,6 +857,22 @@ export default function Viewer3D() {
     ctx.nav = nav
     if (import.meta.env.DEV) Object.assign(window, { __viewer: { ctx, nav } })
     setCapture3d(() => snapshot3d(ctx))
+    setRenderSource(() => ({
+      objects: [ctx.content, ctx.ground].filter((o): o is THREE.Group | THREE.Mesh => !!o),
+      lights: ((ctx.content?.userData.lightHandles ?? []) as LightHandle[]).flatMap((h) => h.lights),
+      camera: ctx.camera,
+      sun: ctx.sun,
+      // The sun is 2.4 × the daylight squared (see the light state below).
+      daylight: Math.sqrt(Math.max(0, ctx.sun.intensity) / 2.4),
+      toneMapping: ctx.renderer.toneMapping,
+      plain: () => {
+        highlight(ctx, null)
+        return () => {
+          highlight(ctx, useEditor.getState().selection)
+          ctx.dirty = true
+        }
+      },
+    }))
     const clock = new THREE.Clock()
 
     const resize = () => {
@@ -941,6 +958,7 @@ export default function Viewer3D() {
 
     return () => {
       setCapture3d(null)
+      setRenderSource(null)
       renderer.setAnimationLoop(null)
       ro.disconnect()
       controls.dispose()

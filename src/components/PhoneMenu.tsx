@@ -1,6 +1,7 @@
 import { useRef, useState } from 'react'
 import type { ComponentType, ReactNode } from 'react'
 import {
+  Aperture,
   Camera,
   Check,
   ChevronRight,
@@ -231,6 +232,9 @@ export function PhoneMenu() {
               )}
               <Group title={t('Plan')}>
                 <Row icon={Camera} tint="bg-pink-500" label={t('Snapshot')} onClick={act(takeSnapshot)} />
+                {useEditor.getState().viewMode === '3d' && (
+                  <Row icon={Aperture} tint="bg-orange-500" label={t('Realistic render')} onClick={act(() => useUi.getState().openRender(true))} more />
+                )}
                 <Row icon={Eye} tint="bg-emerald-500" label={t('View options')} onClick={() => go('view')} more />
                 <Row icon={Ruler} tint="bg-amber-500" label={t('Units')} detail={unitName} onClick={() => go('units')} more />
                 <Row icon={Download} tint="bg-blue-500" label={t('Export & files')} onClick={() => go('files')} more />
