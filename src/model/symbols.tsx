@@ -141,6 +141,8 @@ export const VANITY_STYLES: ItemStyle[] = [
   { id: 'curved', name: 'Rounded ends', kind: 'Modern' },
   { id: 'shaker', name: 'Shaker doors', kind: 'Classic' },
   { id: 'open', name: 'Open shelf', kind: 'Industrial' },
+  // Built of blocks, finished like the wall behind (porcelain, tiles…), with a stone top.
+  { id: 'tiled', name: 'Built in, tiled', kind: 'Modern' },
 ]
 
 /** Finishes bathroom vanities come in. */
@@ -251,7 +253,7 @@ export function hasWorktop(sym: PlanSymbol) {
       return styleOf(sym) === 'built-in'
     case 'bath-vanity':
       // A stone top: under bowls on it, round sinks under it, over a washing machine.
-      return !!sym.basin || !!vanitySinks(sym).washer
+      return !!sym.basin || !!vanitySinks(sym).washer || styleOf(sym) === 'tiled'
     case 'shower-bench':
       return styleOf(sym) !== 'fold-down'
   }
@@ -276,9 +278,10 @@ const BESIDE_WASHER = 40
  * and is wide enough), the cabinet along the rest of it (x0 to x1), and its sinks on that (two only if it's wide), in
  * the middle or to one side, and their size (cm).
  */
-export function vanitySinks(sym: Pick<PlanSymbol, 'width' | 'depth' | 'sinks' | 'sinkAt' | 'washer'>) {
+export function vanitySinks(sym: Pick<PlanSymbol, 'width' | 'depth' | 'sinks' | 'sinkAt' | 'washer' | 'style'>) {
   const w = sym.width
-  const washer = sym.washer && w >= WASHER_BAY + BESIDE_WASHER ? sym.washer : undefined
+  // (A built-in, tiled one has no bay for one.)
+  const washer = sym.washer && sym.style !== 'tiled' && w >= WASHER_BAY + BESIDE_WASHER ? sym.washer : undefined
   const x0 = washer === 'left' ? -w / 2 + WASHER_BAY : -w / 2
   const x1 = washer === 'right' ? w / 2 - WASHER_BAY : w / 2
   const cw = x1 - x0
@@ -2057,7 +2060,7 @@ export const SYMBOLS: SymbolDef[] = [
     frameLabel: 'Finish',
     render: (w, d, t, sym) => {
       const k = kit(t)
-      const s = vanitySinks({ width: w, depth: d, sinks: sym?.sinks, sinkAt: sym?.sinkAt, washer: sym?.washer })
+      const s = vanitySinks({ width: w, depth: d, sinks: sym?.sinks, sinkAt: sym?.sinkAt, washer: sym?.washer, style: sym?.style })
       // Rounded ends: its front corners round.
       const r = sym && styleOf(sym) === 'curved' ? Math.min(d * 0.45, 22, w / 4) : 0
       const bay = s.washer === 'left' ? -w / 2 : s.washer === 'right' ? s.x1 : null

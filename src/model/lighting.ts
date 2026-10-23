@@ -73,6 +73,10 @@ export const CEILING_STYLES: Record<CeilingStyle, { name: string; description: s
 /** Width of the light trough in a cove ceiling. */
 export const COVE_WIDTH = 15
 
+/** How high the lip at the edge of a cove ceiling's band is, hiding its LED; how thick a floating panel's edge is (cm). */
+export const COVE_LIP = 8
+export const PANEL_EDGE = 6
+
 /** Width and depth of a shadow gap between wall and ceiling. */
 export const SHADOW_GAP = { width: 5, depth: 5 }
 

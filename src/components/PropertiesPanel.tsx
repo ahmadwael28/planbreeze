@@ -82,6 +82,7 @@ import { isRound, resized, sizeRule } from '@/model/sizes'
 import type { Dim } from '@/model/sizes'
 import { useUi } from '@/store/ui'
 import { LengthInput, NumberInput, TextInput } from './LengthInput'
+import { RoomSurfaces } from './Surfaces'
 import { CeilingSection, GroupLightSection, GrooveLightWalls, HiddenLightControls, LightSection, SwitchSection } from './LightingProps'
 import { Choice } from './Choice'
 import { doorRun, doorsOf, headOf, headPoint, showerGlass, showerRuns, startsLeft, wayIn } from '@/model/shower'
@@ -488,6 +489,10 @@ function RoomProps({ room, units }: { room: Room; units: Units }) {
             ...(balcony ? [] : [[t('Wall area'), formatArea(area(roomOuter(room)) - a, units)] as [string, string]]),
           ]}
         />
+      </Section>
+      <Separator />
+      <Section title={t('Surfaces to finish')}>
+        <RoomSurfaces room={room} units={units} />
       </Section>
       <Separator />
       {!balcony && (
@@ -984,6 +989,8 @@ const MIRROR_FRAME_COLORS: [NonNullable<PlanSymbol['mirrorFrame']> | 'none', str
  */
 function VanityOptions({ sym, units }: { sym: PlanSymbol; units: Units }) {
   const lay = vanitySinks(sym)
+  // Built in and tiled: bowls on its stone top or sinks under it, no washing machine's bay.
+  const tiled = styleOf(sym) === 'tiled'
   const above = sym.mirror ?? 'cabinet'
   const light = sym.led ? vanityLight(sym) : 'off'
   const ring = 'ring-2 ring-primary ring-offset-2 ring-offset-background'
@@ -1004,14 +1011,15 @@ function VanityOptions({ sym, units }: { sym: PlanSymbol; units: Units }) {
     <div className="space-y-3 rounded-lg bg-muted/60 p-3">
       <Choice
         label={t('Basin')}
-        value={sym.basin ?? 'integrated'}
-        onChange={(v) => updateSymbol(sym.id, (s) => void (v === 'integrated' ? delete s.basin : (s.basin = v)))}
+        value={sym.basin ?? (tiled ? 'vessel' : 'integrated')}
+        onChange={(v) => updateSymbol(sym.id, (s) => void (v === 'integrated' || (tiled && v === 'vessel') ? delete s.basin : (s.basin = v)))}
         options={[
-          { value: 'integrated', label: t('Built in') },
+          ...(tiled ? [] : [{ value: 'integrated' as const, label: t('Built in') }]),
           { value: 'vessel', label: t('Bowl on top') },
           { value: 'undermount', label: t('Under the top') },
         ]}
       />
+      {tiled && <p className="-mt-1 text-xs text-muted-foreground">{t('Built of blocks and finished like the wall behind it (its tiles, porcelain or paint), with a stone top.')}</p>}
       {lay.x1 - lay.x0 >= 110 && (
         <Choice
           label={t('Sinks')}
@@ -1036,7 +1044,8 @@ function VanityOptions({ sym, units }: { sym: PlanSymbol; units: Units }) {
           ]}
         />
       )}
-      <Choice
+      {!tiled && (
+        <Choice
         physical
         label={t('Washing machine')}
         value={sym.washer ?? 'none'}
@@ -1057,7 +1066,8 @@ function VanityOptions({ sym, units }: { sym: PlanSymbol; units: Units }) {
         ]}
       >
         {lay.washer && <p className="text-xs text-muted-foreground">{t('A front-loading washing machine under the top, the basin beside it.')}</p>}
-      </Choice>
+        </Choice>
+      )}
       {styleOf(sym) !== 'open' && (
         <Choice
           label={t('Mounted')}

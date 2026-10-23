@@ -4,17 +4,16 @@ import { add, bbox, dist, dot, inwardNormal, labelPoint, mul, normalize, pointIn
 import { isSelected } from '@/model/items'
 import { isOpen, isOutdoor, railingRuns, roomOuter, symbolPose, wallEnds } from '@/model/project'
 import { floorOrigin } from '@/model/divide'
-import { alcoveOpenings, alcoveSolids, CEILING_AC, ledgeHeight, NICHES, partitionTop, stoneSill, styleOf, SYMBOL_MAP, tankBoxDepth } from '@/model/symbols'
+import { CEILING_AC, NICHES, partitionTop, SYMBOL_MAP } from '@/model/symbols'
+import { builtBox, halfWallBoxes } from '@/model/built'
 import type { PlanTheme } from '@/model/theme'
 import type { Floor, PlanSymbol, Point, Project, Room, Selection, Surface, WallSurface } from '@/model/types'
-import { openSides } from '@/model/guides'
-import { ownWalls, showerRuns, stretchBox } from '@/model/shower'
 import { startsAtFloor, wallBands, wallSurfaceAt } from '@/model/finishes'
 import { cutsFor, nicheDepth, roomFaces, wallBehind, wallOpenings, wallPatches } from '@/model/walls'
 import { roomUVs } from './worktops'
 import type { Opening } from '@/model/walls'
 import { readyImage } from '@/lib/images'
-import { BENCH_TOP, cabinetLeds, COLORS, FLOATING_BENCH, Materials, personModel, railingModel, symbolModel } from './furniture'
+import { cabinetLeds, COLORS, Materials, personModel, railingModel, symbolModel } from './furniture'
 import { personSupport } from '@/model/people'
 import type { CurtainWash } from './furniture'
 import { ceilingHeightAt, ceilingLight, ceilingRoom, coveRuns, lightHex, pocketWidth } from '@/model/lighting'
@@ -126,48 +125,6 @@ function gapToWall(sym: PlanSymbol, pose: { x: number; y: number; rotation: numb
   const back = { x: pose.x + Math.sin(r) * f * (sym.depth / 2), y: pose.y - Math.cos(r) * f * (sym.depth / 2) }
   const gap = dot(sub(back, a), n)
   return Math.abs(gap) < 30 ? gap : 0
-}
-
-/**
- * The box of what's built against a wall and finished like it, in the item's frame: how far out from the wall, from
- * and to what heights, whether it's across a corner (its front the diagonal) and whether its underside shows. A
- * wall-hung toilet's tank box (to its shelf or the ceiling) and a shower bench (to its stone top).
- */
-function builtBox(
-  sym: PlanSymbol,
-  ceilingH: number,
-): {
-  depth: number
-  y0: number
-  y1: number
-  corner: boolean
-  under: boolean
-  /** Built in stretches (from and to), not all of y0 to y1: round niches, their sills (up) and tops (down) showing. */
-  spans?: [number, number][]
-  caps?: { y: number; up: boolean }[]
-} | null {
-  if (sym.type === 'alcove-niche') {
-    const spans = alcoveSolids(sym, ceilingH)
-    if (!spans.length) return null
-    // The tops and undersides of what's built that show (not at the floor or the ceiling); a niche's sill not, under
-    // a stone one.
-    const sills = new Set(alcoveOpenings(sym, ceilingH).map(([a]) => a))
-    const caps = spans.flatMap(([y0, y1]) => [
-      ...(y0 > 0.5 ? [{ y: y0, up: false }] : []),
-      ...(y1 < ceilingH - 0.5 && !(stoneSill(sym) && sills.has(y1)) ? [{ y: y1, up: true }] : []),
-    ])
-    return { depth: sym.depth, y0: spans[0][0], y1: spans[spans.length - 1][1], corner: false, under: false, spans, caps }
-  }
-  if (sym.type === 'toilet' && sym.mount === 'wall' && sym.tankBox !== 'none') {
-    return { depth: tankBoxDepth(sym), y0: 0, y1: sym.tankBox === 'full' ? ceilingH : Math.min(ledgeHeight(sym), ceilingH), corner: false, under: false }
-  }
-  if (sym.type === 'shower-bench') {
-    const style = styleOf(sym)
-    if (style === 'fold-down') return null
-    const y1 = sym.height - BENCH_TOP
-    return { depth: sym.depth, y0: sym.floating ? y1 - FLOATING_BENCH : 0, y1, corner: style === 'corner', under: !!sym.floating }
-  }
-  return null
 }
 
 /**
@@ -598,21 +555,15 @@ export function buildProjectGroup(project: Project, opts: BuildOptions): THREE.G
         const s = floor.rooms.find((r) => pointInPolygon(pose, r.points))?.walls
         if (s) obj.add(cladBoxes([{ x0: -sym.width / 2, x1: sym.width / 2, z0: -sym.depth / 2, z1: sym.depth / 2 }], s, partitionTop(sym, floor.height)))
       }
+      // So is a column standing on its own, up to the ceiling.
+      if (sym.type === 'column') {
+        const s = floor.rooms.find((r) => pointInPolygon(pose, r.points))?.walls
+        if (s) obj.add(cladBoxes([{ x0: -sym.width / 2, x1: sym.width / 2, z0: -sym.depth / 2, z1: sym.depth / 2 }], s, ceilingHeightAt(floor, pose)))
+      }
       // So is the half wall a shower's fixed glass stands on (its model's mirrored by its flips; the finish isn't).
       if (sym.type === 'shower' && sym.halfWall) {
         const s = floor.rooms.find((r) => pointInPolygon(pose, r.points))?.walls
-        if (s) {
-          const fx = sym.flipX ? -1 : 1
-          const fz = sym.flipY ? -1 : 1
-          const runs = showerRuns(sym, sym.screens ?? openSides(sym, floor.rooms), floor.symbols)
-          const boxes = ownWalls(sym, runs).map((st) => {
-            const b = stretchBox(st, sym.width, sym.depth)
-            const [x0, x1] = [fx * b.x0, fx * b.x1].sort((p, q) => p - q)
-            const [z0, z1] = [fz * b.y0, fz * b.y1].sort((p, q) => p - q)
-            return { x0, x1, z0, z1 }
-          })
-          obj.add(cladBoxes(boxes, s, sym.halfWall))
-        }
+        if (s) obj.add(cladBoxes(halfWallBoxes(sym, floor), s, sym.halfWall))
       }
       // A shower niche is lined with the wall's finish (where the wall has one): its back, sides, top and sill.
       if (NICHES.has(sym.type) && sym.wall) {

@@ -35,6 +35,7 @@ import { openSides } from '@/model/guides'
 import type { Side } from '@/model/guides'
 import { personLook, restOn } from '@/model/people'
 import { nicheDepth } from '@/model/walls'
+import { BENCH_TOP, FLOATING_BENCH, TILED_VANITY, VANITY_TOP } from '@/model/built'
 import { worktopMaterial } from './worktops'
 import {
   chairsAlong,
@@ -2245,9 +2246,11 @@ function bathVanity(k: Kit, sym: PlanSymbol, w: number, d: number, h: number, ga
   const chrome = k.q(COLORS.chrome, 'chrome')
   const style = styleOf(sym)
   const s = vanitySinks(sym)
-  const basin = sym.basin ?? (s.washer ? 'undermount' : 'integrated')
+  // Built in and tiled: a block finished like the wall behind it (see buildScene), bowls on its stone top.
+  const tiled = style === 'tiled'
+  const basin = sym.basin ?? (tiled ? 'vessel' : s.washer ? 'undermount' : 'integrated')
   const open = style === 'open'
-  const top = 3
+  const top = VANITY_TOP
   const bottom = open ? 0 : sym.onFloor ? (style === 'shaker' ? 14 : 10) : 30
   const cx = (s.x0 + s.x1) / 2
   const cw = s.x1 - s.x0
@@ -2256,7 +2259,11 @@ function bathVanity(k: Kit, sym: PlanSymbol, w: number, d: number, h: number, ga
   // rounded ends, all of it, round them).
   const sunk = basin === 'integrated' && !open && !r ? 15 : 0
   const ch = h - top - bottom - sunk
-  if (!open) {
+  if (tiled) {
+    // Plain here: tiled like the wall it's against when that has a finish.
+    const y0 = sym.onFloor ? 0 : Math.max(0, h - top - TILED_VANITY)
+    g.add(box(w, h - top - y0, d, 0, y0, 0, k.q(WALL_WHITE, 'satin')))
+  } else if (!open) {
     if (r) {
       // Rounded ends: the cabinet a slab rounded at its front corners, seen from above.
       g.add(prism(plan(cw, d - 2, Math.min(r, cw / 2 - 1)), ch, cx, bottom, -1, body))
@@ -2283,6 +2290,8 @@ function bathVanity(k: Kit, sym: PlanSymbol, w: number, d: number, h: number, ga
   const fw = cw / cols
   const colX = (i: number) => s.x0 + fw * (i + 0.5)
   switch (style) {
+    case 'tiled':
+      break
     case 'open': {
       // A metal frame from the floor up to the top, a shelf low down with towels on it.
       const metal = k.q('#1f1f22', 'metal')
@@ -2970,10 +2979,6 @@ function showerNiche(k: Kit, sym: PlanSymbol, w: number, h: number, wallT: numbe
   if (sym.shelf) g.add(box(w - 0.6, 0.8, r - 0.6, 0, h / 2, wallT / 2 - r / 2, k.glass()))
   return g
 }
-
-/** A shower bench's stone top (cm), and how thick a floating one is under it. */
-export const BENCH_TOP = 3
-export const FLOATING_BENCH = 9
 
 /**
  * A shower bench: built of blocks against the wall up to a stone top, or a seat across a corner (its back and left side

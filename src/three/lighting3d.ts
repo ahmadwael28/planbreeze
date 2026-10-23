@@ -8,7 +8,7 @@ import * as THREE from 'three'
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js'
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js'
 import { inwardNormal, offsetEdges, pointInPolygon, projectOnSegment, signedArea } from '@/model/geometry'
-import { bandEdge, ceilingDropAt, ceilingHeightAt, ceilingLight, ceilingOutline, ceilingRoom, ceilingZones, COVE_WIDTH, coveRuns, gapDrops, hiddenLightInGap, lightHex, onCeilingJoin, SHADOW_GAP } from '@/model/lighting'
+import { bandEdge, ceilingDropAt, ceilingHeightAt, ceilingLight, ceilingOutline, ceilingRoom, ceilingZones, COVE_LIP, COVE_WIDTH, coveRuns, PANEL_EDGE, gapDrops, hiddenLightInGap, lightHex, onCeilingJoin, SHADOW_GAP } from '@/model/lighting'
 import { symbolPose } from '@/model/project'
 import { frameOf, styleOf } from '@/model/symbols'
 import type { FixtureKind } from '@/model/symbols'
@@ -152,11 +152,11 @@ export function buildCeilings(floor: Floor, base: number): THREE.Object3D[] {
         break
       case 'cove':
         // A lip at the edge of the band hides the LED; behind it the trough rises to the ceiling.
-        geos.push(band(bandEdge(room), H - c.drop, H - c.drop + 8, 'in', keep))
+        geos.push(band(bandEdge(room), H - c.drop, H - c.drop + COVE_LIP, 'in', keep))
         geos.push(band(bandEdge(room, 1, -COVE_WIDTH), H - c.drop + 1, H, 'in', keep))
         break
       case 'floating':
-        geos.push(band(bandEdge(room), H - c.drop, H - c.drop + 6, 'out', keep))
+        geos.push(band(bandEdge(room), H - c.drop, H - c.drop + PANEL_EDGE, 'out', keep))
         break
     }
   }

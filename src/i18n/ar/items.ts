@@ -163,6 +163,8 @@ export default {
   Handleless: 'بدون مقابض',
   'Open shelf': 'رف مفتوح',
   'Rounded ends': 'أطراف دائرية',
+  'Built in, tiled': 'مبنية ومكسوة بالبلاط',
+  'Built of blocks and finished like the wall behind it (its tiles, porcelain or paint), with a stone top.': 'مبنية بالطوب ومكسوة مثل الحائط خلفها (بلاطه أو البورسلين أو الدهان)، وفوقها رخامة.',
   'Shaker doors': 'أبواب شيكر',
   'Bowl on top': 'حوض فوق الرخامة',
   'Built-in basin': 'حوض مدمج',
