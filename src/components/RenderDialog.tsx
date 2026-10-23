@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import { Aperture, Copy, Download, RotateCcw, Square } from 'lucide-react'
 import { toast } from 'sonner'
+import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Slider } from '@/components/ui/slider'
@@ -35,7 +36,23 @@ const QUALITIES: { id: 'draft' | 'good' | 'best'; name: string; samples: number;
   { id: 'best', name: 'Best', samples: 200, tuning: { bounces: 5, pixels: 1_000_000 } },
 ]
 
+/** Depth of field: none, or what's nearer and further than what's in focus blurred, as a lens open this wide has it (m). */
+const FOCUS = [
+  { id: 'off', name: 'Off', aperture: 0 },
+  { id: 'soft', name: 'Soft', aperture: 0.012 },
+  { id: 'strong', name: 'Strong', aperture: 0.03 },
+] as const
+
 type Phase = 'setup' | 'preparing' | 'rendering' | 'done'
+
+/** The render's still being worked on: said wherever it's offered. */
+export function BetaBadge() {
+  return (
+    <Badge variant="secondary" className="h-4.5 px-1.5 text-[10px] font-medium tracking-wide uppercase">
+      {t('Beta')}
+    </Badge>
+  )
+}
 
 function Row({ label, children }: { label: string; children: ReactNode }) {
   return (
@@ -81,6 +98,7 @@ export function RenderDialog() {
   const [size, setSize] = useState<(typeof SIZES)[number]['id']>(phone ? 'hd' : 'full')
   const [quality, setQuality] = useState<(typeof QUALITIES)[number]['id']>(phone ? 'draft' : 'good')
   const [smooth, setSmooth] = useState(true)
+  const [focus, setFocus] = useState<(typeof FOCUS)[number]['id']>('off')
   // Brighter or darker than a camera would make it (see render: it's metered).
   const [exposure, setExposure] = useState(1)
   const [phase, setPhase] = useState<Phase>('setup')
@@ -144,6 +162,7 @@ export function RenderDialog() {
         exposure,
         smooth,
         tuning: q.tuning,
+        aperture: FOCUS.find((f) => f.id === focus)!.aperture,
         signal: ctl.signal,
         onProgress: (p) => {
           if (ctl.signal.aborted) return
@@ -200,10 +219,15 @@ export function RenderDialog() {
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogContent className="flex max-h-[94dvh] flex-col gap-0 overflow-hidden p-0 sm:max-w-5xl">
         <DialogHeader className="border-b px-5 py-4">
-          <DialogTitle>{t('Realistic render')}</DialogTitle>
+          <DialogTitle className="flex items-center gap-2">
+            {t('Realistic render')} <BetaBadge />
+          </DialogTitle>
           <DialogDescription>
             {t('The 3D view as it is now, with light bouncing round the rooms as a camera would see it: soft shadows, real reflections, every light that’s on. No AI: just more time for more detail.')}
           </DialogDescription>
+          <p className="text-xs text-muted-foreground">
+            {t('Beta: still being worked on. Some materials may look a little different from the 3D view, and the first render on a device waits a minute or two for the graphics card.')}
+          </p>
         </DialogHeader>
         <div className="grid min-h-0 flex-1 overflow-y-auto md:grid-cols-[1fr_300px] md:overflow-hidden">
           {/* The picture as it's drawn. */}
@@ -244,6 +268,16 @@ export function RenderDialog() {
                   {t('{n} samples: more, less grain, longer to wait.', { n: target })}
                   {expected !== null && <> {t('About {time} on this device.', { time: roughly(expected) })}</>}
                 </p>
+              </Row>
+              <Row label={t('Depth of field')}>
+                <ToggleGroup type="single" variant="outline" size="sm" value={focus} onValueChange={(v) => v && setFocus(v as typeof focus)} disabled={busy} className="w-full">
+                  {FOCUS.map((f) => (
+                    <ToggleGroupItem key={f.id} value={f.id} className={`flex-1 ${on}`}>
+                      {t(f.name)}
+                    </ToggleGroupItem>
+                  ))}
+                </ToggleGroup>
+                <p className="text-xs text-muted-foreground">{t('Sharp on what’s in the middle of the view, nearer and further blurred, as a camera’s lens has it.')}</p>
               </Row>
               <Row label={t('Brightness')}>
                 <Slider

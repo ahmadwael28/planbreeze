@@ -167,10 +167,40 @@ function reflection(p: THREE.Plane) {
 }
 
 /**
+ * A camera (`cam`) as `from` is, moved a little: by `jitter` (pixels), and to a point on its lens (`at`: two numbers
+ * from 0 to 1, round the lens), looking at the same plane in focus.
+ */
+function look(cam: THREE.PerspectiveCamera, from: THREE.PerspectiveCamera, width: number, height: number, jitter: [number, number], at?: [number, number] | false, lens?: Lens) {
+  const near = from.near
+  const top = (near * Math.tan(THREE.MathUtils.DEG2RAD * 0.5 * from.fov)) / from.zoom
+  const h = 2 * top
+  const w = from.aspect * h
+  let [lx, ly] = [0, 0]
+  if (at && lens) {
+    const r = lens.radius * Math.sqrt(at[0])
+    lx = r * Math.cos(2 * Math.PI * at[1])
+    ly = r * Math.sin(2 * Math.PI * at[1])
+  }
+  const sx = (jitter[0] * w) / width - (lens ? (lx * near) / lens.focus : 0)
+  const sy = (jitter[1] * h) / height - (lens ? (ly * near) / lens.focus : 0)
+  cam.projectionMatrix.makePerspective(-w / 2 + sx, w / 2 + sx, top + sy, top - h + sy, near, from.far)
+  cam.projectionMatrixInverse.copy(cam.projectionMatrix).invert()
+  cam.position.copy(from.position).add(new THREE.Vector3(lx, ly, 0).applyQuaternion(from.quaternion))
+  cam.updateMatrixWorld()
+}
+
+/** A camera's lens, for depth of field: how wide it's open (its radius), and how far away what's sharp is (m). */
+export interface Lens {
+  radius: number
+  focus: number
+}
+
+/**
  * The guides (see Guides) at a size, as the path tracer sees the scene: each pixel's an average over it (the camera
- * moved a little each time, as the path tracer's rays are), so edges are as soft as its. Glass and glows are left out,
- * what's behind them shown; in a mirror, what's seen in it (the scene turned over the mirror's plane, drawn only where
- * the mirror is, and only what's in front of it).
+ * moved a little each time, as the path tracer's rays are), so edges are as soft as its; with a lens, from all over
+ * it too, so what's out of focus is as blurred as the path tracer has it. Glass and glows are left out, what's behind
+ * them shown; in a mirror, what's seen in it (the scene turned over the mirror's plane, drawn only where the mirror is,
+ * and only what's in front of it).
  */
 export function drawGuides(
   renderer: THREE.WebGLRenderer,
@@ -180,8 +210,9 @@ export function drawGuides(
   height: number,
   hidden: THREE.Object3D[],
   albedo: ReturnType<typeof albedoMaterials>,
-  passes = 8,
+  lens?: Lens,
 ): Guides {
+  const passes = lens ? 32 : 8
   const out = { albedo: target(width, height), geo: target(width, height) }
   const frame = target(width, height, true)
   const cam = camera.clone()
@@ -275,8 +306,7 @@ export function drawGuides(
       renderer.clear()
     }
     for (let i = 0; i < passes; i++) {
-      cam.setViewOffset(width, height, halton(i + 1, 2) - 0.5, halton(i + 1, 3) - 0.5, width, height)
-      cam.updateProjectionMatrix()
+      look(cam, camera, width, height, [halton(i + 1, 2) - 0.5, halton(i + 1, 3) - 0.5], lens && [halton(i + 1, 5), halton(i + 1, 7)], lens)
       // Their colors (the sky white: its light is its own).
       meshes.forEach((m, k) => (m.material = flat[k]))
       marking()
@@ -502,7 +532,10 @@ export class GrainFilter {
     )
   }
 
-  /** The light on each traced pixel, from the path tracer's picture: smoothed (`rounds` of the filter), or as it is. */
+  /**
+   * The light on each traced pixel, from the path tracer's picture: smoothed (`rounds` of the filter, each blending
+   * further out, and one more close by, to blend away the grid the furthest leave), or as it is.
+   */
   smooth(radiance: THREE.Texture, rounds: number): THREE.Texture {
     const r = this.renderer
     const keep = r.getRenderTarget()
@@ -514,9 +547,9 @@ export class GrainFilter {
     const u = (this.atrous.material as THREE.ShaderMaterial).uniforms
     let from = this.a
     let to = this.b
-    for (let i = 0; i < rounds; i++) {
+    for (let i = 0; i < (rounds && rounds + 1); i++) {
       u.light.value = from.texture
-      u.stepSize.value = 1 << i
+      u.stepSize.value = i < rounds ? 1 << i : 1
       r.setRenderTarget(to)
       this.atrous.render(r)
       ;[from, to] = [to, from]

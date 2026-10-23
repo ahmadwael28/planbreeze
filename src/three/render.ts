@@ -6,9 +6,11 @@
  * anywhere: the grain left after the samples is smoothed, if asked, by an edge-keeping filter.
  */
 import * as THREE from 'three'
-import { GradientEquirectTexture, WebGLPathTracer } from 'three-gpu-pathtracer'
+import { GradientEquirectTexture, PhysicalCamera, WebGLPathTracer } from 'three-gpu-pathtracer'
+import { MeshBVH } from 'three-mesh-bvh'
+import type { SerializedBVH } from 'three-mesh-bvh'
 import { GrainFilter, albedoMaterials, drawGuides } from './renderFilter'
-import type { Guides } from './renderFilter'
+import type { Guides, Lens } from './renderFilter'
 import { TUNING, rememberSpeed, tracedSize } from './renderQuality'
 import type { RenderTuning } from './renderQuality'
 import { renderSource } from './renderSource'
@@ -35,6 +37,11 @@ export interface RenderOptions {
   smooth: boolean
   /** How it's made (see TUNING), where not as usual. */
   tuning?: Partial<RenderTuning>
+  /**
+   * Depth of field: what's nearer or further than what's in the middle of the view blurred, as a camera's lens open this
+   * wide (its radius, m) has it.
+   */
+  aperture?: number
   onProgress: (p: RenderProgress) => void
   /** The graphics card gave up on it (its context lost): it's stopped. */
   onLost?: () => void
@@ -203,6 +210,73 @@ const KEY = 0.2
 
 const wait = (ms: number) => new Promise((r) => setTimeout(r, ms))
 
+/**
+ * Something done in a while, by a clock that keeps time in a hidden tab: the page's own timers are slowed there to
+ * once a second (later, once a minute), a worker's aren't, so a render goes on at its pace while the user's elsewhere.
+ * Returns what calls it off.
+ */
+let clock: { worker: Worker; waiting: Map<number, () => void>; last: number } | null = null
+function later(ms: number, fn: () => void): () => void {
+  try {
+    if (!clock) {
+      const src = 'onmessage = (e) => setTimeout(() => postMessage(e.data[0]), e.data[1])'
+      const worker = new Worker(URL.createObjectURL(new Blob([src], { type: 'text/javascript' })))
+      const waiting = new Map<number, () => void>()
+      worker.onmessage = (e: MessageEvent<number>) => {
+        const f = waiting.get(e.data)
+        waiting.delete(e.data)
+        f?.()
+      }
+      clock = { worker, waiting, last: 0 }
+    }
+    const c = clock
+    const id = ++c.last
+    c.waiting.set(id, fn)
+    c.worker.postMessage([id, ms])
+    return () => c.waiting.delete(id)
+  } catch {
+    const t = window.setTimeout(fn, ms)
+    return () => clearTimeout(t)
+  }
+}
+
+/**
+ * The path tracer's BVH (what's where, for finding what each ray hits) built in a worker (see bvh.worker), so the page
+ * keeps going while a big plan's made ready: three-mesh-bvh's own worker, sent the scene's triangles and sending back
+ * its BVH, as its GenerateMeshBVHWorker does (whose worker a bundler can't find in the library itself).
+ */
+function bvhWorker() {
+  const worker = new Worker(new URL('./bvh.worker.ts', import.meta.url), { type: 'module' })
+  return {
+    generate(geometry: THREE.BufferGeometry, options: Record<string, unknown> & { onProgress?: (p: number) => void } = {}) {
+      return new Promise<MeshBVH>((resolve, reject) => {
+        worker.onerror = (e) => reject(new Error(e.message || 'The BVH worker failed'))
+        worker.onmessage = ({ data }: MessageEvent<{ error: unknown; serialized: SerializedBVH | null; position: Float32Array; progress: number }>) => {
+          if (data.error) return reject(data.error instanceof Error ? data.error : new Error(String(data.error)))
+          if (!data.serialized) return options.onProgress?.(data.progress)
+          const bvh = MeshBVH.deserialize(data.serialized, geometry, { setIndex: false })
+          // The triangles went to the worker (and came back): its copies are the geometry's now.
+          Object.assign(geometry.attributes.position, { array: data.position })
+          const index = data.serialized.index
+          if (index) {
+            if (geometry.index) Object.assign(geometry.index, { array: index })
+            else geometry.setIndex(new THREE.BufferAttribute(index, 1, false))
+          }
+          geometry.boundingBox = bvh.getBoundingBox(new THREE.Box3())
+          resolve(bvh)
+        }
+        const index = geometry.index ? geometry.index.array : null
+        const position = geometry.attributes.position.array
+        worker.postMessage(
+          { index, position, options: { ...options, onProgress: null, includedProgressCallback: !!options.onProgress, groups: [...geometry.groups] } },
+          [position.buffer, ...(index ? [index.buffer] : [])] as Transferable[],
+        )
+      })
+    },
+    dispose: () => worker.terminate(),
+  }
+}
+
 /** Start a render of the 3D view as it's seen now; it goes on drawing (and telling how far it's got) till it's done. */
 export async function startRender(opts: RenderOptions): Promise<RenderJob> {
   const src = renderSource()
@@ -217,11 +291,26 @@ export async function startRender(opts: RenderOptions): Promise<RenderJob> {
   }
   const { scene, made, sky, hidden } = copied
   const { width, height } = opts
-  const camera = src.camera.clone()
+  // (Copied from a plain camera, its lens is left unset: set here.)
+  const camera = Object.assign(new PhysicalCamera().copy(src.camera), { apertureBlades: 0, apertureRotation: 0, anamorphicRatio: 1, focusDistance: 10 })
   camera.clearViewOffset()
   camera.aspect = width / height
   camera.updateProjectionMatrix()
   camera.updateMatrixWorld(true)
+  // Depth of field: in focus, what's in the middle of the view (as far as the camera's target, if nothing's there).
+  let lens: Lens | undefined
+  if (opts.aperture) {
+    const ray = new THREE.Raycaster()
+    ray.setFromCamera(new THREE.Vector2(0, 0), camera)
+    const seen = new Set(hidden)
+    const hit = ray.intersectObjects(scene.children, false).find((h) => !seen.has(h.object))
+    const focus = hit?.distance ?? src.focus.distanceTo(camera.position)
+    lens = { radius: opts.aperture, focus: Math.max(0.3, focus) }
+    camera.focusDistance = lens.focus
+    // Its f-number, from the lens's width (the path tracer's "bokeh size" is that, in mm).
+    camera.fStop = camera.getFocalLength() / (2 * lens.radius * 1000)
+    camera.apertureBlades = 6
+  } else camera.fStop = Infinity
 
   // The whole picture's drawn here, when it's done; as it's drawn, a smaller one's shown (see show).
   const canvas = document.createElement('canvas')
@@ -286,11 +375,18 @@ export async function startRender(opts: RenderOptions): Promise<RenderJob> {
   tracer.tiles.set(tiles, tiles)
 
   const albedo = albedoMaterials()
+  const bvh = (() => {
+    try {
+      return bvhWorker()
+    } catch {
+      return null
+    }
+  })()
   let guides: Guides[] = []
   let filter: GrainFilter | null = null
   let running = true
   let frame = 0
-  let timer = 0
+  let unclock = () => {}
   let disposed = false
   let firstAt = 0
   let firstSamples = 0
@@ -301,8 +397,9 @@ export async function startRender(opts: RenderOptions): Promise<RenderJob> {
     disposed = true
     running = false
     cancelAnimationFrame(frame)
-    clearTimeout(timer)
+    unclock()
     tracer.dispose()
+    bvh?.dispose()
     filter?.dispose()
     new Set(guides).forEach((g) => g.dispose())
     albedo.dispose()
@@ -314,16 +411,20 @@ export async function startRender(opts: RenderOptions): Promise<RenderJob> {
   report('preparing', 0)
   try {
     // A moment for "getting ready" to show, then the scene's made ready for the path tracer (its BVH: what's where,
-    // to find what each ray hits), here and now: a second or two for a big plan. Then the grain filter's guides, at
-    // the picture's size and the traced one's.
+    // to find what each ray hits), in a worker (here and now if there can't be one: a second or two for a big plan).
+    // Then the grain filter's guides, at the picture's size and the traced one's.
     await wait(50)
     if (opts.signal?.aborted) throw new DOMException('Cancelled', 'AbortError')
-    tracer.setScene(scene, camera)
+    if (bvh) {
+      tracer.setBVHWorker(bvh as never)
+      await tracer.setSceneAsync(scene, camera, { onProgress: (p: number) => report('preparing', 0.05 + 0.7 * p) })
+    } else tracer.setScene(scene, camera)
+    if (opts.signal?.aborted) throw new DOMException('Cancelled', 'AbortError')
     report('preparing', 0.8)
     await wait(30)
     if (opts.signal?.aborted) throw new DOMException('Cancelled', 'AbortError')
-    const hi = drawGuides(renderer, scene, camera, width, height, hidden, albedo)
-    const lo = traced.scale < 1 ? drawGuides(renderer, scene, camera, traced.width, traced.height, hidden, albedo) : hi
+    const hi = drawGuides(renderer, scene, camera, width, height, hidden, albedo, lens)
+    const lo = traced.scale < 1 ? drawGuides(renderer, scene, camera, traced.width, traced.height, hidden, albedo, lens) : hi
     guides = [hi, lo]
     filter = new GrainFilter(renderer, lo, hi, camera)
   } catch (e) {
@@ -367,24 +468,24 @@ export async function startRender(opts: RenderOptions): Promise<RenderJob> {
   const finish = () => {
     running = false
     cancelAnimationFrame(frame)
-    clearTimeout(timer)
+    unclock()
     show(true)
     if (perSample > 0 && tracer.samples >= 3) rememberSpeed(tune.bounces, (perSample * 1000) / (traced.width * traced.height))
     report('done', 1)
   }
 
-  // A sample (or a tile of one) a frame; with no frames coming (a hidden tab, a hidden pane), on a timer instead.
+  // A sample (or a tile of one) a frame; with no frames coming (a hidden tab, a hidden pane), on a clock instead.
   const next = (ms = 4) => {
     let done = false
     const go = () => {
       if (done) return
       done = true
       cancelAnimationFrame(frame)
-      clearTimeout(timer)
+      unclock()
       tick()
     }
     if (ms <= 4) frame = requestAnimationFrame(go)
-    timer = window.setTimeout(go, ms)
+    unclock = later(ms, go)
   }
   // One piece of work on the graphics card at a time: the next sample (or tile) is only asked for once the last is
   // done (a fence in its queue says so), or the queue would grow far past what's been drawn and the browser, waiting

@@ -31,6 +31,7 @@ import { toast } from 'sonner'
 import { takeSnapshot } from '@/utils/snapshot'
 import { usePhone } from '@/components/ui/phone-sheet'
 import { Button } from '@/components/ui/button'
+import { BetaBadge } from '@/components/RenderDialog'
 import {
   DropdownMenu,
   DropdownMenuCheckboxItem,
@@ -251,7 +252,7 @@ function MoreMenu({ compact, openFile }: { compact: boolean; openFile: () => voi
         </DropdownMenuItem>
         {useEditor.getState().viewMode === '3d' && (
           <DropdownMenuItem onSelect={() => useUi.getState().openRender(true)}>
-            <Aperture /> {t('Realistic render')}
+            <Aperture /> {t('Realistic render')} <BetaBadge />
           </DropdownMenuItem>
         )}
         <DropdownMenuSub>
@@ -435,7 +436,7 @@ export function TopBar({ onToggleSidebar, sidebarOpen }: Props) {
               </Button>
             </Tip>
             {viewMode === '3d' && (
-              <Tip label={t('Realistic render: light bouncing round the rooms, as a camera sees it')}>
+              <Tip label={t('Realistic render (beta): light bouncing round the rooms, as a camera sees it')}>
                 <Button variant="ghost" size="icon" aria-label={t('Realistic render')} onClick={() => useUi.getState().openRender(true)}>
                   <Aperture />
                 </Button>
