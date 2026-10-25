@@ -8,6 +8,8 @@
  *   against them; plus what's built and finished like them: columns' sides, niches' linings, window reveals, a toilet's
  *   box, a shower's half wall, a bench, a tiled vanity…
  * - Ceilings: the slab, or the gypsum (its bands, bulkhead sides, cove, panel edges, pockets and gaps, boxes, beams).
+ * - Stone: worktops, a vanity's or a bench's stone top, niches' sills, the shelves on toilets' boxes and half walls;
+ *   each in its stone (one of WORKTOPS, or the light stone shelves are), with the length of its front edge.
  *
  * What each kind of item does is its rule (see RULES); a kind that does nothing to them is listed in UNTOUCHED. Every
  * kind in the library is one or the other (checked as the app starts, in development): a new kind that's built, clad,
@@ -33,12 +35,12 @@ import {
 } from './lighting'
 import { isOutdoor, roomOuter, symbolPose } from './project'
 import type { ResolvedPose } from './project'
-import { CEILING_AC, partitionTop, stoneSill, SYMBOL_MAP, SYMBOLS } from './symbols'
+import { alcoveOpenings, CEILING_AC, hasWorktop, partitionTop, stoneSill, styleOf, SYMBOL_MAP, SYMBOLS, tankBoxDepth, vanitySinks, worktopOf } from './symbols'
 import type { Ceiling, CeilingStyle, Floor, PlanSymbol, Point, Room, Surface, WallSurface } from './types'
 import { aroundCuts, cutsFor, nicheDepth, roomFaces, wallBehind, wallOpenings } from './walls'
 import type { Opening } from './walls'
 
-export type TakeoffPlace = 'floor' | 'wall' | 'ceiling'
+export type TakeoffPlace = 'floor' | 'wall' | 'ceiling' | 'stone'
 
 /** A part of a room's finished surfaces. */
 export interface TakeoffPart {
@@ -55,7 +57,13 @@ export interface TakeoffPart {
   from?: string
   /** Gypsum board: a dropped ceiling, its bands, sides and boxes. */
   board?: boolean
+  /** Stone (place 'stone'): which (a worktop's id, see WORKTOPS, or SHELF_STONE), and how long its front edge is (cm). */
+  stone?: string
+  length?: number
 }
+
+/** The light stone the shelves on toilets' boxes and half walls are made of (see the 3D view's LEDGE_STONE). */
+export const SHELF_STONE = 'shelf'
 
 /** Ceilings are painted white, the slab and gypsum alike. */
 export const CEILING_PAINT: Surface = { finish: 'paint', color: '#f5f5f4' }
@@ -113,6 +121,11 @@ function cladFlat(ctx: Ctx, part: Omit<TakeoffPart, 'surface' | 'area' | 'place'
   const bands = wallBands(s, ctx.H)
   const b = bands.find((x) => y < x.z1) ?? bands[bands.length - 1]
   ctx.out.push({ ...part, place: 'wall', surface: b.surface, area: a })
+}
+
+/** A piece of stone (`a` cm², its front edge `length` long) in a room. */
+function stone(ctx: Ctx, room: Room, what: string, kind: string, a: number, length: number, from: string) {
+  if (a > 0.5) ctx.out.push({ room: room.id, place: 'stone', what, stone: kind, area: a, length, from })
 }
 
 /** Whether a face of something built shows: what's just in front of it (`at`, facing `n`) is in the room, not a wall or a column. */
@@ -387,6 +400,46 @@ const niche: Rule = (sym, ctx, pose) => {
   const band = wallBands(s, ctx.H).find((b) => sill + h / 2 <= b.z1) ?? wallBands(s, ctx.H)[0]
   const lining = w * h + 2 * r * h + w * r + (stoneSill(sym) ? 0 : w * r)
   ctx.out.push({ room: room.id, place: 'wall', what: 'Niche lining', surface: band.surface, area: lining, from: sym.id })
+  if (stoneSill(sym)) stone(ctx, room, 'Niche sills', worktopOf(sym).id, (w + 1) * (r + 1.5), w + 1, sym.id)
+}
+
+/** Kitchen units, an island, a built-in washing machine's top: a worktop as big as it is (an L across a corner). */
+const worktop: Rule = (sym, ctx, pose) => {
+  const room = roomAt(ctx.floor, pose)
+  if (!room || !hasWorktop(sym)) return
+  const w = sym.width
+  const d = sym.depth
+  if (sym.type === 'kitchen-corner') {
+    // Its arms as deep as the 3D view makes them; the front edge the inside of the L.
+    const a = Math.min(60, w - 10, d - 10)
+    return stone(ctx, room, 'Worktops', worktopOf(sym).id, w * a + a * (d - a), w - a + (d - a), sym.id)
+  }
+  stone(ctx, room, 'Worktops', worktopOf(sym).id, w * d, w, sym.id)
+}
+
+/**
+ * The stone of what's built against a wall: a vanity's top (all of it, or over its washing machine's bay where its own
+ * ceramic one doesn't reach), a bench's top, an alcove's niches' sills, the shelf on a toilet's box.
+ */
+function builtStone(sym: PlanSymbol, ctx: Ctx, pose: ResolvedPose) {
+  const room = roomAt(ctx.floor, pose)
+  if (!room) return
+  const w = sym.width
+  const d = sym.depth
+  const top = worktopOf(sym).id
+  if (sym.type === 'bath-vanity') {
+    const lay = vanitySinks(sym)
+    if (sym.basin || styleOf(sym) === 'tiled') stone(ctx, room, 'Vanity tops', top, w * d, w, sym.id)
+    else if (lay.washer) stone(ctx, room, 'Vanity tops', top, (w - (lay.x1 - lay.x0)) * d, w - (lay.x1 - lay.x0), sym.id)
+  } else if (sym.type === 'shower-bench' && styleOf(sym) !== 'fold-down') {
+    // A nose over its front; across a corner, a triangle.
+    stone(ctx, room, 'Bench tops', top, styleOf(sym) === 'corner' ? (w * d) / 2 : w * (d + 1.5), styleOf(sym) === 'corner' ? Math.hypot(w, d) : w, sym.id)
+  } else if (sym.type === 'alcove-niche' && stoneSill(sym)) {
+    const sills = alcoveOpenings(sym, ceilingBy(ctx, room, sym, pose)).length
+    stone(ctx, room, 'Niche sills', top, sills * w * (d + 1.5), sills * w, sym.id)
+  } else if (sym.type === 'toilet' && sym.mount === 'wall' && (sym.tankBox ?? 'ledge') === 'ledge') {
+    stone(ctx, room, 'Shelves', SHELF_STONE, (w + 2) * (tankBoxDepth(sym) + 2), w + 2, sym.id)
+  }
 }
 
 /** A gypsum box or a beam: its underside and the sides that show below the ceiling; the ceiling and walls it covers. */
@@ -445,15 +498,25 @@ const RULES: Record<string, Rule> = {
     const s: WallSurface = sym.frame ? { finish: 'paint', color: sym.frame } : (room?.walls ?? PLAIN_WALL)
     const top = Math.min(partitionTop(sym, ctx.H), ceilingBy(ctx, room, sym, pose))
     standing(sym, ctx, pose, s, top, sym.partial ? 'Half walls' : 'Walls on their own', !!sym.partial && !sym.shelf)
+    // Its stone shelf, a little proud of its faces.
+    if (room && sym.partial && sym.shelf) stone(ctx, room, 'Shelves', SHELF_STONE, sym.width * (sym.depth + 2), sym.width, sym.id)
   },
   // (Library presets of a wall on its own; placed, they're walls.)
   'half-wall': (...a) => RULES.partition(...a),
   'half-wall-glass': (...a) => RULES.partition(...a),
-  // Built against a wall and finished like it.
-  toilet: built,
-  'shower-bench': built,
-  'alcove-niche': built,
-  'bath-vanity': built,
+  // Built against a wall and finished like it, and the stone on it.
+  toilet: (...a) => (built(...a), builtStone(...a)),
+  'shower-bench': (...a) => (built(...a), builtStone(...a)),
+  'alcove-niche': (...a) => (built(...a), builtStone(...a)),
+  'bath-vanity': (...a) => (built(...a), builtStone(...a)),
+  // Worktops.
+  counter: worktop,
+  'kitchen-sink': worktop,
+  stove: worktop,
+  dishwasher: worktop,
+  'kitchen-corner': worktop,
+  'kitchen-island': worktop,
+  'washing-machine': worktop,
   // A shower's own half wall, finished like the room's walls, under its stone shelf.
   shower: (sym, ctx, pose) => {
     const room = roomAt(ctx.floor, pose)
@@ -463,6 +526,9 @@ const RULES: Record<string, Rule> = {
       const lengths = boxFaces(ctx, room, p, { x0: b.x0, x1: b.x1, y0: b.z0, y1: b.z1 })
       clad(ctx, { room: room.id, what: 'Shower’s half wall', from: sym.id }, room.walls ?? PLAIN_WALL, lengths.reduce((t, l) => t + l, 0), 0, sym.halfWall)
       onFloor(ctx, room, (b.x1 - b.x0) * (b.z1 - b.z0), sym.id)
+      // Its stone shelf, a little longer and wider than it.
+      const long = Math.max(b.x1 - b.x0, b.z1 - b.z0)
+      stone(ctx, room, 'Shelves', SHELF_STONE, (long + 2) * (Math.min(b.x1 - b.x0, b.z1 - b.z0) + 2), long + 2, sym.id)
     }
   },
   // A bath built in: no floor finish under it.
@@ -501,8 +567,7 @@ const UNTOUCHED = new Set([
   'sofa', 'sofa-corner', 'armchair', 'coffee-table', 'sofa-table', 'tv-unit', 'display-cabinet', 'sideboard', 'coffee-corner',
   'tv-stand', 'tv', 'dining-table', 'round-table', 'chair', 'bookshelf', 'plant',
   'bed-double', 'bed-single', 'wardrobe', 'wardrobe-corner', 'dressing-table', 'nightstand', 'desk',
-  'counter', 'kitchen-sink', 'stove', 'wall-cabinet', 'range-hood', 'kitchen-corner', 'dishwasher', 'oven-tower', 'kitchen-island',
-  'washing-machine', 'fridge',
+  'wall-cabinet', 'range-hood', 'oven-tower', 'fridge',
   'washbasin', 'towel-rail', 'towel-radiator', 'shower-quadrant',
   'ac-split', 'ac-floor', 'ac-outdoor',
   'outlet', 'switch', 'light', 'spot', 'led-profile', 'track', 'cove-light', 'gap-light', 'pocket-light',
@@ -549,6 +614,7 @@ export function roomSurfaces(parts: TakeoffPart[], room: string) {
     walls: sum((p) => p.place === 'wall'),
     ceiling: sum((p) => p.place === 'ceiling'),
     board: sum((p) => !!p.board),
+    stone: sum((p) => p.place === 'stone'),
   }
 }
 
@@ -557,12 +623,14 @@ export function roomBreakdown(parts: TakeoffPart[], room: string) {
   const out = new Map<string, TakeoffPart>()
   for (const p of parts) {
     if (p.room !== room) continue
-    const key = JSON.stringify([p.place, p.what, p.surface ?? null])
+    const key = JSON.stringify([p.place, p.what, p.surface ?? null, p.stone ?? null])
     const e = out.get(key)
-    if (e) e.area += p.area
-    else out.set(key, { ...p, from: undefined })
+    if (e) {
+      e.area += p.area
+      if (p.length) e.length = (e.length ?? 0) + p.length
+    } else out.set(key, { ...p, from: undefined })
   }
-  const order: TakeoffPlace[] = ['floor', 'wall', 'ceiling']
+  const order: TakeoffPlace[] = ['floor', 'wall', 'ceiling', 'stone']
   return [...out.values()].filter((p) => Math.abs(p.area) >= 50).sort((a, b) => order.indexOf(a.place) - order.indexOf(b.place) || b.area - a.area)
 }
 
@@ -605,4 +673,17 @@ export function skirting(floor: Floor): Map<string, number> {
     out.set(room.id, len)
   }
   return out
+}
+
+/** Area and front edge of each stone over the floor (cm², cm), largest first. */
+export function stoneTotals(parts: TakeoffPart[]): { stone: string; area: number; length: number }[] {
+  const out = new Map<string, { stone: string; area: number; length: number }>()
+  for (const p of parts) {
+    if (p.place !== 'stone' || !p.stone) continue
+    const e = out.get(p.stone) ?? { stone: p.stone, area: 0, length: 0 }
+    e.area += p.area
+    e.length += p.length ?? 0
+    out.set(p.stone, e)
+  }
+  return [...out.values()].sort((a, b) => b.area - a.area)
 }

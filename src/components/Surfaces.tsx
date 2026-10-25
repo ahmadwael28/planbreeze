@@ -1,15 +1,15 @@
 import { useState } from 'react'
-import { BrickWall, ChevronRight, Grid2x2, PanelTop } from 'lucide-react'
+import { BrickWall, ChevronRight, Gem, Grid2x2, PanelTop } from 'lucide-react'
 import { t } from '@/i18n'
-import { finishLabel, useTakeoff } from '@/hooks/use-takeoff'
+import { finishLabel, stoneName, useTakeoff } from '@/hooks/use-takeoff'
 import { cn } from '@/lib/utils'
 import { roomBreakdown, roomSurfaces } from '@/model/takeoff'
 import type { TakeoffPart } from '@/model/takeoff'
 import type { Room, Units } from '@/model/types'
-import { formatArea } from '@/model/units'
+import { formatArea, formatLength } from '@/model/units'
 import { useEditor } from '@/store/editor'
 
-const ICONS = { floor: Grid2x2, wall: BrickWall, ceiling: PanelTop } as const
+const ICONS = { floor: Grid2x2, wall: BrickWall, ceiling: PanelTop, stone: Gem } as const
 
 /** Each part of a room's surfaces: what it is, its finish, its area (what's taken off, less). */
 export function Breakdown({ room, parts, units }: { room: string; parts: TakeoffPart[]; units: Units }) {
@@ -19,9 +19,9 @@ export function Breakdown({ room, parts, units }: { room: string; parts: Takeoff
     <ul className="space-y-1 text-xs">
       {rows.map((p) => {
         const Icon = ICONS[p.place]
-        const f = finishLabel(p.surface, p.place, images)
+        const f = p.place === 'stone' ? { name: stoneName(p.stone), detail: p.length ? t('{length} front edge', { length: formatLength(p.length, units) }) : '' } : finishLabel(p.surface, p.place, images)
         return (
-          <li key={`${p.place}|${p.what}|${JSON.stringify(p.surface ?? null)}`} className="flex items-start gap-2">
+          <li key={`${p.place}|${p.what}|${JSON.stringify(p.surface ?? null)}|${p.stone ?? ''}`} className="flex items-start gap-2">
             <Icon className="mt-0.5 size-3.5 shrink-0 text-muted-foreground" />
             <div className="min-w-0 flex-1">
               <div className="truncate">
@@ -74,6 +74,12 @@ export function RoomSurfaces({ room, units }: { room: Room; units: Units }) {
           <div className="contents text-xs">
             <dt className="text-muted-foreground">{t('Gypsum board in it')}</dt>
             <dd className="text-end tabular-nums">{formatArea(s.board, units)}</dd>
+          </div>
+        )}
+        {s.stone > 0.5 && (
+          <div className="contents">
+            <dt className="text-muted-foreground">{t('Stone and worktops')}</dt>
+            <dd className="text-end font-medium tabular-nums">{formatArea(s.stone, units)}</dd>
           </div>
         )}
       </dl>

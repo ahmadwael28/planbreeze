@@ -1,5 +1,5 @@
 import { t, tc } from '@/i18n'
-import { useEffect, useId, useRef } from 'react'
+import { Fragment, useEffect, useId, useRef } from 'react'
 import type { ReactNode } from 'react'
 import {
   AlignCenterHorizontal,
@@ -11,7 +11,52 @@ import {
   AlignVerticalSpaceAround,
   ArrowRight,
   ArrowUpToLine,
-  Box, BrickWall, CircleHelp, DoorOpen, Merge, MoveHorizontal, Scissors, Spline, ClipboardCopy, Sparkles, Columns2, Copy, Sofa, FlipHorizontal2, Group, Ungroup, FlipVertical2, ImageOff, Lightbulb, Link2Off, Lock, Ruler, RotateCw, SplitSquareHorizontal, Trash2, Video } from 'lucide-react'
+  Bath,
+  Blinds,
+  Box,
+  BrickWall,
+  Calculator,
+  CircleHelp,
+  ClipboardCopy,
+  Columns2,
+  Copy,
+  DoorOpen,
+  FlipHorizontal2,
+  FlipVertical2,
+  FolderOpen,
+  Frame,
+  Grid2x2,
+  Group,
+  House,
+  ImageIcon,
+  ImageOff,
+  Layers,
+  Lightbulb,
+  Link2Off,
+  Lock,
+  Merge,
+  Move,
+  MoveHorizontal,
+  Paintbrush,
+  Palette,
+  PanelTop,
+  PersonStanding,
+  RotateCw,
+  Ruler,
+  Scissors,
+  ShowerHead,
+  SlidersHorizontal,
+  Sofa,
+  Sparkles,
+  Spline,
+  SplitSquareHorizontal,
+  SquareDashed,
+  ToggleRight,
+  Toilet,
+  Trash2,
+  Ungroup,
+  Video,
+} from 'lucide-react'
 import { toast } from 'sonner'
 import { arrange, arrangeable, layoutOf, spacingOf, wouldMove } from '@/model/arrange'
 import type { Unit } from '@/model/arrange'
@@ -22,7 +67,6 @@ import { ROOM_USES } from '@/model/design'
 import { redesignRoom, useDesign } from '@/store/design'
 import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { Separator } from '@/components/ui/separator'
 import { Slider } from '@/components/ui/slider'
 import { Switch } from '@/components/ui/switch'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
@@ -31,7 +75,10 @@ import { cn } from '@/lib/utils'
 import { area, dist, dot, normalize, perimeter, pointInPolygon, sub } from '@/model/geometry'
 import { wallBehind } from '@/model/walls'
 import { alcoveFit, wallColumns, wallSign } from '@/model/developed'
-import { ceilingHeightAt } from '@/model/lighting'
+import { CEILING_STYLES, ceilingHeightAt, kelvinName, kelvinOf } from '@/model/lighting'
+import { FINISHES } from '@/model/finishes'
+import { roomSurfaces } from '@/model/takeoff'
+import { finishLabel, useTakeoff } from '@/hooks/use-takeoff'
 import { DEFAULT_RAILING, isOpen, isOutdoor, keepBack, ledgeNear, linedUp, OUTDOOR, RAILING_THICKNESS, ROOM_COLORS, roomOuter, setWallLength, symbolPose } from '@/model/project'
 import { wallAcross } from '@/model/divide'
 import { beamSpan } from '@/model/beams'
@@ -40,7 +87,7 @@ import type { Worktop } from '@/model/symbols'
 import type { FrameColor } from '@/model/symbols'
 import { formatArea, formatLength } from '@/model/units'
 import { PERSON, PERSON_PRESETS, personLook, personSupport, POSE_NAMES } from '@/model/people'
-import type { Dimension, Floor, ItemRef, MirrorShape, OutdoorKind, PlanSymbol, Project, RailingStyle, Room, RoomUse, SavedView, Units } from '@/model/types'
+import type { Dimension, Floor, ItemRef, MirrorShape, OutdoorKind, PlanSymbol, Project, RailingStyle, Room, RoomUse, SavedView, Surface, Units } from '@/model/types'
 import {
   arrangeSelection,
   autoDimension,
@@ -83,26 +130,11 @@ import type { Dim } from '@/model/sizes'
 import { useUi } from '@/store/ui'
 import { LengthInput, NumberInput, TextInput } from './LengthInput'
 import { RoomSurfaces } from './Surfaces'
+import { HeaderAction, Inspector, Panel } from './Inspector'
 import { CeilingSection, GroupLightSection, GrooveLightWalls, HiddenLightControls, LightSection, SwitchSection } from './LightingProps'
 import { Choice } from './Choice'
 import { doorRun, doorsOf, headOf, headPoint, showerGlass, showerRuns, startsLeft, wayIn } from '@/model/shower'
 import { FloorSection, WallsSection } from './FinishProps'
-
-function Section({ title, action, children, className }: { title?: ReactNode; action?: ReactNode; children: ReactNode; className?: string }) {
-  return (
-    <section className={cn('space-y-3 px-4 py-4', className)}>
-      {action ? (
-        <div className="flex items-center justify-between gap-2">
-          <h3 className="text-sm font-semibold">{title}</h3>
-          {action}
-        </div>
-      ) : (
-        title && <h3 className="text-sm font-semibold">{title}</h3>
-      )}
-      {children}
-    </section>
-  )
-}
 
 function Field({ label, children }: { label: string; children: (id: string) => ReactNode }) {
   const id = useId()
@@ -126,19 +158,6 @@ function Stats({ rows }: { rows: [string, string][] }) {
         </div>
       ))}
     </dl>
-  )
-}
-
-function Actions() {
-  return (
-    <div className="flex gap-2">
-      <Button variant="outline" size="sm" onClick={duplicateSelection}>
-        <Copy /> {t('Duplicate')}
-      </Button>
-      <Button variant="destructive" size="sm" onClick={deleteSelection}>
-        <Trash2 /> {t('Delete')}
-      </Button>
-    </div>
   )
 }
 
@@ -337,10 +356,16 @@ function OpenSpaceControls({ room }: { room: Room }) {
   )
 }
 
+/**
+ * A room's properties: the room itself (its name, what it's for, how it's open to the next one), its floor, its walls'
+ * finishes, its ceiling (the gypsum, the hidden strip, curtain pockets, shadow gaps), its walls and corners, and the
+ * surfaces to finish; each a panel (see Inspector).
+ */
 function RoomProps({ room, units }: { room: Room; units: Units }) {
   const floor = useFloor()
   const theme = usePlanTheme()
   const selection = useEditor((s) => s.selection)
+  const images = useEditor((s) => s.project.images)
   // Corners picked on the plan (Shift + click for several), and the wall picked there.
   const picked = selection?.kind === 'room' ? (selection.vertices ?? (selection.vertex !== undefined ? [selection.vertex] : [])) : []
   const pickedWall = selection?.kind === 'room' ? selection.edge : undefined
@@ -354,6 +379,8 @@ function RoomProps({ room, units }: { room: Room; units: Units }) {
   const a = area(room.points)
   const balcony = isOutdoor(room)
   const defaultWall = useEditor((s) => s.project.defaultWallThickness)
+  const parts = useTakeoff()
+  const surfaces = roomSurfaces(parts, room.id)
   const setKind = (kind: OutdoorKind | null) =>
     useEditor.getState().commit((d) => {
       const f = draftFloor(d)
@@ -373,14 +400,30 @@ function RoomProps({ room, units }: { room: Room; units: Units }) {
         r.wallThickness = defaultWall
       }
     })
+  const use = ROOM_USES.find((u) => u.id === room.use)
+  const finish = (s: Surface | undefined, place: 'floor' | 'wall') => {
+    if (!s) return t('None yet')
+    const f = finishLabel(s, place, images)
+    return `${f.name} · ${f.detail}`
+  }
+  const wallFinish = room.walls
+    ? FINISHES[room.walls.finish].kind === 'tile' && room.walls.height
+      ? `${finish(room.walls, 'wall')} · ${t('to {height}', { height: formatLength(room.walls.height, units) })}`
+      : finish(room.walls, 'wall')
+    : t('Plain white')
+  const c = room.ceiling
+  const cove = floor.symbols.some((s) => s.room === room.id && s.type === 'cove-light')
+  const walls = (n?: number[]) => (n?.length ? (n.length === 1 ? t('1 wall') : t('{n} walls', { n: n.length })) : t('None'))
   return (
-    <>
-      <Section
-        title={room.kind ? t(OUTDOOR[room.kind].name) : t('Room')}
-        action={
-          <Button
-            variant="outline"
-            size="xs"
+    <Inspector
+      item={room.id}
+      icon={House}
+      title={room.name || t('Room')}
+      kind={<Badge variant="secondary">{room.kind ? t(OUTDOOR[room.kind].name) : t('Room')}</Badge>}
+      actions={
+        <>
+          <HeaderAction
+            label={t('View in 3D')}
             onClick={() => {
               // Fly into the room, standing in its far corner looking across it (not tinted as selected).
               useUi.getState().setPendingView(`room:${room.id}`)
@@ -388,13 +431,14 @@ function RoomProps({ room, units }: { room: Room; units: Units }) {
               useEditor.getState().setViewMode('3d')
             }}
           >
-            <Box /> {t('View in 3D')}
-          </Button>
-        }
-      >
-        <Field label={t('Name')}>
-          {(id) => <TextInput id={id} value={room.name} onChange={(v) => renameRoom(room.id, v)} />}
-        </Field>
+            <Box />
+          </HeaderAction>
+          <ItemActions />
+        </>
+      }
+    >
+      <Panel id="room" icon={House} title={room.kind ? t(OUTDOOR[room.kind].name) : t('Room')} summary={[use ? t(use.name) : undefined, formatArea(a, units)].filter(Boolean).join(' · ')} open>
+        <Field label={t('Name')}>{(id) => <TextInput id={id} value={room.name} onChange={(v) => renameRoom(room.id, v)} />}</Field>
         <Choice
           label={t('Type')}
           value={room.kind ?? 'room'}
@@ -435,53 +479,21 @@ function RoomProps({ room, units }: { room: Room; units: Units }) {
               )}
             </Field>
             {room.railing?.style !== 'none' && (
-            <Field label={t('Railing height')}>
-              {(id) => (
-                <LengthInput
-                  id={id}
-                  value={room.railing?.height ?? DEFAULT_RAILING.height}
-                  units={units}
-                  min={30}
-                  onChange={(v) => updateRoom(room.id, (r) => void (r.railing = { ...(r.railing ?? DEFAULT_RAILING), height: v }))}
-                />
-              )}
-            </Field>
+              <Field label={t('Railing height')}>
+                {(id) => (
+                  <LengthInput
+                    id={id}
+                    value={room.railing?.height ?? DEFAULT_RAILING.height}
+                    units={units}
+                    min={30}
+                    onChange={(v) => updateRoom(room.id, (r) => void (r.railing = { ...(r.railing ?? DEFAULT_RAILING), height: v }))}
+                  />
+                )}
+              </Field>
             )}
-            <p className="text-xs text-muted-foreground">
-              {t("There's no railing where it meets the house. Put a door in the house wall to step out onto it.")}
-            </p>
+            <p className="text-xs text-muted-foreground">{t("There's no railing where it meets the house. Put a door in the house wall to step out onto it.")}</p>
           </>
         )}
-        <FloorSection room={room} units={units} />
-        <Field label={room.floor ? t('Plan color') : t('Floor color')}>
-          {() => (
-            <div className="flex flex-wrap gap-1.5">
-              {ROOM_COLORS.map((c) => (
-                <button
-                  key={c}
-                  className={cn(
-                    'size-6 rounded-full border border-foreground/15 transition-transform hover:scale-110',
-                    room.color === c && 'ring-2 ring-primary ring-offset-2 ring-offset-background',
-                  )}
-                  style={{ background: theme.tint(c) }}
-                  onClick={() => updateRoom(room.id, (r) => void (r.color = c))}
-                  aria-label={t('Color {c}', { c })}
-                />
-              ))}
-            </div>
-          )}
-        </Field>
-        <Field label={balcony ? t('Railing thickness') : t('Wall thickness')}>
-          {(id) => (
-            <LengthInput
-              id={id}
-              value={room.wallThickness}
-              units={units}
-              min={1}
-              onChange={(v) => updateRoom(room.id, (r) => void (r.wallThickness = v))}
-            />
-          )}
-        </Field>
         <Stats
           rows={[
             [t('Area'), formatArea(a, units)],
@@ -489,29 +501,60 @@ function RoomProps({ room, units }: { room: Room; units: Units }) {
             ...(balcony ? [] : [[t('Wall area'), formatArea(area(roomOuter(room)) - a, units)] as [string, string]]),
           ]}
         />
-      </Section>
-      <Separator />
-      <Section title={t('Surfaces to finish')}>
-        <RoomSurfaces room={room} units={units} />
-      </Section>
-      <Separator />
+      </Panel>
+
+      <Panel id="room-floor" icon={Grid2x2} title={t('Floor')} summary={finish(room.floor, 'floor')}>
+        <FloorSection room={room} units={units} />
+        <Field label={room.floor ? t('Plan color') : t('Floor color')}>
+          {() => (
+            <div className="flex flex-wrap gap-1.5">
+              {ROOM_COLORS.map((col) => (
+                <button
+                  key={col}
+                  className={cn('size-6 rounded-full border border-foreground/15 transition-transform hover:scale-110', room.color === col && 'ring-2 ring-primary ring-offset-2 ring-offset-background')}
+                  style={{ background: theme.tint(col) }}
+                  onClick={() => updateRoom(room.id, (r) => void (r.color = col))}
+                  aria-label={t('Color {c}', { c: col })}
+                />
+              ))}
+            </div>
+          )}
+        </Field>
+      </Panel>
+
+      {!balcony && (
+        <Panel id="room-walls" icon={Paintbrush} title={t('Wall finishes')} summary={room.wallFinishes?.some(Boolean) ? `${wallFinish} · ${t('some walls their own')}` : wallFinish}>
+          <WallsSection room={room} units={units} />
+        </Panel>
+      )}
+
       {!balcony && (
         <>
-          <Section title={t('Gypsum ceiling')}>
-            <CeilingSection room={room} units={units} />
-          </Section>
-          <Separator />
+          <Panel id="room-ceiling" icon={PanelTop} title={t('Gypsum ceiling')} summary={c ? `${t(CEILING_STYLES[c.style].name)} · ${t('{drop} drop', { drop: formatLength(c.drop, units) })}` : t('None')}>
+            <CeilingSection room={room} units={units} part="style" />
+          </Panel>
+          <Panel id="room-strip" icon={Lightbulb} title={t('Hidden LED strip')} summary={cove ? t('On') : t('None')}>
+            <CeilingSection room={room} units={units} part="strip" />
+          </Panel>
+          <Panel id="room-pockets" icon={Blinds} title={t('Curtain pockets')} summary={walls(room.curtainPockets)}>
+            <CeilingSection room={room} units={units} part="pockets" />
+          </Panel>
+          <Panel id="room-gaps" icon={SquareDashed} title={t('Shadow gaps')} summary={walls(room.shadowGaps)}>
+            <CeilingSection room={room} units={units} part="gaps" />
+          </Panel>
         </>
       )}
-      {!balcony && (
-        <>
-          <Section title={t('Wall finishes')}>
-            <WallsSection room={room} units={units} />
-          </Section>
-          <Separator />
-        </>
-      )}
-      <Section title={t('Walls')}>
+
+      <Panel
+        id="room-shape"
+        icon={Spline}
+        title={t('Walls and corners')}
+        summary={`${t('{n} walls', { n: room.points.length })} · ${balcony ? t('{thickness} railing', { thickness: formatLength(room.wallThickness, units) }) : t('{thickness} thick', { thickness: formatLength(room.wallThickness, units) })}`}
+        reveal={pickedWall !== undefined || picked.length > 0 ? `${pickedWall}|${picked.join(',')}` : undefined}
+      >
+        <Field label={balcony ? t('Railing thickness') : t('Wall thickness')}>
+          {(id) => <LengthInput id={id} value={room.wallThickness} units={units} min={1} onChange={(v) => updateRoom(room.id, (r) => void (r.wallThickness = v))} />}
+        </Field>
         <ol className="space-y-1">
           {room.points.map((p, i) => {
             const q = room.points[(i + 1) % room.points.length]
@@ -524,10 +567,7 @@ function RoomProps({ room, units }: { room: Room; units: Units }) {
                 data-wall-row={i}
                 onMouseEnter={() => setHoverWall({ roomId: room.id, edge: i })}
                 onMouseLeave={() => setHoverWall(null)}
-                className={cn(
-                  'grid grid-cols-[64px_1fr_auto] items-center gap-1.5 rounded-md px-1 py-0.5',
-                  pickedWall === i && 'bg-primary/10 ring-1 ring-primary/40',
-                )}
+                className={cn('grid grid-cols-[64px_1fr_auto] items-center gap-1.5 rounded-md px-1 py-0.5', pickedWall === i && 'bg-primary/10 ring-1 ring-primary/40')}
               >
                 <button
                   type="button"
@@ -545,11 +585,7 @@ function RoomProps({ room, units }: { room: Room; units: Units }) {
                   </span>
                   {open ? t('Open') : t('Wall')}
                 </button>
-                <LengthInput
-                  value={dist(p, q)}
-                  units={units}
-                  onChange={(v) => updateRoom(room.id, (r) => void (r.points = setWallLength(r.points, i, v)))}
-                />
+                <LengthInput value={dist(p, q)} units={units} onChange={(v) => updateRoom(room.id, (r) => void (r.points = setWallLength(r.points, i, v)))} />
                 <span className="flex">
                   {open && (
                     <Tooltip>
@@ -614,12 +650,28 @@ function RoomProps({ room, units }: { room: Room; units: Units }) {
         <p className="text-xs leading-relaxed text-muted-foreground">
           {t('Drag corners to reshape and the wall handles to move walls. Double-click a wall to add a corner there. Shift + click corners to pick several: drag them together, or press Delete to remove them.')}
         </p>
-      </Section>
-      <Separator />
-      <Section>
-        <Actions />
-      </Section>
-    </>
+      </Panel>
+
+      <Panel
+        id="room-surfaces"
+        icon={Calculator}
+        title={t('Surfaces to finish')}
+        summary={
+          balcony
+            ? `${t('Floor')} ${formatArea(surfaces.floor, units)}`
+            : [
+                `${t('Floor')} ${formatArea(surfaces.floor, units)}`,
+                `${t('Walls')} ${formatArea(surfaces.walls, units)}`,
+                `${t('Ceiling')} ${formatArea(surfaces.ceiling, units)}`,
+                surfaces.stone > 0.5 ? `${t('Stone')} ${formatArea(surfaces.stone, units)}` : '',
+              ]
+                .filter(Boolean)
+                .join(' · ')
+        }
+      >
+        <RoomSurfaces room={room} units={units} />
+      </Panel>
+    </Inspector>
   )
 }
 
@@ -633,64 +685,58 @@ function updateSymbol(id: string, recipe: (s: PlanSymbol) => void) {
 function CoveProps({ sym, units }: { sym: PlanSymbol; units: Units }) {
   const floor = useFloor()
   const room = floor.rooms.find((r) => r.id === sym.room)
-  if (sym.type === 'gap-light' || sym.type === 'pocket-light') {
-    const gap = sym.type === 'gap-light'
-    return (
-      <>
-        <Section title={gap ? t('Shadow gap light') : t('Curtain pocket light')}>
-          <p className="text-sm text-muted-foreground">
-            {gap
-              ? t("An LED strip in the shadow gap of {room}, washing the walls below. The room's ceiling settings choose the walls with a gap; here, which of them have light.", {
-                  room: room?.name ?? t('the room'),
-                })
-              : t("An LED strip in the curtain pocket of {room}, lighting the curtains. The room's ceiling settings choose the walls with a pocket; here, which of them have light.", {
-                  room: room?.name ?? t('the room'),
-                })}
-          </p>
-          {room && <GrooveLightWalls room={room} sym={sym} units={units} />}
-          <LightSection sym={sym} units={units} />
-        </Section>
-        <Separator />
-        <Section>
-          <Button variant="destructive" size="sm" onClick={deleteSelection}>
-            <Trash2 /> {t('Delete')}
-          </Button>
-        </Section>
-      </>
-    )
-  }
+  const gap = sym.type === 'gap-light'
+  const groove = gap || sym.type === 'pocket-light'
+  const where = groove
+    ? gap
+      ? t("An LED strip in the shadow gap of {room}, washing the walls below. The room's ceiling settings choose the walls with a gap; here, which of them have light.", { room: room?.name ?? t('the room') })
+      : t("An LED strip in the curtain pocket of {room}, lighting the curtains. The room's ceiling settings choose the walls with a pocket; here, which of them have light.", { room: room?.name ?? t('the room') })
+    : t(
+        room?.ceiling?.style === 'cove'
+          ? 'An LED strip hidden around the ceiling of {room}, inside the cove, washing the ceiling with light.'
+          : room?.ceiling?.style === 'floating'
+            ? 'An LED strip hidden around the ceiling of {room}, on top of the floating panel, lighting the ceiling around it.'
+            : sym.cove?.at === 'inner' && room && (room.ceiling?.style === 'tray' || room.ceiling?.style === 'stepped')
+              ? 'An LED strip hidden around the ceiling of {room}, inside the tray, lighting its raised middle.'
+              : 'An LED strip hidden around the ceiling of {room}, along the walls just below the ceiling.',
+        { room: room?.name ?? t('the room') },
+      )
   return (
-    <>
-      <Section title={t('Cove / hidden light')}>
-        <p className="text-sm text-muted-foreground">
-          {t(
-            room?.ceiling?.style === 'cove'
-              ? 'An LED strip hidden around the ceiling of {room}, inside the cove, washing the ceiling with light.'
-              : room?.ceiling?.style === 'floating'
-                ? 'An LED strip hidden around the ceiling of {room}, on top of the floating panel, lighting the ceiling around it.'
-                : sym.cove?.at === 'inner' && room && (room.ceiling?.style === 'tray' || room.ceiling?.style === 'stepped')
-                  ? 'An LED strip hidden around the ceiling of {room}, inside the tray, lighting its raised middle.'
-                  : 'An LED strip hidden around the ceiling of {room}, along the walls just below the ceiling.',
-            { room: room?.name ?? t('the room') },
-          )}
-        </p>
-        {room && <HiddenLightControls room={room} sym={sym} units={units} />}
+    <Inspector
+      item={sym.id}
+      icon={Lightbulb}
+      title={gap ? t('Shadow gap light') : groove ? t('Curtain pocket light') : t('Cove / hidden light')}
+      kind={room && <Badge variant="secondary">{room.name}</Badge>}
+      actions={
+        <HeaderAction label={t('Delete')} onClick={deleteSelection} danger>
+          <Trash2 />
+        </HeaderAction>
+      }
+    >
+      <Panel id="strip-where" icon={Spline} title={t('Where it runs')} summary={where} open>
+        <p className="text-sm text-muted-foreground">{where}</p>
+        {room && (groove ? <GrooveLightWalls room={room} sym={sym} units={units} /> : <HiddenLightControls room={room} sym={sym} units={units} />)}
+      </Panel>
+      <Panel id="light" icon={Lightbulb} title={tc('section', 'Light')} summary={lightSummary(sym)} open>
         <LightSection sym={sym} units={units} />
-      </Section>
-      <Separator />
-      <Section>
-        <Button variant="destructive" size="sm" onClick={deleteSelection}>
-          <Trash2 /> {t('Delete')}
-        </Button>
-      </Section>
-    </>
+      </Panel>
+    </Inspector>
   )
 }
 
 function DimensionProps({ dim, units }: { dim: Dimension; units: Units }) {
   return (
-    <>
-      <Section title={t('Dimension')}>
+    <Inspector
+      item={dim.id}
+      icon={Ruler}
+      title={t('Dimension')}
+      actions={
+        <HeaderAction label={t('Delete')} onClick={deleteSelection} danger>
+          <Trash2 />
+        </HeaderAction>
+      }
+    >
+      <Panel id="dimension" icon={Ruler} title={t('Dimension')} summary={formatLength(dist(dim.a, dim.b), units)} open>
         <Stats rows={[[t('Length'), formatLength(dist(dim.a, dim.b), units)]]} />
         <Field label={t('Distance out')}>
           {(id) => (
@@ -709,14 +755,8 @@ function DimensionProps({ dim, units }: { dim: Dimension; units: Units }) {
           )}
         </Field>
         <p className="text-xs text-muted-foreground">{t('Drag the line to move it, or drag its end points onto other corners.')}</p>
-      </Section>
-      <Separator />
-      <Section>
-        <Button variant="destructive" size="sm" onClick={deleteSelection}>
-          <Trash2 /> {t('Delete')}
-        </Button>
-      </Section>
-    </>
+      </Panel>
+    </Inspector>
   )
 }
 
@@ -1007,165 +1047,191 @@ function VanityOptions({ sym, units }: { sym: PlanSymbol; units: Units }) {
             { value: 'back', label: t('Backlit') },
           ]
         : [{ value: 'under', label: t('Under it') }]
+  const basin = sym.basin ?? (tiled ? 'vessel' : 'integrated')
   return (
-    <div className="space-y-3 rounded-lg bg-muted/60 p-3">
-      <Choice
-        label={t('Basin')}
-        value={sym.basin ?? (tiled ? 'vessel' : 'integrated')}
-        onChange={(v) => updateSymbol(sym.id, (s) => void (v === 'integrated' || (tiled && v === 'vessel') ? delete s.basin : (s.basin = v)))}
-        options={[
-          ...(tiled ? [] : [{ value: 'integrated' as const, label: t('Built in') }]),
-          { value: 'vessel', label: t('Bowl on top') },
-          { value: 'undermount', label: t('Under the top') },
-        ]}
-      />
-      {tiled && <p className="-mt-1 text-xs text-muted-foreground">{t('Built of blocks and finished like the wall behind it (its tiles, porcelain or paint), with a stone top.')}</p>}
-      {lay.x1 - lay.x0 >= 110 && (
-        <Choice
-          label={t('Sinks')}
-          value={sym.sinks === 2 ? 'two' : 'one'}
-          onChange={(v) => updateSymbol(sym.id, (s) => void (v === 'two' ? (s.sinks = 2) : delete s.sinks))}
-          options={[
-            { value: 'one', label: t('One') },
-            { value: 'two', label: t('Two') },
-          ]}
-        />
-      )}
-      {lay.xs.length === 1 && (
-        <Choice
-          physical
-          label={t('Sink')}
-          value={sym.sinkAt ?? 'middle'}
-          onChange={(v) => updateSymbol(sym.id, (s) => void (v === 'middle' ? delete s.sinkAt : (s.sinkAt = v)))}
-          options={[
-            { value: 'left', label: t('Left') },
-            { value: 'middle', label: t('Middle') },
-            { value: 'right', label: t('Right') },
-          ]}
-        />
-      )}
-      {!tiled && (
-        <Choice
-        physical
-        label={t('Washing machine')}
-        value={sym.washer ?? 'none'}
-        onChange={(v) =>
-          updateSymbol(sym.id, (s) => {
-            if (v === 'none') return void delete s.washer
-            s.washer = v
-            // Room for it: a bay beside the cabinet, deep and high enough to go under the top.
-            const next = resized(s, { width: Math.max(s.width, WASHER_BAY + 60), depth: Math.max(s.depth, 55), height: Math.max(s.height, 90) })
-            if (!s.wall) keepBack(s, next.depth)
-            Object.assign(s, next)
-          })
-        }
-        options={[
-          { value: 'left', label: t('Left') },
-          { value: 'none', label: t('None') },
-          { value: 'right', label: t('Right') },
-        ]}
+    <>
+      <Panel
+        id="vanity-basin"
+        icon={Bath}
+        title={t('Basin and sinks')}
+        summary={[
+          t({ integrated: 'Built in', vessel: 'Bowl on top', undermount: 'Under the top' }[basin]),
+          lay.xs.length === 2 ? t('two sinks') : undefined,
+          lay.washer ? t('washing machine') : undefined,
+          styleOf(sym) !== 'open' ? (sym.onFloor ? t('On the floor') : t('On the wall')) : undefined,
+        ]
+          .filter(Boolean)
+          .join(' · ')}
+        open
       >
-        {lay.washer && <p className="text-xs text-muted-foreground">{t('A front-loading washing machine under the top, the basin beside it.')}</p>}
-        </Choice>
-      )}
-      {styleOf(sym) !== 'open' && (
         <Choice
-          label={t('Mounted')}
-          value={sym.onFloor ? 'floor' : 'wall'}
-          onChange={(v) => updateSymbol(sym.id, (s) => void (v === 'floor' ? (s.onFloor = true) : delete s.onFloor))}
+          label={t('Basin')}
+          value={basin}
+          onChange={(v) => updateSymbol(sym.id, (s) => void (v === 'integrated' || (tiled && v === 'vessel') ? delete s.basin : (s.basin = v)))}
           options={[
-            { value: 'wall', label: t('On the wall') },
-            { value: 'floor', label: t('On the floor') },
+            ...(tiled ? [] : [{ value: 'integrated' as const, label: t('Built in') }]),
+            { value: 'vessel', label: t('Bowl on top') },
+            { value: 'undermount', label: t('Under the top') },
           ]}
         />
-      )}
-      <Choice
-        label={t('Above it')}
-        value={above}
-        onChange={(v) => updateSymbol(sym.id, (s) => void (v === 'cabinet' ? delete s.mirror : (s.mirror = v)))}
-        options={[
-          { value: 'cabinet', label: t('Mirror cabinet') },
-          { value: 'plain', label: t('Mirror') },
-          { value: 'none', label: t('Nothing') },
-        ]}
-      />
-      {above === 'plain' && (
-        <>
-          <Field label={t('Shape')}>
-            {(id) => (
-              <div id={id} role="radiogroup" className="flex flex-wrap gap-1.5">
-                {MIRROR_SHAPES.map(([shape, name]) => {
-                  const on = (sym.mirrorShape ?? 'rect') === shape
-                  return (
-                    <button
-                      key={shape}
-                      type="button"
-                      role="radio"
-                      aria-checked={on}
-                      title={t(name)}
-                      aria-label={t(name)}
-                      onClick={() => updateSymbol(sym.id, (s) => void (shape === 'rect' ? delete s.mirrorShape : (s.mirrorShape = shape)))}
-                      className={cn(
-                        'grid size-8 place-items-center rounded-md border text-muted-foreground transition-colors hover:text-foreground',
-                        on && 'border-primary bg-primary/10 text-primary hover:text-primary',
-                      )}
-                    >
-                      <MirrorIcon shape={shape} />
-                    </button>
-                  )
-                })}
-              </div>
-            )}
-          </Field>
+        {tiled && <p className="-mt-1 text-xs text-muted-foreground">{t('Built of blocks and finished like the wall behind it (its tiles, porcelain or paint), with a stone top.')}</p>}
+        {lay.x1 - lay.x0 >= 110 && (
           <Choice
-            label={t('Size')}
-            value={sym.mirrorSize ?? 'standard'}
-            onChange={(v) => updateSymbol(sym.id, (s) => void (v === 'standard' ? delete s.mirrorSize : (s.mirrorSize = v)))}
+            label={t('Sinks')}
+            value={sym.sinks === 2 ? 'two' : 'one'}
+            onChange={(v) => updateSymbol(sym.id, (s) => void (v === 'two' ? (s.sinks = 2) : delete s.sinks))}
             options={[
-              { value: 'standard', label: t('Standard') },
-              { value: 'big', label: t('Big') },
-              { value: 'tall', label: t('Tall') },
+              { value: 'one', label: t('One') },
+              { value: 'two', label: t('Two') },
             ]}
           />
-          <Field label={t('Frame')}>
-            {(id) => (
-              <div id={id} role="radiogroup" className="flex flex-wrap items-center gap-1.5 py-1">
-                {MIRROR_FRAME_COLORS.map(([frame, name, look]) => {
-                  const on = (sym.mirrorFrame ?? 'none') === frame
-                  return (
-                    <button
-                      key={frame}
-                      type="button"
-                      role="radio"
-                      aria-checked={on}
-                      title={t(name)}
-                      aria-label={t(name)}
-                      onClick={() => updateSymbol(sym.id, (s) => void (frame === 'none' ? delete s.mirrorFrame : (s.mirrorFrame = frame)))}
-                      className={cn('size-6 rounded-full border shadow-sm outline-none focus-visible:ring-2 focus-visible:ring-ring', on && ring)}
-                      style={{ background: look }}
-                    />
-                  )
-                })}
-              </div>
-            )}
-          </Field>
-        </>
-      )}
-      <Choice
-        label={above === 'none' ? t('Light under it') : t('Mirror light')}
-        value={light}
-        onChange={(v) =>
-          updateSymbol(sym.id, (s) => {
-            if (v === 'off') return void delete s.led
-            s.led = true
-            if (v === 'under' && above !== 'cabinet') delete s.mirrorLight
-            else s.mirrorLight = v as NonNullable<PlanSymbol['mirrorLight']>
-          })
-        }
-        options={[{ value: 'off', label: t('Off') }, ...lights]}
-      />
-      {sym.led && <LightSection sym={sym} units={units} />}
-    </div>
+        )}
+        {lay.xs.length === 1 && (
+          <Choice
+            physical
+            label={t('Sink')}
+            value={sym.sinkAt ?? 'middle'}
+            onChange={(v) => updateSymbol(sym.id, (s) => void (v === 'middle' ? delete s.sinkAt : (s.sinkAt = v)))}
+            options={[
+              { value: 'left', label: t('Left') },
+              { value: 'middle', label: t('Middle') },
+              { value: 'right', label: t('Right') },
+            ]}
+          />
+        )}
+        {!tiled && (
+          <Choice
+            physical
+            label={t('Washing machine')}
+            value={sym.washer ?? 'none'}
+            onChange={(v) =>
+              updateSymbol(sym.id, (s) => {
+                if (v === 'none') return void delete s.washer
+                s.washer = v
+                // Room for it: a bay beside the cabinet, deep and high enough to go under the top.
+                const next = resized(s, { width: Math.max(s.width, WASHER_BAY + 60), depth: Math.max(s.depth, 55), height: Math.max(s.height, 90) })
+                if (!s.wall) keepBack(s, next.depth)
+                Object.assign(s, next)
+              })
+            }
+            options={[
+              { value: 'left', label: t('Left') },
+              { value: 'none', label: t('None') },
+              { value: 'right', label: t('Right') },
+            ]}
+          >
+            {lay.washer && <p className="text-xs text-muted-foreground">{t('A front-loading washing machine under the top, the basin beside it.')}</p>}
+          </Choice>
+        )}
+        {styleOf(sym) !== 'open' && (
+          <Choice
+            label={t('Mounted')}
+            value={sym.onFloor ? 'floor' : 'wall'}
+            onChange={(v) => updateSymbol(sym.id, (s) => void (v === 'floor' ? (s.onFloor = true) : delete s.onFloor))}
+            options={[
+              { value: 'wall', label: t('On the wall') },
+              { value: 'floor', label: t('On the floor') },
+            ]}
+          />
+        )}
+      </Panel>
+      <Panel
+        id="vanity-mirror"
+        icon={Frame}
+        title={t('Mirror and light')}
+        summary={[
+          t({ cabinet: 'Mirror cabinet', plain: 'Mirror', none: 'Nothing above it' }[above]),
+          above === 'plain' ? t(MIRROR_SHAPES.find(([s]) => s === (sym.mirrorShape ?? 'rect'))?.[1] ?? 'Rectangle') : undefined,
+          light === 'off' ? t('no light') : `${t({ back: 'Backlit', front: 'Front', bar: 'Bar above', under: 'Under it' }[light])} · ${lightSummary(sym)}`,
+        ]
+          .filter(Boolean)
+          .join(' · ')}
+      >
+        <Choice
+          label={t('Above it')}
+          value={above}
+          onChange={(v) => updateSymbol(sym.id, (s) => void (v === 'cabinet' ? delete s.mirror : (s.mirror = v)))}
+          options={[
+            { value: 'cabinet', label: t('Mirror cabinet') },
+            { value: 'plain', label: t('Mirror') },
+            { value: 'none', label: t('Nothing') },
+          ]}
+        />
+        {above === 'plain' && (
+          <>
+            <Field label={t('Shape')}>
+              {(id) => (
+                <div id={id} role="radiogroup" className="flex flex-wrap gap-1.5">
+                  {MIRROR_SHAPES.map(([shape, name]) => {
+                    const on = (sym.mirrorShape ?? 'rect') === shape
+                    return (
+                      <button
+                        key={shape}
+                        type="button"
+                        role="radio"
+                        aria-checked={on}
+                        title={t(name)}
+                        aria-label={t(name)}
+                        onClick={() => updateSymbol(sym.id, (s) => void (shape === 'rect' ? delete s.mirrorShape : (s.mirrorShape = shape)))}
+                        className={cn('grid size-8 place-items-center rounded-md border text-muted-foreground transition-colors hover:text-foreground', on && 'border-primary bg-primary/10 text-primary hover:text-primary')}
+                      >
+                        <MirrorIcon shape={shape} />
+                      </button>
+                    )
+                  })}
+                </div>
+              )}
+            </Field>
+            <Choice
+              label={t('Size')}
+              value={sym.mirrorSize ?? 'standard'}
+              onChange={(v) => updateSymbol(sym.id, (s) => void (v === 'standard' ? delete s.mirrorSize : (s.mirrorSize = v)))}
+              options={[
+                { value: 'standard', label: t('Standard') },
+                { value: 'big', label: t('Big') },
+                { value: 'tall', label: t('Tall') },
+              ]}
+            />
+            <Field label={t('Frame')}>
+              {(id) => (
+                <div id={id} role="radiogroup" className="flex flex-wrap items-center gap-1.5 py-1">
+                  {MIRROR_FRAME_COLORS.map(([frame, name, look]) => {
+                    const on = (sym.mirrorFrame ?? 'none') === frame
+                    return (
+                      <button
+                        key={frame}
+                        type="button"
+                        role="radio"
+                        aria-checked={on}
+                        title={t(name)}
+                        aria-label={t(name)}
+                        onClick={() => updateSymbol(sym.id, (s) => void (frame === 'none' ? delete s.mirrorFrame : (s.mirrorFrame = frame)))}
+                        className={cn('size-6 rounded-full border shadow-sm outline-none focus-visible:ring-2 focus-visible:ring-ring', on && ring)}
+                        style={{ background: look }}
+                      />
+                    )
+                  })}
+                </div>
+              )}
+            </Field>
+          </>
+        )}
+        <Choice
+          label={above === 'none' ? t('Light under it') : t('Mirror light')}
+          value={light}
+          onChange={(v) =>
+            updateSymbol(sym.id, (s) => {
+              if (v === 'off') return void delete s.led
+              s.led = true
+              if (v === 'under' && above !== 'cabinet') delete s.mirrorLight
+              else s.mirrorLight = v as NonNullable<PlanSymbol['mirrorLight']>
+            })
+          }
+          options={[{ value: 'off', label: t('Off') }, ...lights]}
+        />
+        {sym.led && <LightSection sym={sym} units={units} />}
+      </Panel>
+    </>
   )
 }
 
@@ -1182,7 +1248,7 @@ function AlcoveOptions({ sym, units }: { sym: PlanSymbol; units: Units }) {
   const open = alcoveOpenings(sym, ceiling)
   const cut = open.length < (sym.stack ?? 1) || open.some(([a, b]) => b - a < sym.height - 0.5)
   return (
-    <div className="space-y-3 rounded-lg bg-muted/60 p-3">
+    <>
       <p className="text-xs text-muted-foreground">
         {t("The space beside a column in the wall, built up from the floor and down from the ceiling round the niches, flush with the column and finished like the walls (their tiles, if they're tiled).")}
       </p>
@@ -1230,14 +1296,7 @@ function AlcoveOptions({ sym, units }: { sym: PlanSymbol; units: Units }) {
         <span>{t('Glass shelf')}</span>
         <Switch size="sm" checked={!!sym.shelf} onCheckedChange={(on) => updateSymbol(sym.id, (s) => void (s.shelf = on || undefined))} />
       </label>
-      <label className="flex items-center justify-between gap-2 text-sm">
-        <span className="flex items-center gap-1.5">
-          <Lightbulb className="size-4" /> {t('LED strip')}
-        </span>
-        <Switch size="sm" checked={!!sym.led} onCheckedChange={(on) => updateSymbol(sym.id, (s) => void (s.led = on || undefined))} />
-      </label>
-      {sym.led && <LightSection sym={sym} units={units} />}
-    </div>
+    </>
   )
 }
 
@@ -1855,8 +1914,32 @@ function MultiProps({ items }: { items: ItemRef[] }) {
     if (into === 'wall' && n < of) toast(t('Built {n} of {of} columns into the walls', { n, of }), { description: t('The others have no wall near them.') })
   }
   return (
-    <>
-      <Section title={t('{n} selected', { n: items.length })}>
+    <Inspector
+      item={items.map((r) => r.id).join('|')}
+      icon={Layers}
+      title={t('{n} selected', { n: items.length })}
+      actions={
+        <>
+          <HeaderAction label={t('Duplicate')} onClick={duplicateSelection}>
+            <Copy />
+          </HeaderAction>
+          <HeaderAction
+            label={t('Copy')}
+            onClick={() => {
+              const n = copySelection()
+              const note = copiedNote(n)
+              if (n) toast(note.title, { description: note.description })
+            }}
+          >
+            <ClipboardCopy />
+          </HeaderAction>
+          <HeaderAction label={t('Delete')} onClick={deleteSelection} danger>
+            <Trash2 />
+          </HeaderAction>
+        </>
+      }
+    >
+      <Panel id="selection" icon={Layers} title={t('Selection')} summary={parts.join(t(', '))} open>
         <p className="text-sm text-muted-foreground">{parts.join(t(', '))}</p>
         <div className="flex gap-2">
           <Button variant="outline" size="sm" onClick={() => rotateSelection(-90)}>
@@ -1867,7 +1950,15 @@ function MultiProps({ items }: { items: ItemRef[] }) {
           </Button>
           <span className="self-center text-xs text-muted-foreground">{t('or drag the handle above them')}</span>
         </div>
-        {free.length >= 2 && <ArrangeBlock syms={free} />}
+        {grouped ? (
+          <Button variant="outline" size="sm" className="w-full" onClick={() => groupSelection(false)}>
+            <Ungroup /> {t('Ungroup')}
+          </Button>
+        ) : (
+          <Button variant="outline" size="sm" className="w-full" onClick={() => groupSelection(true)}>
+            <Group /> {t('Group')}
+          </Button>
+        )}
         {keepable.length > 0 && (
           <KeepSwitch
             checked={keepable.every((s) => s.keep)}
@@ -1897,80 +1988,53 @@ function MultiProps({ items }: { items: ItemRef[] }) {
             )}
           </div>
         )}
-        {Object.keys(gaps).length > 0 && (
-          <div className="space-y-2 rounded-lg bg-muted/60 p-3">
-            <p className="text-sm font-medium">{t('Position in the room')}</p>
-            {(
-              [
-                [t('Side to side'), 'across', gaps.left, gaps.right, across],
-                [t('Top to bottom'), 'depth', gaps.back, gaps.front, depthwise],
-              ] as const
-            ).map(([label, axis, a, b, ok]) => {
-              const centered = ok && Math.abs(a! - b!) < 0.5
-              return (
-                <div key={axis} className="flex items-center justify-between gap-2 text-sm">
-                  <span className="min-w-0">
-                    <span className="text-muted-foreground">{label}</span>
-                    <span className="ml-2 tabular-nums">
-                      {fmt(a)} · {fmt(b)}
-                    </span>
-                  </span>
-                  <Button variant="outline" size="xs" disabled={!ok || centered} onClick={() => centerSelection(axis)}>
-                    {centered ? t('Centered') : t('Center')}
-                  </Button>
-                </div>
-              )
-            })}
-            {across && depthwise && (
-              <Button variant="outline" size="sm" className="w-full" onClick={() => centerSelection('both')}>
-                <AlignHorizontalJustifyCenter /> {t('Center in the room')}
-              </Button>
-            )}
-            <PushRow gaps={gaps} rotation={0} onPush={pushSelection} fmt={fmt} />
-          </div>
-        )}
-        <div className="grid grid-cols-2 gap-2">
-          {grouped ? (
-            <Button variant="outline" size="sm" onClick={() => groupSelection(false)}>
-              <Ungroup /> {t('Ungroup')}
-            </Button>
-          ) : (
-            <Button variant="outline" size="sm" onClick={() => groupSelection(true)}>
-              <Group /> {t('Group')}
-            </Button>
-          )}
-          <Button variant="outline" size="sm" onClick={duplicateSelection}>
-            <Copy /> {t('Duplicate')}
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => {
-              const n = copySelection()
-              const note = copiedNote(n)
-              if (n) toast(note.title, { description: note.description })
-            }}
-          >
-            <ClipboardCopy /> {t('Copy')}
-          </Button>
-          <Button variant="destructive" size="sm" onClick={deleteSelection}>
-            <Trash2 /> {t('Delete')}
-          </Button>
-        </div>
         <p className="text-xs leading-relaxed text-muted-foreground">
           {t('Drag any of them to move them all, or use the arrow keys.')} {grouped ? t('Alt + click picks one item in the group.') : t('Group them to keep them together.')}{' '}
           {t('Shortcuts: Ctrl+G group, Ctrl+Shift+G ungroup, Ctrl+C / X / V, Ctrl+D, Delete.')}
         </p>
-      </Section>
-      {lit && (
-        <>
-          <Separator />
-          <Section title={t('Lights')}>
-            <GroupLightSection ids={symbolIds} />
-          </Section>
-        </>
+      </Panel>
+      {free.length >= 2 && (
+        <Panel id="arrange" icon={AlignHorizontalDistributeCenter} title={t('Line up and space')} open>
+          <ArrangeBlock syms={free} />
+        </Panel>
       )}
-    </>
+      {Object.keys(gaps).length > 0 && (
+        <Panel id="place" icon={Move} title={t('Position in the room')} summary={across && depthwise && Math.abs(gaps.left! - gaps.right!) < 0.5 && Math.abs(gaps.back! - gaps.front!) < 0.5 ? t('Centered') : undefined}>
+          {(
+            [
+              [t('Side to side'), 'across', gaps.left, gaps.right, across],
+              [t('Top to bottom'), 'depth', gaps.back, gaps.front, depthwise],
+            ] as const
+          ).map(([label, axis, a, b, ok]) => {
+            const centered = ok && Math.abs(a! - b!) < 0.5
+            return (
+              <div key={axis} className="flex items-center justify-between gap-2 text-sm">
+                <span className="min-w-0">
+                  <span className="text-muted-foreground">{label}</span>
+                  <span className="ms-2 tabular-nums">
+                    {fmt(a)} · {fmt(b)}
+                  </span>
+                </span>
+                <Button variant="outline" size="xs" disabled={!ok || centered} onClick={() => centerSelection(axis)}>
+                  {centered ? t('Centered') : t('Center')}
+                </Button>
+              </div>
+            )
+          })}
+          {across && depthwise && (
+            <Button variant="outline" size="sm" className="w-full" onClick={() => centerSelection('both')}>
+              <AlignHorizontalJustifyCenter /> {t('Center in the room')}
+            </Button>
+          )}
+          <PushRow gaps={gaps} rotation={0} onPush={pushSelection} fmt={fmt} />
+        </Panel>
+      )}
+      {lit && (
+        <Panel id="light" icon={Lightbulb} title={t('Lights')}>
+          <GroupLightSection ids={symbolIds} />
+        </Panel>
+      )}
+    </Inspector>
   )
 }
 
@@ -1981,14 +2045,18 @@ function ViewProps({ view, units }: { view: SavedView; units: Units }) {
       if (v) recipe(v)
     })
   return (
-    <>
-      <Section
-        title={
-          <span className="flex items-center gap-2">
-            <Video className="size-4" /> {t('Saved 3D view')}
-          </span>
-        }
-      >
+    <Inspector
+      item={view.id}
+      icon={Video}
+      title={view.name}
+      kind={<Badge variant="secondary">{t('Saved 3D view')}</Badge>}
+      actions={
+        <HeaderAction label={t('Delete')} onClick={deleteSelection} danger>
+          <Trash2 />
+        </HeaderAction>
+      }
+    >
+      <Panel id="view" icon={Video} title={t('Saved 3D view')} summary={t('Eye height {height}', { height: formatLength(view.eye.h, units) })} open>
         <Field label={t('Name')}>
           {(id) => (
             <TextInput
@@ -2027,14 +2095,8 @@ function ViewProps({ view, units }: { view: SavedView; units: Units }) {
           <Box /> {t('Look from here in 3D')}
         </Button>
         <p className="text-xs text-muted-foreground">{t('Drag the camera to move it, and its round handle to turn it. Arrow keys nudge it.')}</p>
-      </Section>
-      <Separator />
-      <Section>
-        <Button variant="destructive" size="sm" onClick={deleteSelection}>
-          <Trash2 /> {t('Delete')}
-        </Button>
-      </Section>
-    </>
+      </Panel>
+    </Inspector>
   )
 }
 
@@ -2123,6 +2185,58 @@ function PersonControls({ sym, units }: { sym: PlanSymbol; units: Units }) {
   )
 }
 
+/** How a light's set, in a few words: its color temperature and how bright. */
+const lightSummary = (sym: PlanSymbol) => `${t(kelvinName(kelvinOf(sym.light)))} · ${Math.round((sym.light?.brightness ?? 1) * 100)}%`
+
+/** What's said of a choice: the label of the option it's set to. */
+const said = (options: [string, string][], value: string) => t(options.find(([v]) => v === value)?.[1] ?? value)
+
+/** Duplicate and delete, in the header. */
+function ItemActions() {
+  return (
+    <>
+      <HeaderAction label={t('Duplicate')} onClick={duplicateSelection}>
+        <Copy />
+      </HeaderAction>
+      <HeaderAction label={t('Delete')} onClick={deleteSelection} danger>
+        <Trash2 />
+      </HeaderAction>
+    </>
+  )
+}
+
+/** A switch for a light built into an item (an LED strip in a niche, lights under a cabinet…), and the light's settings when it's on. */
+function BuiltInLight({ sym, units, label }: { sym: PlanSymbol; units: Units; label: string }) {
+  return (
+    <>
+      <label className="flex items-center justify-between gap-2 text-sm">
+        <span className="flex items-center gap-1.5">
+          <Lightbulb className="size-4" /> {label}
+        </span>
+        <Switch size="sm" checked={!!sym.led} onCheckedChange={(on) => updateSymbol(sym.id, (s) => void (s.led = on || undefined))} />
+      </label>
+      {sym.led && <LightSection sym={sym} units={units} />}
+    </>
+  )
+}
+
+/** The light built into items that have one: what it's called on each. */
+const BUILT_IN_LIGHT: Record<string, string> = {
+  'shower-niche': 'LED strip',
+  'wall-niche': 'LED strip',
+  'alcove-niche': 'LED strip',
+  'wall-cabinet': 'Light under it',
+  'range-hood': 'Hood lights',
+  'dressing-table': 'Mirror light',
+  'display-cabinet': 'LED lighting inside',
+  sideboard: 'LED lighting inside',
+  'coffee-corner': 'LED lighting inside',
+}
+
+/**
+ * An item's properties: its size, what's particular to it (a shower's glass, a vanity's basin and mirror, a toilet's
+ * mounting…), its style and finish, its light, and where it is; each a panel (see Inspector).
+ */
 function SymbolProps({ sym, units }: { sym: PlanSymbol; units: Units }) {
   const floor = useFloor()
   const def = SYMBOL_MAP.get(sym.type)
@@ -2156,315 +2270,544 @@ function SymbolProps({ sym, units }: { sym: PlanSymbol; units: Units }) {
   const backed = free && BACK_TO_WALL.has(sym.type) ? backToNearestWall(sym, floor) : null
   const isBacked = !!backed && Math.abs(backed.x - sym.x) < 0.5 && Math.abs(backed.y - sym.y) < 0.5 && Math.abs(backed.rotation - sym.rotation) < 0.5
   const fmt = (v?: number) => (v === undefined ? '–' : formatLength(v, units))
+
+  // Its size: what it has (a column's height is the room's, a wall-hung toilet's its box's…).
+  const dims = (
+    [
+      ['width', isRound(sym.type) ? t('Diameter') : beam || partition ? t('Length') : t('Width'), true],
+      ['depth', isLabel ? t('Text size') : beam ? t('Width') : partition ? t('Thickness') : t('Depth'), !sym.wall && !isRound(sym.type)],
+      [
+        'height',
+        sym.type === 'gypsum-box'
+          ? t('Drop')
+          : beam
+            ? t('Below the ceiling')
+            : def?.fixture === 'switch'
+              ? t('Mount height')
+              : sym.type === 'shower' && sym.glassToCeiling
+                ? t('Door height')
+                : t('Height'),
+        // A wall-hung toilet's is its box's (see its mounting); a walk-in shower's glass up to the ceiling has none.
+        !isLabel &&
+          !def?.fullHeight &&
+          (!partition || !!sym.partial) &&
+          !(sym.type === 'toilet' && sym.mount === 'wall') &&
+          !(sym.type === 'shower' && sym.glassToCeiling && sym.walkIn),
+      ],
+    ] as [Dim, string, boolean][]
+  ).filter(([, , shown]) => shown)
+  const sizeSummary = [
+    isLabel ? sym.label : undefined,
+    sym.type === 'tv' ? `${tvInches(sym.width)}″` : undefined,
+    dims.map(([d]) => formatLength(sym[d], units)).join(' × '),
+    def?.fullHeight ? t('floor to ceiling') : undefined,
+  ]
+    .filter(Boolean)
+    .join(' · ')
+
+  // Its options, each a little block and a word or two on how it's set.
+  const options: { key: string; node: ReactNode; said?: string }[] = []
+  if (sym.type === 'oven-tower') {
+    const opts: [string, string][] = [
+      ['micro', 'Oven + microwave'],
+      ['oven', 'Oven'],
+      ['two-ovens', 'Two ovens'],
+    ]
+    options.push({
+      key: 'appliances',
+      said: said(opts, sym.appliances ?? 'micro'),
+      node: (
+        <Choice
+          label={t('Built in')}
+          value={sym.appliances ?? 'micro'}
+          onChange={(v) => updateSymbol(sym.id, (s) => void (v === 'micro' ? delete s.appliances : (s.appliances = v as 'oven' | 'two-ovens')))}
+          options={opts.map(([value, label]) => ({ value, label: t(label) }))}
+        />
+      ),
+    })
+  }
+  if (sym.type === 'kitchen-island') {
+    const opts: [string, string][] = [
+      ['none', 'Nothing'],
+      ['hob', 'Hob'],
+      ['sink', 'Sink'],
+    ]
+    options.push({
+      key: 'island',
+      said: [sym.islandTop ? said(opts, sym.islandTop) : undefined, sym.stool !== false ? t('Stools') : undefined].filter(Boolean).join(' · '),
+      node: (
+        <>
+          <Choice
+            label={t('In the top')}
+            value={sym.islandTop ?? 'none'}
+            onChange={(v) => updateSymbol(sym.id, (s) => void (v === 'none' ? delete s.islandTop : (s.islandTop = v as 'hob' | 'sink')))}
+            options={opts.map(([value, label]) => ({ value, label: t(label) }))}
+          />
+          <label className="flex items-center justify-between gap-2 text-sm">
+            <span>{t('Stools')}</span>
+            <Switch size="sm" checked={sym.stool !== false} onCheckedChange={(on) => updateSymbol(sym.id, (s) => void (on ? delete s.stool : (s.stool = false)))} />
+          </label>
+        </>
+      ),
+    })
+  }
+  if (sym.type === 'wall-cabinet') {
+    const opts: [string, string][] = [
+      ['doors', 'Doors'],
+      ['glass', 'Glass doors'],
+      ['open', 'Open shelves'],
+    ]
+    options.push({
+      key: 'fronts',
+      said: said(opts, sym.fronts ?? 'doors'),
+      node: (
+        <Choice
+          label={t('Fronts')}
+          value={sym.fronts ?? 'doors'}
+          onChange={(v) => updateSymbol(sym.id, (s) => void (v === 'doors' ? delete s.fronts : (s.fronts = v as 'glass' | 'open')))}
+          options={opts.map(([value, label]) => ({ value, label: t(label) }))}
+        />
+      ),
+    })
+  }
+  if (sym.type === 'towel-rail' || sym.type === 'towel-radiator') {
+    options.push({
+      key: 'towel',
+      said: sym.towel !== false ? t('Towel on it') : undefined,
+      node: (
+        <label className="flex items-center justify-between gap-2 text-sm">
+          <span>{t('Towel on it')}</span>
+          <Switch size="sm" checked={sym.towel !== false} onCheckedChange={(on) => updateSymbol(sym.id, (s) => void (on ? delete s.towel : (s.towel = false)))} />
+        </label>
+      ),
+    })
+  }
+  if (sym.type === 'dressing-table') {
+    options.push({
+      key: 'stool',
+      said: sym.stool !== false ? t('Stool') : undefined,
+      node: (
+        <label className="flex items-center justify-between gap-2 text-sm">
+          <span>{t('Stool')}</span>
+          <Switch size="sm" checked={sym.stool !== false} onCheckedChange={(on) => updateSymbol(sym.id, (s) => void (on ? delete s.stool : (s.stool = false)))} />
+        </label>
+      ),
+    })
+  }
+  if ((CABINETS.has(sym.type) && sym.type !== 'coffee-corner') || sym.type.startsWith('wardrobe')) {
+    const glass = sym.type.startsWith('wardrobe') ? !!sym.glass : hasGlass(sym)
+    options.push({
+      key: 'glass',
+      said: glass ? t('Glass doors') : undefined,
+      node: (
+        <label className="flex items-center justify-between gap-2 text-sm">
+          <span>{t('Glass doors')}</span>
+          <Switch size="sm" checked={glass} onCheckedChange={(on) => updateSymbol(sym.id, (s) => void (s.glass = sym.type.startsWith('wardrobe') ? on || undefined : on))} />
+        </label>
+      ),
+    })
+  }
+  if (DOOR_DEFAULT[sym.type] && sym.type !== 'shower') {
+    const doors = sym.doors ?? DOOR_DEFAULT[sym.type]
+    options.push({
+      key: 'doors',
+      said: doors === 'sliding' ? t('Sliding') : t('Hinged'),
+      node: (
+        <Choice
+          label={t('Doors')}
+          value={doors}
+          onChange={(v) => updateSymbol(sym.id, (s) => void (s.doors = v))}
+          options={[
+            { value: 'hinged', label: t('Hinged') },
+            { value: 'sliding', label: t('Sliding') },
+          ]}
+        />
+      ),
+    })
+  }
+  if (sym.type === 'shower-bench' && styleOf(sym) !== 'fold-down') {
+    options.push({
+      key: 'base',
+      said: sym.floating ? t('Floating') : t('To the floor'),
+      node: (
+        <Choice
+          label={t('Base')}
+          value={sym.floating ? 'floating' : 'floor'}
+          onChange={(v) => updateSymbol(sym.id, (s) => void (v === 'floating' ? (s.floating = true) : delete s.floating))}
+          options={[
+            { value: 'floor', label: t('To the floor') },
+            { value: 'floating', label: t('Floating') },
+          ]}
+        >
+          <p className="text-xs text-muted-foreground">
+            {sym.floating ? t("Held on the wall, clear of the floor, so it's easy to clean under.") : t('Built up from the floor.')}{' '}
+            {t("Finished like the wall behind it (its tiles, if it's tiled), with a stone top.")}
+          </p>
+        </Choice>
+      ),
+    })
+  }
+  if (sym.type === 'sofa-corner' || sym.type === 'wardrobe-corner') {
+    options.push({
+      key: 'corner',
+      said: sym.flipX ? t('Corner on the right') : t('Corner on the left'),
+      node: (
+        <Choice
+          label={t('Corner on')}
+          value={sym.flipX ? 'right' : 'left'}
+          onChange={(v) => updateSymbol(sym.id, (s) => void (s.flipX = v === 'right'))}
+          options={[
+            { value: 'left', label: t('Left') },
+            { value: 'right', label: t('Right') },
+          ]}
+        />
+      ),
+    })
+  }
+
+  // Its look: its style, its finish (frame), its worktop or stone top.
+  const look = !!STYLES[sym.type] || !!def?.frames || hasWorktop(sym) || sym.type === 'range-hood'
+  const lookSummary = [
+    STYLES[sym.type] ? t(STYLES[sym.type].find((p) => p.id === styleOf(sym))?.name ?? '') : undefined,
+    def?.frames ? t(frameOf(sym)?.name ?? '') : undefined,
+    hasWorktop(sym) ? t(worktopOf(sym).name) : undefined,
+  ]
+    .filter(Boolean)
+    .join(' · ')
+
+  // Its light: a fixture's, a switch's wiring, or the light built into it.
+  const builtIn = BUILT_IN_LIGHT[sym.type]
+  const lightLabel = sym.type === 'dressing-table' && styleOf(sym) === 'hollywood' ? t('Bulbs lit') : builtIn && t(builtIn)
+
+  // Where it is: in a wall, or free (turned, against a wall, centered).
+  const placeSummary = [
+    sym.wall ? t('In wall {n} of {room}', { n: sym.wall.edge + 1, room: wallRoom?.name ?? t('the room') }) : sym.rotation ? `${Math.round(sym.rotation)}°` : undefined,
+    def?.sill !== undefined && !NICHES.has(sym.type) ? t('Sill at {height}', { height: formatLength(sym.elevation ?? def.sill ?? 0, units) }) : undefined,
+    sym.keep ? t('Kept when designing') : undefined,
+  ]
+    .filter(Boolean)
+    .join(' · ')
+
+  const vanity = sym.type === 'bath-vanity'
   return (
-    <>
-      <Section
-        title={
-          <span className="flex items-center gap-2">
-            {def?.name ?? sym.type}
-            {def && <Badge variant="secondary">{def.category}</Badge>}
-          </span>
-        }
-      >
-        {sym.type === 'person' && <PersonControls sym={sym} units={units} />}
-        {(isLabel || sym.label !== undefined) && (
-          <Field label={def?.fixture === 'switch' ? t('Name') : t('Text')}>
-            {(id) => (
-              <TextInput id={id} value={sym.label ?? ''} onChange={(v) => updateSymbol(sym.id, (s) => void (s.label = v))} />
-            )}
-          </Field>
-        )}
-        {sym.type === 'tv' && <TvSize sym={sym} />}
-        {(
-          [
-            ['width', isRound(sym.type) ? t('Diameter') : beam || partition ? t('Length') : t('Width'), true],
-            ['depth', isLabel ? t('Text size') : beam ? t('Width') : partition ? t('Thickness') : t('Depth'), !sym.wall && !isRound(sym.type)],
-            [
-              'height',
-              sym.type === 'gypsum-box'
-                ? t('Drop')
-                : beam
-                  ? t('Below the ceiling')
-                  : def?.fixture === 'switch'
-                    ? t('Mount height')
-                    : sym.type === 'shower' && sym.glassToCeiling
-                      ? t('Door height')
-                      : t('Height'),
-              // A wall-hung toilet's is its box's (see its mounting); a walk-in shower's glass up to the ceiling has none.
-              !isLabel &&
-                !def?.fullHeight &&
-                (!partition || !!sym.partial) &&
-                !(sym.type === 'toilet' && sym.mount === 'wall') &&
-                !(sym.type === 'shower' && sym.glassToCeiling && sym.walkIn),
-            ],
-          ] as [Dim, string, boolean][]
-        ).map(([dim, label, shown]) => {
-          if (!shown || sym.type === 'person') return null
-          const rule = sizeRule(sym, dim)
-          return (
-            <Field key={dim} label={label}>
-              {(id) =>
-                rule?.fixed ? (
-                  <div id={id} className="flex h-8 items-center gap-1.5 text-sm tabular-nums">
-                    {formatLength(rule.min, units)}
-                    <span className="flex items-center gap-1 text-xs text-muted-foreground">
-                      <Lock className="size-3" /> {t('standard size')}
-                    </span>
-                  </div>
-                ) : (
-                  <LengthInput
-                    id={id}
-                    value={sym[dim]}
-                    units={units}
-                    onChange={(v) => {
-                      if (rule && (v < rule.min || v > rule.max)) {
-                        toast(t('{item}: {size} {min} to {max}', { item: def ? t(def.name) : t('This item'), size: label, min: formatLength(rule.min, units), max: formatLength(rule.max, units) }), {
-                          description: t('Kept to a size it comes in.'),
-                        })
-                      }
-                      updateSymbol(sym.id, (s) => {
-                        const next = resized(s, { [dim]: v })
-                        // Against a wall, it keeps its back there as it's made deeper or shallower.
-                        if (dim === 'depth' && !s.wall && (def?.wallMount || BACK_TO_WALL.has(s.type))) keepBack(s, next.depth)
-                        Object.assign(s, next)
-                      })
-                    }}
-                  />
-                )
-              }
+    <Inspector item={sym.id} title={t(def?.name ?? sym.type)} kind={def && <Badge variant="secondary">{t(def.category)}</Badge>} actions={<ItemActions />}>
+      {sym.type === 'person' ? (
+        <Panel id="person" icon={PersonStanding} title={t('Person')} summary={`${formatLength(sym.height, units)} · ${t(POSE_NAMES[sym.pose ?? 'stand'])}`} open>
+          <PersonControls sym={sym} units={units} />
+        </Panel>
+      ) : (
+        <Panel id="size" icon={Ruler} title={isLabel ? t('Text') : t('Size')} summary={sizeSummary} open>
+          {(isLabel || (sym.label !== undefined && def?.fixture !== 'switch')) && (
+            <Field label={t('Text')}>
+              {(id) => <TextInput id={id} value={sym.label ?? ''} onChange={(v) => updateSymbol(sym.id, (s) => void (s.label = v))} />}
             </Field>
-          )
-        })}
-        {def?.fullHeight && <p className="text-xs text-muted-foreground">{t("Floor to ceiling, whatever the room's height.")}</p>}
-        {sym.type === 'shower' && <ShowerGlass sym={sym} />}
-        {(sym.type === 'shower' || sym.type === 'shower-quadrant') && <ShowerHeadPicker sym={sym} />}
-        {(sym.type === 'shower' || sym.type === 'shower-quadrant') && <ShowerFittings sym={sym} />}
-        {sym.type === 'toilet' && <ToiletMount sym={sym} />}
-        {partition && <PartitionOptions sym={sym} />}
-        {STYLES[sym.type] && (
-          <Field label={t('Style')}>
-            {(id) => (
-              <Select
-                value={styleOf(sym)}
-                onValueChange={(v) =>
-                  updateSymbol(sym.id, (s) => {
-                    s.style = v
-                    // Made as tall as it usually is in that style (a slim hood, a tall mantel one).
-                    const height = STYLES[s.type].find((p) => p.id === v)?.height
-                    if (height) s.height = height
-                  })
+          )}
+          {sym.type === 'tv' && <TvSize sym={sym} />}
+          {dims.map(([dim, label]) => {
+            const rule = sizeRule(sym, dim)
+            return (
+              <Field key={dim} label={label}>
+                {(id) =>
+                  rule?.fixed ? (
+                    <div id={id} className="flex h-8 items-center gap-1.5 text-sm tabular-nums">
+                      {formatLength(rule.min, units)}
+                      <span className="flex items-center gap-1 text-xs text-muted-foreground">
+                        <Lock className="size-3" /> {t('standard size')}
+                      </span>
+                    </div>
+                  ) : (
+                    <LengthInput
+                      id={id}
+                      value={sym[dim]}
+                      units={units}
+                      onChange={(v) => {
+                        if (rule && (v < rule.min || v > rule.max)) {
+                          toast(t('{item}: {size} {min} to {max}', { item: def ? t(def.name) : t('This item'), size: label, min: formatLength(rule.min, units), max: formatLength(rule.max, units) }), {
+                            description: t('Kept to a size it comes in.'),
+                          })
+                        }
+                        updateSymbol(sym.id, (s) => {
+                          const next = resized(s, { [dim]: v })
+                          // Against a wall, it keeps its back there as it's made deeper or shallower.
+                          if (dim === 'depth' && !s.wall && (def?.wallMount || BACK_TO_WALL.has(s.type))) keepBack(s, next.depth)
+                          Object.assign(s, next)
+                        })
+                      }}
+                    />
+                  )
                 }
-              >
-                <SelectTrigger id={id} size="sm" className="w-full">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {(['Modern', 'Classic', 'Industrial'] as const)
-                    .filter((kind) => STYLES[sym.type].some((p) => p.kind === kind))
-                    .map((kind) => (
-                    <SelectGroup key={kind}>
-                      <SelectLabel>{t(kind)}</SelectLabel>
-                      {STYLES[sym.type].filter((p) => p.kind === kind).map((p) => (
-                        <SelectItem key={p.id} value={p.id}>
-                          {t(p.name)}
-                        </SelectItem>
-                      ))}
-                    </SelectGroup>
-                  ))}
-                </SelectContent>
-              </Select>
-            )}
+              </Field>
+            )
+          })}
+          {def?.fullHeight && <p className="text-xs text-muted-foreground">{t("Floor to ceiling, whatever the room's height.")}</p>}
+        </Panel>
+      )}
+
+      {sym.type === 'shower' && (
+        <Panel
+          id="shower-glass"
+          icon={Columns2}
+          title={t('Glass and way in')}
+          summary={[
+            sym.walkIn ? t('Open way in') : sym.doors === 'sliding' ? t('Sliding door') : t('Hinged door'),
+            sym.halfWall !== undefined ? t('on a half wall') : undefined,
+            sym.glassToCeiling ? t('glass to the ceiling') : undefined,
+          ]
+            .filter(Boolean)
+            .join(' · ')}
+          open
+        >
+          <ShowerGlass sym={sym} />
+        </Panel>
+      )}
+      {(sym.type === 'shower' || sym.type === 'shower-quadrant') && (
+        <Panel
+          id="shower-head"
+          icon={ShowerHead}
+          title={t('Shower head and fittings')}
+          summary={[
+            sym.showerHead?.side === 'ceiling' ? t('From the ceiling') : t('On a wall'),
+            t({ round: 'Round', square: 'Square', rectangle: 'Rectangular', classic: 'Classic' }[sym.headShape ?? 'round']),
+            sym.jets ? t('{n} body jets', { n: sym.jets }) : undefined,
+            sym.handShower ? t('hand shower') : undefined,
+          ]
+            .filter(Boolean)
+            .join(' · ')}
+        >
+          <ShowerHeadPicker sym={sym} />
+          <ShowerFittings sym={sym} />
+        </Panel>
+      )}
+      {sym.type === 'toilet' && (
+        <Panel
+          id="toilet-mount"
+          icon={Toilet}
+          title={t('Mounting')}
+          summary={
+            sym.mount !== 'wall'
+              ? t('With its tank')
+              : [
+                  sym.panOnFloor ? t('Back to wall') : t('Wall-hung'),
+                  (sym.tankBox ?? 'ledge') === 'ledge'
+                    ? t('box with a shelf, {height}', { height: formatLength(ledgeHeight(sym), units) })
+                    : sym.tankBox === 'full'
+                      ? t('box to the ceiling')
+                      : t('tank in the wall'),
+                ].join(' · ')
+          }
+          open
+        >
+          <ToiletMount sym={sym} />
+        </Panel>
+      )}
+      {partition && (
+        <Panel
+          id="partition"
+          icon={BrickWall}
+          title={t('Height and top')}
+          summary={
+            !sym.partial
+              ? t('Up to the ceiling')
+              : [formatLength(sym.height, units), sym.shelf ? t('stone shelf') : undefined, sym.glassTop ? t('glass to the ceiling') : undefined].filter(Boolean).join(' · ')
+          }
+          open
+        >
+          <PartitionOptions sym={sym} />
+        </Panel>
+      )}
+      {(sym.type === 'curtain' || sym.type === 'blind') && (
+        <Panel
+          id="fabric"
+          icon={Blinds}
+          title={t('Fabric')}
+          summary={
+            sym.type === 'blind'
+              ? `${t((sym.fabric ?? 'screen') === 'blackout' ? 'Blackout' : 'Screen')} · ${t('{pct}% rolled up', { pct: Math.round((sym.open ?? 0) * 100) })}`
+              : `${curtainLayers(sym).map((l) => t({ sheer: 'Sheer', curtain: 'Curtain', blackout: 'Blackout' }[l])).join(' + ')} · ${t('{pct}% open', { pct: Math.round((sym.open ?? 0.7) * 100) })}`
+          }
+          open
+        >
+          <FabricControls sym={sym} />
+        </Panel>
+      )}
+      {sym.type === 'alcove-niche' && (
+        <Panel
+          id="alcove"
+          icon={SquareDashed}
+          title={t('Niches')}
+          summary={[
+            sym.onlyNiches ? t('Just the niches') : t('Floor to ceiling'),
+            `${sym.stack ?? 1} × ${formatLength(sym.height, units)}`,
+            t('Sill at {height}', { height: formatLength(sym.elevation ?? ALCOVE_SILL, units) }),
+            stoneSill(sym) ? t('stone sill') : undefined,
+          ]
+            .filter(Boolean)
+            .join(' · ')}
+          open
+        >
+          <AlcoveOptions sym={sym} units={units} />
+        </Panel>
+      )}
+      {NICHES.has(sym.type) && (
+        <Panel
+          id="niche"
+          icon={SquareDashed}
+          title={t('Niche')}
+          summary={[
+            t('Sill at {height}', { height: formatLength(sym.elevation ?? def?.sill ?? 0, units) }),
+            stoneSill(sym) ? t('stone sill') : undefined,
+            sym.shelf ? t('glass shelf') : undefined,
+          ]
+            .filter(Boolean)
+            .join(' · ')}
+          open
+        >
+          <p className="text-xs text-muted-foreground">
+            {sym.type === 'shower-niche'
+              ? t("Recessed into the wall and lined with the wall's finish (its tiles, if it's tiled).")
+              : t("Recessed into the wall and finished like it: painted, or its tiles if it's tiled.")}
+          </p>
+          <Field label={t('Height from floor')}>
+            {(id) => <LengthInput id={id} value={sym.elevation ?? def?.sill ?? 0} units={units} min={0} onChange={(v) => updateSymbol(sym.id, (s) => void (s.elevation = v))} />}
           </Field>
-        )}
-        {(sym.type === 'curtain' || sym.type === 'blind') && <FabricControls sym={sym} />}
-        {sym.type === 'alcove-niche' && <AlcoveOptions sym={sym} units={units} />}
-        {NICHES.has(sym.type) && (
-          <div className="space-y-3 rounded-lg bg-muted/60 p-3">
-            <p className="text-xs text-muted-foreground">
-              {sym.type === 'shower-niche'
-                ? t("Recessed into the wall and lined with the wall's finish (its tiles, if it's tiled).")
-                : t("Recessed into the wall and finished like it: painted, or its tiles if it's tiled.")}
-            </p>
-            <Field label={t('Height from floor')}>
+          <p className="-mt-2 text-xs text-muted-foreground">{t('To the bottom of the niche, its sill.')}</p>
+          <label className="flex items-center justify-between gap-2 text-sm">
+            <span>{t('Stone sill')}</span>
+            <Switch size="sm" checked={stoneSill(sym)} onCheckedChange={(on) => updateSymbol(sym.id, (s) => void (s.stoneSill = on))} />
+          </label>
+          {stoneSill(sym) && <WorktopPicker sym={sym} label={t('Stone')} />}
+          <label className="flex items-center justify-between gap-2 text-sm">
+            <span>{t('Glass shelf')}</span>
+            <Switch size="sm" checked={!!sym.shelf} onCheckedChange={(on) => updateSymbol(sym.id, (s) => void (s.shelf = on || undefined))} />
+          </label>
+        </Panel>
+      )}
+      {vanity && <VanityOptions sym={sym} units={units} />}
+      {options.length > 0 && (
+        <Panel
+          id="options"
+          icon={SlidersHorizontal}
+          title={t('Options')}
+          summary={options
+            .map((o) => o.said)
+            .filter(Boolean)
+            .join(' · ')}
+          open
+        >
+          {options.map((o) => (
+            <Fragment key={o.key}>{o.node}</Fragment>
+          ))}
+        </Panel>
+      )}
+
+      {look && (
+        <Panel id="look" icon={Palette} title={t('Style and finish')} summary={lookSummary}>
+          {STYLES[sym.type] && (
+            <Field label={t('Style')}>
               {(id) => (
-                <LengthInput
-                  id={id}
-                  value={sym.elevation ?? def?.sill ?? 0}
-                  units={units}
-                  min={0}
-                  onChange={(v) => updateSymbol(sym.id, (s) => void (s.elevation = v))}
-                />
+                <Select
+                  value={styleOf(sym)}
+                  onValueChange={(v) =>
+                    updateSymbol(sym.id, (s) => {
+                      s.style = v
+                      // Made as tall as it usually is in that style (a slim hood, a tall mantel one).
+                      const height = STYLES[s.type].find((p) => p.id === v)?.height
+                      if (height) s.height = height
+                    })
+                  }
+                >
+                  <SelectTrigger id={id} size="sm" className="w-full">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {(['Modern', 'Classic', 'Industrial'] as const)
+                      .filter((kind) => STYLES[sym.type].some((p) => p.kind === kind))
+                      .map((kind) => (
+                        <SelectGroup key={kind}>
+                          <SelectLabel>{t(kind)}</SelectLabel>
+                          {STYLES[sym.type]
+                            .filter((p) => p.kind === kind)
+                            .map((p) => (
+                              <SelectItem key={p.id} value={p.id}>
+                                {t(p.name)}
+                              </SelectItem>
+                            ))}
+                        </SelectGroup>
+                      ))}
+                  </SelectContent>
+                </Select>
               )}
             </Field>
-            <p className="-mt-2 text-xs text-muted-foreground">{t('To the bottom of the niche, its sill.')}</p>
-            <label className="flex items-center justify-between gap-2 text-sm">
-              <span>{t('Stone sill')}</span>
-              <Switch size="sm" checked={stoneSill(sym)} onCheckedChange={(on) => updateSymbol(sym.id, (s) => void (s.stoneSill = on))} />
-            </label>
-            {stoneSill(sym) && <WorktopPicker sym={sym} label={t('Stone')} />}
-            <label className="flex items-center justify-between gap-2 text-sm">
-              <span>{t('Glass shelf')}</span>
-              <Switch size="sm" checked={!!sym.shelf} onCheckedChange={(on) => updateSymbol(sym.id, (s) => void (s.shelf = on || undefined))} />
-            </label>
-            <label className="flex items-center justify-between gap-2 text-sm">
-              <span className="flex items-center gap-1.5">
-                <Lightbulb className="size-4" /> {t('LED strip')}
-              </span>
-              <Switch size="sm" checked={!!sym.led} onCheckedChange={(on) => updateSymbol(sym.id, (s) => void (s.led = on || undefined))} />
-            </label>
-            {sym.led && <LightSection sym={sym} units={units} />}
-          </div>
-        )}
-        {sym.type === 'oven-tower' && (
-          <Choice
-            label={t('Built in')}
-            value={sym.appliances ?? 'micro'}
-            onChange={(v) => updateSymbol(sym.id, (s) => void (v === 'micro' ? delete s.appliances : (s.appliances = v as 'oven' | 'two-ovens')))}
-            options={[
-              { value: 'micro', label: t('Oven + microwave') },
-              { value: 'oven', label: t('Oven') },
-              { value: 'two-ovens', label: t('Two ovens') },
-            ]}
-          />
-        )}
-        {sym.type === 'kitchen-island' && (
-          <div className="space-y-3 rounded-lg bg-muted/60 p-3">
-            <Choice
-              label={t('In the top')}
-              value={sym.islandTop ?? 'none'}
-              onChange={(v) => updateSymbol(sym.id, (s) => void (v === 'none' ? delete s.islandTop : (s.islandTop = v as 'hob' | 'sink')))}
-              options={[
-                { value: 'none', label: t('Nothing') },
-                { value: 'hob', label: t('Hob') },
-                { value: 'sink', label: t('Sink') },
-              ]}
-            />
-            <label className="flex items-center justify-between gap-2 text-sm">
-              <span>{t('Stools')}</span>
-              <Switch size="sm" checked={sym.stool !== false} onCheckedChange={(on) => updateSymbol(sym.id, (s) => void (on ? delete s.stool : (s.stool = false)))} />
-            </label>
-          </div>
-        )}
-        {sym.type === 'wall-cabinet' && (
-          <div className="space-y-3 rounded-lg bg-muted/60 p-3">
-            <Choice
-              label={t('Fronts')}
-              value={sym.fronts ?? 'doors'}
-              onChange={(v) => updateSymbol(sym.id, (s) => void (v === 'doors' ? delete s.fronts : (s.fronts = v as 'glass' | 'open')))}
-              options={[
-                { value: 'doors', label: t('Doors') },
-                { value: 'glass', label: t('Glass doors') },
-                { value: 'open', label: t('Open shelves') },
-              ]}
-            />
-            <label className="flex items-center justify-between gap-2 text-sm">
-              <span className="flex items-center gap-1.5">
-                <Lightbulb className="size-4" /> {t('Light under it')}
-              </span>
-              <Switch size="sm" checked={!!sym.led} onCheckedChange={(on) => updateSymbol(sym.id, (s) => void (s.led = on || undefined))} />
-            </label>
-            {sym.led && <LightSection sym={sym} units={units} />}
-          </div>
-        )}
-        {sym.type === 'range-hood' && (
-          <div className="space-y-3 rounded-lg bg-muted/60 p-3">
-            {styleOf(sym) !== 'built-in' && <p className="text-xs text-muted-foreground">{t('Its chimney goes up to the ceiling.')}</p>}
-            <label className="flex items-center justify-between gap-2 text-sm">
-              <span className="flex items-center gap-1.5">
-                <Lightbulb className="size-4" /> {t('Hood lights')}
-              </span>
-              <Switch size="sm" checked={!!sym.led} onCheckedChange={(on) => updateSymbol(sym.id, (s) => void (s.led = on || undefined))} />
-            </label>
-            {sym.led && <LightSection sym={sym} units={units} />}
-          </div>
-        )}
-        {(sym.type === 'towel-rail' || sym.type === 'towel-radiator') && (
-          <label className="flex items-center justify-between gap-2 text-sm">
-            <span className="text-muted-foreground">{t('Towel on it')}</span>
-            <Switch size="sm" checked={sym.towel !== false} onCheckedChange={(on) => updateSymbol(sym.id, (s) => void (on ? delete s.towel : (s.towel = false)))} />
-          </label>
-        )}
-        {sym.type === 'bath-vanity' && <VanityOptions sym={sym} units={units} />}
-        {sym.type === 'dressing-table' && (
-          <div className="space-y-3 rounded-lg bg-muted/60 p-3">
-            <label className="flex items-center justify-between gap-2 text-sm">
-              <span>{t('Stool')}</span>
-              <Switch
-                size="sm"
-                checked={sym.stool !== false}
-                onCheckedChange={(on) => updateSymbol(sym.id, (s) => void (on ? delete s.stool : (s.stool = false)))}
-              />
-            </label>
-            <label className="flex items-center justify-between gap-2 text-sm">
-              <span className="flex items-center gap-1.5">
-                <Lightbulb className="size-4" /> {styleOf(sym) === 'hollywood' ? 'Bulbs lit' : 'Mirror light'}
-              </span>
-              <Switch size="sm" checked={!!sym.led} onCheckedChange={(on) => updateSymbol(sym.id, (s) => void (s.led = on || undefined))} />
-            </label>
-            {sym.led && <LightSection sym={sym} units={units} />}
-          </div>
-        )}
-        {CABINETS.has(sym.type) && (
-          <div className="space-y-3 rounded-lg bg-muted/60 p-3">
-            {sym.type !== 'coffee-corner' && (
-              <label className="flex items-center justify-between gap-2 text-sm">
-                <span>{t('Glass doors')}</span>
-                <Switch size="sm" checked={hasGlass(sym)} onCheckedChange={(on) => updateSymbol(sym.id, (s) => void (s.glass = on))} />
-              </label>
-            )}
-            <label className="flex items-center justify-between gap-2 text-sm">
-              <span className="flex items-center gap-1.5">
-                <Lightbulb className="size-4" /> {t('LED lighting inside')}
-              </span>
-              <Switch size="sm" checked={!!sym.led} onCheckedChange={(on) => updateSymbol(sym.id, (s) => void (s.led = on || undefined))} />
-            </label>
-            {sym.led && <LightSection sym={sym} units={units} />}
-          </div>
-        )}
-        {def?.frames && <FramePicker sym={sym} frames={def.frames} label={def.frameLabel} />}
-        {sym.type === 'shower-bench' && styleOf(sym) !== 'fold-down' && (
-          <Choice
-            label={t('Base')}
-            value={sym.floating ? 'floating' : 'floor'}
-            onChange={(v) => updateSymbol(sym.id, (s) => void (v === 'floating' ? (s.floating = true) : delete s.floating))}
-            options={[
-              { value: 'floor', label: t('To the floor') },
-              { value: 'floating', label: t('Floating') },
-            ]}
-          >
-            <p className="text-xs text-muted-foreground">
-              {sym.floating ? t("Held on the wall, clear of the floor, so it's easy to clean under.") : t('Built up from the floor.')}{' '}
-              {t("Finished like the wall behind it (its tiles, if it's tiled), with a stone top.")}
-            </p>
-          </Choice>
-        )}
-        {hasWorktop(sym) && <WorktopPicker sym={sym} label={sym.type === 'shower-bench' ? t('Top') : undefined} />}
+          )}
+          {sym.type === 'range-hood' && styleOf(sym) !== 'built-in' && <p className="text-xs text-muted-foreground">{t('Its chimney goes up to the ceiling.')}</p>}
+          {def?.frames && <FramePicker sym={sym} frames={def.frames} label={def.frameLabel} />}
+          {hasWorktop(sym) && <WorktopPicker sym={sym} label={sym.type === 'shower-bench' ? t('Top') : undefined} />}
+        </Panel>
+      )}
+
+      {def?.fixture === 'switch' && (
+        <Panel id="switch" icon={ToggleRight} title={t('Switch wiring')} summary={[sym.label, t('{n} lights', { n: sym.controls?.length ?? 0 })].filter(Boolean).join(' · ')} open>
+          <Field label={t('Name')}>
+            {(id) => <TextInput id={id} value={sym.label ?? ''} onChange={(v) => updateSymbol(sym.id, (s) => void (s.label = v))} />}
+          </Field>
+          <SwitchSection sym={sym} />
+        </Panel>
+      )}
+      {def?.fixture && def.fixture !== 'switch' && (
+        <Panel id="light" icon={Lightbulb} title={tc('section', 'Light')} summary={lightSummary(sym)} open>
+          <LightSection sym={sym} units={units} />
+        </Panel>
+      )}
+      {lightLabel && (
+        <Panel id="light" icon={Lightbulb} title={tc('section', 'Light')} summary={sym.led ? lightSummary(sym) : t('Off')}>
+          <BuiltInLight sym={sym} units={units} label={lightLabel} />
+        </Panel>
+      )}
+
+      <Panel id="place" icon={Move} title={t('Position')} summary={placeSummary}>
         {def?.sill !== undefined && !NICHES.has(sym.type) && (
           <Field label={t('Sill height')}>
-            {(id) => (
-              <LengthInput
-                id={id}
-                value={sym.elevation ?? def.sill ?? 0}
-                units={units}
-                min={0}
-                onChange={(v) => updateSymbol(sym.id, (s) => void (s.elevation = v))}
-              />
-            )}
+            {(id) => <LengthInput id={id} value={sym.elevation ?? def.sill ?? 0} units={units} min={0} onChange={(v) => updateSymbol(sym.id, (s) => void (s.elevation = v))} />}
           </Field>
         )}
         {def?.elevation !== undefined && !def.fixture && (!def.wallMount || ['ac-split', 'towel-rail', 'towel-radiator', 'wall-cabinet', 'range-hood'].includes(sym.type)) && (
           <Field label={t('Above the floor')}>
-            {(id) => (
-              <LengthInput
-                id={id}
-                value={sym.elevation ?? def.elevation ?? 0}
-                units={units}
-                min={0}
-                onChange={(v) => updateSymbol(sym.id, (s) => void (s.elevation = v))}
-              />
-            )}
+            {(id) => <LengthInput id={id} value={sym.elevation ?? def.elevation ?? 0} units={units} min={0} onChange={(v) => updateSymbol(sym.id, (s) => void (s.elevation = v))} />}
           </Field>
         )}
+        {sym.wall && (
+          <div className="flex items-center justify-between gap-2 rounded-lg bg-primary/10 px-3 py-2 text-sm">
+            <span>{t('In wall {n} of {room}', { n: sym.wall.edge + 1, room: wallRoom?.name ?? t('the room') })}</span>
+            <Button
+              variant="ghost"
+              size="xs"
+              onClick={() =>
+                updateSymbol(sym.id, (s) => {
+                  s.wall = undefined
+                  s.x = pose.x
+                  s.y = pose.y
+                  s.rotation = pose.rotation
+                })
+              }
+            >
+              <Link2Off /> {t('Detach')}
+            </Button>
+          </div>
+        )}
+        {sym.wall && wallLen > 0 && (
+          <>
+            <Field label={t('Gap to wall start')}>
+              {(id) => <LengthInput id={id} value={Math.max(0, gapStart)} units={units} min={0} onChange={(v) => setOffset(v + sym.width / 2)} />}
+            </Field>
+            <Field label={t('Gap to wall end')}>
+              {(id) => <LengthInput id={id} value={Math.max(0, gapEnd)} units={units} min={0} onChange={(v) => setOffset(wallLen - v - sym.width / 2)} />}
+            </Field>
+            <Button variant="outline" size="sm" className="w-full" disabled={Math.abs(gapStart - gapEnd) < 0.5} onClick={() => setOffset(wallLen / 2)}>
+              <AlignHorizontalJustifyCenter /> {Math.abs(gapStart - gapEnd) < 0.5 ? t('Centered on the wall') : t('Center on wall')}
+            </Button>
+          </>
+        )}
+        {def?.wall && !sym.wall && <p className="text-xs text-muted-foreground">{t('Drag it onto a wall to insert it.')}</p>}
         {free && (across || depthwise || Object.keys(sides).length > 0) && (
           <div className="space-y-2 rounded-lg bg-muted/60 p-3">
             <p className="text-sm font-medium">{t('Position in the room')}</p>
@@ -2479,7 +2822,7 @@ function SymbolProps({ sym, units }: { sym: PlanSymbol; units: Units }) {
                 <div key={axis} className="flex items-center justify-between gap-2 text-sm">
                   <span className="min-w-0">
                     <span className="text-muted-foreground">{label}</span>
-                    <span className="ml-2 tabular-nums">
+                    <span className="ms-2 tabular-nums">
                       {fmt(a)} · {fmt(b)}
                     </span>
                   </span>
@@ -2513,23 +2856,26 @@ function SymbolProps({ sym, units }: { sym: PlanSymbol; units: Units }) {
             </p>
           </div>
         )}
-        {DOOR_DEFAULT[sym.type] && sym.type !== 'shower' && (
-          <Choice
-            label={t('Doors')}
-            value={sym.doors ?? DOOR_DEFAULT[sym.type]}
-            onChange={(v) => updateSymbol(sym.id, (s) => void (s.doors = v))}
-            options={[
-              { value: 'hinged', label: t('Hinged') },
-              { value: 'sliding', label: t('Sliding') },
-            ]}
-          />
+        {!sym.wall && (
+          <Field label={t('Rotation')}>
+            {(id) => (
+              <NumberInput id={id} value={sym.rotation} step={15} suffix="°" onChange={(v) => updateSymbol(sym.id, (s) => void (s.rotation = ((v % 360) + 360) % 360))} />
+            )}
+          </Field>
         )}
-        {sym.type.startsWith('wardrobe') && (
-          <label className="flex items-center justify-between gap-2 text-sm">
-            <span className="text-muted-foreground">{t('Glass doors')}</span>
-            <Switch size="sm" checked={!!sym.glass} onCheckedChange={(on) => updateSymbol(sym.id, (s) => void (s.glass = on || undefined))} />
-          </label>
-        )}
+        <div className="flex flex-wrap gap-2">
+          {!sym.wall && (
+            <Button variant="outline" size="sm" onClick={() => updateSymbol(sym.id, (s) => void (s.rotation = (s.rotation + 90) % 360))}>
+              <RotateCw /> 90°
+            </Button>
+          )}
+          <Button variant="outline" size="sm" onClick={() => updateSymbol(sym.id, (s) => void (s.flipX = !s.flipX))}>
+            <FlipHorizontal2 /> {sym.wall ? t('Hinge side') : tc('flip', 'Mirror')}
+          </Button>
+          <Button variant="outline" size="sm" onClick={() => updateSymbol(sym.id, (s) => void (s.flipY = !s.flipY))}>
+            <FlipVertical2 /> {sym.wall ? t('Swing side') : t('Flip front/back')}
+          </Button>
+        </div>
         {sym.type === 'sofa-table' && (
           <div className="space-y-1.5">
             <Button
@@ -2574,7 +2920,7 @@ function SymbolProps({ sym, units }: { sym: PlanSymbol; units: Units }) {
                 if (!convertColumns([sym.id], sym.type === 'column' ? 'wall' : 'free')) toast.error(t('There is no wall near it. Move it up to a wall first.'))
               }}
             >
-              <Columns2 /> {sym.type === 'column' ? 'Build it into the wall' : 'Make it free-standing'}
+              <Columns2 /> {sym.type === 'column' ? t('Build it into the wall') : t('Make it free-standing')}
             </Button>
             <p className="text-xs text-muted-foreground">
               {sym.type === 'column'
@@ -2583,109 +2929,11 @@ function SymbolProps({ sym, units }: { sym: PlanSymbol; units: Units }) {
             </p>
           </div>
         )}
-        {(sym.type === 'sofa-corner' || sym.type === 'wardrobe-corner') && (
-          <Choice
-            label={t('Corner on')}
-            value={sym.flipX ? 'right' : 'left'}
-            onChange={(v) => updateSymbol(sym.id, (s) => void (s.flipX = v === 'right'))}
-            options={[
-              { value: 'left', label: t('Left') },
-              { value: 'right', label: t('Right') },
-            ]}
-          />
-        )}
         {!sym.wall && !sym.room && sym.type !== 'label' && (
           <KeepSwitch checked={!!sym.keep} onChange={(on) => updateSymbol(sym.id, (s) => void (on ? (s.keep = true) : delete s.keep))} />
         )}
-        {!sym.wall && (
-          <Field label={t('Rotation')}>
-            {(id) => (
-              <NumberInput
-                id={id}
-                value={sym.rotation}
-                step={15}
-                suffix="°"
-                onChange={(v) => updateSymbol(sym.id, (s) => void (s.rotation = ((v % 360) + 360) % 360))}
-              />
-            )}
-          </Field>
-        )}
-        <div className="flex flex-wrap gap-2">
-          {!sym.wall && (
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => updateSymbol(sym.id, (s) => void (s.rotation = (s.rotation + 90) % 360))}
-            >
-              <RotateCw /> 90°
-            </Button>
-          )}
-          <Button variant="outline" size="sm" onClick={() => updateSymbol(sym.id, (s) => void (s.flipX = !s.flipX))}>
-            <FlipHorizontal2 /> {sym.wall ? t('Hinge side') : tc('flip', 'Mirror')}
-          </Button>
-          <Button variant="outline" size="sm" onClick={() => updateSymbol(sym.id, (s) => void (s.flipY = !s.flipY))}>
-            <FlipVertical2 /> {sym.wall ? t('Swing side') : t('Flip front/back')}
-          </Button>
-        </div>
-        {sym.wall && (
-          <div className="flex items-center justify-between gap-2 rounded-lg bg-primary/10 px-3 py-2 text-sm">
-            <span>
-              {t('In wall {n} of {room}', { n: sym.wall.edge + 1, room: wallRoom?.name ?? t('the room') })}
-            </span>
-            <Button
-              variant="ghost"
-              size="xs"
-              onClick={() =>
-                updateSymbol(sym.id, (s) => {
-                  s.wall = undefined
-                  s.x = pose.x
-                  s.y = pose.y
-                  s.rotation = pose.rotation
-                })
-              }
-            >
-              <Link2Off /> {t('Detach')}
-            </Button>
-          </div>
-        )}
-        {sym.wall && wallLen > 0 && (
-          <div className="space-y-2">
-            <Field label={t('Gap to wall start')}>
-              {(id) => (
-                <LengthInput id={id} value={Math.max(0, gapStart)} units={units} min={0} onChange={(v) => setOffset(v + sym.width / 2)} />
-              )}
-            </Field>
-            <Field label={t('Gap to wall end')}>
-              {(id) => (
-                <LengthInput id={id} value={Math.max(0, gapEnd)} units={units} min={0} onChange={(v) => setOffset(wallLen - v - sym.width / 2)} />
-              )}
-            </Field>
-            <Button
-              variant="outline"
-              size="sm"
-              className="w-full"
-              disabled={Math.abs(gapStart - gapEnd) < 0.5}
-              onClick={() => setOffset(wallLen / 2)}
-            >
-              <AlignHorizontalJustifyCenter /> {Math.abs(gapStart - gapEnd) < 0.5 ? t('Centered on the wall') : t('Center on wall')}
-            </Button>
-          </div>
-        )}
-        {def?.wall && !sym.wall && <p className="text-xs text-muted-foreground">{t('Drag it onto a wall to insert it.')}</p>}
-      </Section>
-      {def?.fixture && (
-        <>
-          <Separator />
-          <Section title={def.fixture === 'switch' ? t('Switch wiring') : tc('section', 'Light')}>
-            {def.fixture === 'switch' ? <SwitchSection sym={sym} /> : <LightSection sym={sym} units={units} />}
-          </Section>
-        </>
-      )}
-      <Separator />
-      <Section>
-        <Actions />
-      </Section>
-    </>
+      </Panel>
+    </Inspector>
   )
 }
 
@@ -2694,8 +2942,8 @@ function FloorAndProjectProps() {
   const floor = useFloor()
   const commit = useEditor((s) => s.commit)
   return (
-    <>
-      <Section title={t('Floor')}>
+    <Inspector item={`floor:${floor.id}`} icon={Layers} title={floor.name} kind={<Badge variant="secondary">{t('Floor')}</Badge>}>
+      <Panel id="floor" icon={Layers} title={t('Floor')} summary={t('Walls {height} high', { height: formatLength(floor.height, project.units) })} open>
         <Field label={t('Name')}>
           {(id) => (
             <TextInput
@@ -2704,6 +2952,20 @@ function FloorAndProjectProps() {
               onChange={(v) =>
                 commit((d) => {
                   draftFloor(d).name = v
+                })
+              }
+            />
+          )}
+        </Field>
+        <Field label={t('Wall height')}>
+          {(id) => (
+            <LengthInput
+              id={id}
+              value={floor.height}
+              units={project.units}
+              onChange={(v) =>
+                commit((d) => {
+                  draftFloor(d).height = v
                 })
               }
             />
@@ -2719,75 +2981,55 @@ function FloorAndProjectProps() {
         >
           <Ruler /> {t('Add overall dimensions')}
         </Button>
-        <Field label={t('Wall height')}>
-          {(id) => (
-            <LengthInput
-              id={id}
-              value={floor.height}
-              units={project.units}
-              onChange={(v) =>
+      </Panel>
+      {floor.underlay && (
+        <Panel id="underlay" icon={ImageIcon} title={t('Background drawing')} summary={floor.underlay.visible ? `${t('Shown')} · ${Math.round(floor.underlay.opacity * 100)}%` : t('Hidden')}>
+          <label className="flex items-center justify-between text-sm">
+            {t('Show while editing')}
+            <Switch
+              checked={floor.underlay.visible}
+              onCheckedChange={(v) =>
                 commit((d) => {
-                  draftFloor(d).height = v
+                  const u = draftFloor(d).underlay
+                  if (u) u.visible = v
                 })
               }
             />
-          )}
-        </Field>
-      </Section>
-      {floor.underlay && (
-        <>
-          <Separator />
-          <Section title={t('Background drawing')}>
-            <label className="flex items-center justify-between text-sm">
-              {t('Show while editing')}
-              <Switch
-                checked={floor.underlay.visible}
-                onCheckedChange={(v) =>
-                  commit((d) => {
-                    const u = draftFloor(d).underlay
-                    if (u) u.visible = v
-                  })
-                }
-              />
-            </label>
-            <div className="space-y-2">
-              <div className="flex justify-between text-sm">
-                <span className="text-muted-foreground">{t('Opacity')}</span>
-                <span className="tabular-nums">{Math.round(floor.underlay.opacity * 100)}%</span>
-              </div>
-              <Slider
-                min={0.1}
-                max={1}
-                step={0.05}
-                value={[floor.underlay.opacity]}
-                onValueChange={([v]) =>
-                  useEditor.getState().mutate((d) => {
-                    const u = draftFloor(d).underlay
-                    if (u) u.opacity = v
-                  })
-                }
-              />
+          </label>
+          <div className="space-y-2">
+            <div className="flex justify-between text-sm">
+              <span className="text-muted-foreground">{t('Opacity')}</span>
+              <span className="tabular-nums">{Math.round(floor.underlay.opacity * 100)}%</span>
             </div>
-            <p className="text-xs text-muted-foreground">{t("Only shown while editing. It isn't exported or shown in 3D.")}</p>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() =>
-                commit((d) => {
-                  draftFloor(d).underlay = undefined
+            <Slider
+              min={0.1}
+              max={1}
+              step={0.05}
+              value={[floor.underlay.opacity]}
+              onValueChange={([v]) =>
+                useEditor.getState().mutate((d) => {
+                  const u = draftFloor(d).underlay
+                  if (u) u.opacity = v
                 })
               }
-            >
-              <ImageOff /> {t('Remove drawing')}
-            </Button>
-          </Section>
-        </>
+            />
+          </div>
+          <p className="text-xs text-muted-foreground">{t("Only shown while editing. It isn't exported or shown in 3D.")}</p>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() =>
+              commit((d) => {
+                draftFloor(d).underlay = undefined
+              })
+            }
+          >
+            <ImageOff /> {t('Remove drawing')}
+          </Button>
+        </Panel>
       )}
-      <Separator />
-      <Section title={t('Project')}>
-        <Field label={t('Name')}>
-          {(id) => <TextInput id={id} value={project.name} onChange={(v) => commit((d) => void (d.name = v))} />}
-        </Field>
+      <Panel id="project" icon={FolderOpen} title={t('Project')} summary={`${project.name} · ${project.units === 'metric' ? t('Metric (m, cm)') : t('Imperial (ft, in)')}`} open>
+        <Field label={t('Name')}>{(id) => <TextInput id={id} value={project.name} onChange={(v) => commit((d) => void (d.name = v))} />}</Field>
         <Field label={t('Units')}>
           {(id) => (
             <Select value={project.units} onValueChange={(v) => commit((d) => void (d.units = v as Units))}>
@@ -2802,33 +3044,22 @@ function FloorAndProjectProps() {
           )}
         </Field>
         <Field label={t('Default wall')}>
-          {(id) => (
-            <LengthInput
-              id={id}
-              value={project.defaultWallThickness}
-              units={project.units}
-              min={1}
-              onChange={(v) => commit((d) => void (d.defaultWallThickness = v))}
-            />
-          )}
+          {(id) => <LengthInput id={id} value={project.defaultWallThickness} units={project.units} min={1} onChange={(v) => commit((d) => void (d.defaultWallThickness = v))} />}
         </Field>
-      </Section>
-      <Separator />
-      <Section title={t('Getting started')}>
+      </Panel>
+      <Panel id="help" icon={CircleHelp} title={t('Getting started')} summary={t('Drawing rooms, adding items, moving round')} open>
         <ul className="list-disc space-y-1.5 ps-4 text-xs leading-relaxed text-muted-foreground">
           <li>{t('Press R and drag to draw a rectangular room, or P to click out any shape.')}</li>
           <li>{t('While drawing, type a length (e.g. 3.5) and press Enter for exact walls.')}</li>
           <li>{t("Add doors, windows and furniture from the Library tab. Dragged up to a wall, they're pulled flush against it.")}</li>
-          <li>
-            {t('One open space with two looks (a reception and its corridor)? Divide it with S: two rooms, each with its own floor, ceiling and lights, and no wall between them.')}
-          </li>
+          <li>{t('One open space with two looks (a reception and its corridor)? Divide it with S: two rooms, each with its own floor, ceiling and lights, and no wall between them.')}</li>
           <li>{t('Scroll to zoom, drag empty space to pan, double-click a room to zoom to it. Switch to 3D at the top.')}</li>
         </ul>
         <Button variant="outline" size="sm" className="mt-3 w-full" onClick={startTour}>
           <CircleHelp /> {t('Take the tour')}
         </Button>
-      </Section>
-    </>
+      </Panel>
+    </Inspector>
   )
 }
 

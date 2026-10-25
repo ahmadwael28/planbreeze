@@ -9,10 +9,10 @@ import type { Place } from '@/model/finishes'
 import type { ProjectImage, Surface, Units } from '@/model/types'
 import { floorStats } from '@/model/project'
 import { SYMBOL_MAP } from '@/model/symbols'
-import { finishTotals, roomSurfaces, skirting } from '@/model/takeoff'
+import { finishTotals, roomSurfaces, skirting, stoneTotals } from '@/model/takeoff'
 import { formatArea, formatLength } from '@/model/units'
 import { useEditor, useFloor } from '@/store/editor'
-import { finishLabel, useTakeoff } from '@/hooks/use-takeoff'
+import { finishLabel, stoneName, useTakeoff } from '@/hooks/use-takeoff'
 import { Breakdown } from './Surfaces'
 
 export function SummaryPanel() {
@@ -45,6 +45,7 @@ export function SummaryPanel() {
     return { paint, board }
   }, [parts])
   const skirt = useMemo(() => [...skirting(floor).values()].reduce((s, l) => s + l, 0), [floor])
+  const stones = useMemo(() => stoneTotals(parts), [parts])
   const surfaces = floor.rooms.map((r) => ({ room: r, ...roomSurfaces(parts, r.id) }))
   const total = surfaces.reduce((s, r) => ({ floor: s.floor + r.floor, walls: s.walls + r.walls, ceiling: s.ceiling + r.ceiling }), { floor: 0, walls: 0, ceiling: 0 })
 
@@ -184,6 +185,37 @@ export function SummaryPanel() {
               </TableBody>
             </Table>
             <p className="text-xs text-muted-foreground">{t('The slab and gypsum alike, every face that shows. Boards: plus a tenth for cuts.')}</p>
+          </div>
+        </>
+      )}
+      {stones.length > 0 && (
+        <>
+          <Separator />
+          <div className="space-y-2">
+            <h4 className="text-xs font-medium tracking-wide text-muted-foreground uppercase">{t('Stone and worktops')}</h4>
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>{t('Stone')}</TableHead>
+                  <TableHead className="text-end">{t('To buy')}</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {stones.map((s) => (
+                  <TableRow key={s.stone}>
+                    <TableCell className="max-w-40">
+                      <div className="truncate">{stoneName(s.stone)}</div>
+                      <div className="text-xs text-muted-foreground tabular-nums">{formatArea(s.area, units)}</div>
+                    </TableCell>
+                    <TableCell className="text-end align-top tabular-nums">
+                      {formatArea(s.area * 1.1, units)}
+                      <div className="text-xs text-muted-foreground">{t('{length} front edge', { length: formatLength(s.length, units) })}</div>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+            <p className="text-xs text-muted-foreground">{t('Worktops, vanity and bench tops, niche sills and the shelves on toilet boxes and half walls. To buy: plus a tenth for cuts; the front edge is what’s polished.')}</p>
           </div>
         </>
       )}

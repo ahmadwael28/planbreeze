@@ -1,7 +1,8 @@
 import { useMemo } from 'react'
 import { t } from '@/i18n'
 import { finishOf } from '@/model/finishes'
-import { takeoff } from '@/model/takeoff'
+import { SHELF_STONE, takeoff } from '@/model/takeoff'
+import { WORKTOPS } from '@/model/symbols'
 import type { TakeoffPart, TakeoffPlace } from '@/model/takeoff'
 import type { ProjectImage, Surface } from '@/model/types'
 import { useFloor } from '@/store/editor'
@@ -23,3 +24,6 @@ export function finishLabel(surface: Surface | undefined, place: TakeoffPlace, i
   const size = f.size && (kind === 'tile' || kind === 'plank') ? ` · ${f.size[0]}×${f.size[1]}` : ''
   return { name: t(f.def.name), detail: `${what}${size}${f.design && !photo ? ` · ${t(f.design.name)}` : ''}` }
 }
+
+/** What a stone's called (a worktop's, or the light stone shelves are made of). */
+export const stoneName = (id?: string) => (id === SHELF_STONE ? t('Light stone (shelves)') : t(WORKTOPS.find((w) => w.id === id)?.name ?? 'Stone'))

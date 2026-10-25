@@ -482,7 +482,11 @@ function WallBands({ room, units, set }: { room: Room; units: Units; set: (recip
   )
 }
 
-export function CeilingSection({ room, units }: { room: Room; units: Units }) {
+/**
+ * A room's ceiling: its gypsum (style, drop, bands), its hidden LED strip, its curtain pockets and its shadow gaps; all
+ * of it, or one of them (`part`, each a panel of the room's properties).
+ */
+export function CeilingSection({ room, units, part }: { room: Room; units: Units; part?: 'style' | 'strip' | 'pockets' | 'gaps' }) {
   const floor = useFloor()
   const c = room.ceiling
   const cove = floor.symbols.find((s) => s.room === room.id && s.type === 'cove-light')
@@ -531,8 +535,11 @@ export function CeilingSection({ room, units }: { room: Room; units: Units }) {
         pruneControls(f)
       }
     })
+  const box = part ? 'space-y-3' : 'space-y-3 rounded-lg border p-3'
   return (
     <div className="space-y-3">
+      {(!part || part === 'style') && (
+      <>
       <Row label={t('Style')}>
         <Select value={c?.style ?? 'none'} onValueChange={(v) => applyCeiling(room.id, v === 'none' ? null : (v as CeilingStyle))}>
           <SelectTrigger size="sm" className="w-full">
@@ -564,10 +571,13 @@ export function CeilingSection({ room, units }: { room: Room; units: Units }) {
           )}
         </>
       )}
-      <div className="space-y-3 rounded-lg border p-3">
+      </>
+      )}
+      {(!part || part === 'strip') && (
+      <div className={box}>
         <div className="flex items-center justify-between gap-2">
           <span className="flex items-center gap-1.5 text-sm font-medium">
-            <Lightbulb className="size-4" /> {t('Hidden LED strip')}
+            {!part && <Lightbulb className="size-4" />} {part ? (cove ? t('On') : t('None yet')) : t('Hidden LED strip')}
           </span>
           {cove ? (
             <Button variant="ghost" size="xs" className="text-destructive hover:text-destructive" onClick={removeCove}>
@@ -609,8 +619,10 @@ export function CeilingSection({ room, units }: { room: Room; units: Units }) {
           <p className="text-xs text-muted-foreground">{t('An LED strip hidden in the ceiling, lighting the walls or the ceiling itself.')}</p>
         )}
       </div>
-      <div className="space-y-2 rounded-lg border p-3">
-        <span className="text-sm font-medium">{t('Curtain pocket')}</span>
+      )}
+      {(!part || part === 'pockets') && (
+      <div className={box}>
+        {!part && <span className="text-sm font-medium">{t('Curtain pocket')}</span>}
         {canPocket ? (
           <>
             <p className="text-xs text-muted-foreground">{t('A gap in the gypsum ceiling along a wall, up to the slab, that hides the curtain track.')}</p>
@@ -650,11 +662,13 @@ export function CeilingSection({ room, units }: { room: Room; units: Units }) {
             )}
           </>
         ) : (
-          <p className="text-xs text-muted-foreground">{t('Needs a gypsum ceiling (not a floating panel): choose a style above.')}</p>
+          <p className="text-xs text-muted-foreground">{part ? t('Needs a gypsum ceiling (not a floating panel): choose its style first.') : t('Needs a gypsum ceiling (not a floating panel): choose a style above.')}</p>
         )}
       </div>
-      <div className="space-y-2 rounded-lg border p-3">
-        <span className="text-sm font-medium">{t('Shadow gap')}</span>
+      )}
+      {(!part || part === 'gaps') && (
+      <div className={box}>
+        {!part && <span className="text-sm font-medium">{t('Shadow gap')}</span>}
         <p className="text-xs text-muted-foreground">{t('A recessed groove where the wall meets the ceiling.')}</p>
         <WallPicker
           room={room}
@@ -680,6 +694,7 @@ export function CeilingSection({ room, units }: { room: Room; units: Units }) {
           </>
         )}
       </div>
+      )}
     </div>
   )
 }
