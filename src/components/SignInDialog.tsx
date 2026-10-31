@@ -80,7 +80,9 @@ export function SignInDialog() {
             <MailCheck className="size-9 text-primary" />
             <p className="font-medium">{t('Check your inbox')}</p>
             <p className="text-sm text-muted-foreground">
-              We sent a sign-in link to <b className="text-foreground">{sentTo}</b>. Open it in this browser to finish signing in.
+              {t('We sent a sign-in link to {email}. Open it in this browser to finish signing in.')
+                .split(/(\{email\})/)
+                .map((part, i) => (part === '{email}' ? <b key={i} className="text-foreground" dir="ltr">{sentTo}</b> : part))}
             </p>
             <Button variant="ghost" size="sm" onClick={() => setSentTo(null)}>
               {t('Use a different email')}
@@ -90,11 +92,11 @@ export function SignInDialog() {
           <div className="space-y-3">
             <Button variant="outline" className="h-10 w-full" disabled={!!busy} onClick={() => withProvider('google')}>
               {busy === 'google' ? <Loader label={t('Signing in')} /> : <GoogleIcon className="size-4" />}
-              Continue with Google
+              {t('Continue with Google')}
             </Button>
             <Button variant="outline" className="h-10 w-full" disabled={!!busy} onClick={() => withProvider('github')}>
               {busy === 'github' ? <Loader label={t('Signing in')} /> : <GitHubIcon className="size-4" />}
-              Continue with GitHub
+              {t('Continue with GitHub')}
             </Button>
             <div className="flex items-center gap-3 text-xs text-muted-foreground">
               <span className="h-px flex-1 bg-border" />
@@ -112,7 +114,7 @@ export function SignInDialog() {
               />
               <Button type="submit" className="h-10 w-full" disabled={!!busy}>
                 {busy === 'email' ? <Loader label={t('Sending')} /> : <Mail />}
-                Email me a sign-in link
+                {t('Email me a sign-in link')}
               </Button>
             </form>
             {error && <p className="rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive">{error}</p>}

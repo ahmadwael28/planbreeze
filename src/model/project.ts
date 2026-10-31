@@ -36,7 +36,7 @@ export function newFloor(name: string): Floor {
   return { id: uid(), name, height: 250, rooms: [], symbols: [] }
 }
 
-export function newProject(name = 'Untitled plan'): Project {
+export function newProject(name = t('Untitled plan')): Project {
   const now = Date.now()
   return {
     id: uid(),
@@ -184,7 +184,7 @@ export function newSymbol(type: string, x: number, y: number): PlanSymbol {
     rotation: 0,
     flipX: false,
     flipY: false,
-    label: type === 'label' ? 'Label' : undefined,
+    label: type === 'label' ? t('Label') : undefined,
   }
   if (def?.elevation !== undefined) sym.elevation = def.elevation
   if (def?.preset) Object.assign(sym, def.preset.set)
@@ -331,6 +331,23 @@ export function keepBack(sym: PlanSymbol, depth: number) {
   const shift = (sym.depth - depth) / 2
   sym.x += Math.sin(r) * f * shift
   sym.y -= Math.cos(r) * f * shift
+}
+
+/** How thick the slab between one floor and the next is (cm). */
+export const SLAB = 15
+
+/** Where the stairs on a floor go up through the slab above (those that reach it, not a few steps): each one's footprint. */
+export function stairOpenings(floor: Floor): Point[][] {
+  return floor.symbols
+    .filter((s) => s.type === 'stairs' && (s.height || 280) >= floor.height)
+    .map((s) => {
+      const p = symbolPose(s, floor.rooms)
+      const r = (p.rotation * Math.PI) / 180
+      const c = Math.cos(r)
+      const n = Math.sin(r)
+      const at = (x: number, y: number) => ({ x: p.x + x * c - y * n, y: p.y + x * n + y * c })
+      return [at(-s.width / 2, -s.depth / 2), at(s.width / 2, -s.depth / 2), at(s.width / 2, s.depth / 2), at(-s.width / 2, s.depth / 2)]
+    })
 }
 
 export function wallMountPose(p: Point, rooms: Room[], maxDist: number, depth: number): Pose | null {

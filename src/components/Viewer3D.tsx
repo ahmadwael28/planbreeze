@@ -278,7 +278,7 @@ function snapshot3d(ctx: Ctx): Promise<Blob> {
   renderer.render(ctx.scene, ctx.camera)
   // The picture is taken as it's asked for, before the view goes back.
   const blob = new Promise<Blob>((resolve, reject) =>
-    renderer.domElement.toBlob((b) => (b ? resolve(b) : reject(new Error('Could not make the picture'))), 'image/png'),
+    renderer.domElement.toBlob((b) => (b ? resolve(b) : reject(new Error(t('Could not make the picture')))), 'image/png'),
   )
   renderer.setPixelRatio(ratio)
   applyInset(ctx)

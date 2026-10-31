@@ -3,6 +3,7 @@ import type { DragEvent, MouseEvent as RMouseEvent, PointerEvent as RPointerEven
 import {
   add,
   bbox,
+  crossesItself,
   dist,
   dot,
   inwardNormal,
@@ -21,11 +22,13 @@ import { toast } from 'sonner'
 import { ceilingLight, ceilingRoom, coveRuns } from '@/model/lighting'
 import { dimensionPoints, findWallSnap, floorBounds, isOpen, isOutdoor, moveWall, newSymbol, roomOuter, symbolPose, wallMountPose } from '@/model/project'
 import { boxMagnet, magnetize } from '@/model/magnet'
-import { acrossRoom, connectedRooms, dividePoints, joinPoints, movedLine } from '@/model/divide'
+import { acrossRoom, connectedRooms, dividePoints, followersOf, movedLine, openPair } from '@/model/divide'
+import type { Follower, OpenPair } from '@/model/divide'
 import type { SnapMark } from '@/model/magnet'
 import { SYMBOL_MAP } from '@/model/symbols'
-import { formatLength, gridSpacing, parseLength, snapStep } from '@/model/units'
-import type { Dimension, Floor, PlanSymbol, Point, Pose, Room, SavedView } from '@/model/types'
+import { formatLength, gridSpacing, isLengthKey, parseLength, snapStep } from '@/model/units'
+import { LengthReading } from './LengthInput'
+import type { Dimension, Floor, PlanSymbol, Point, Pose, Room, SavedView, Units } from '@/model/types'
 import {
   addDimension,
   addPartition,
@@ -122,6 +125,9 @@ function touchHint(tool: string, step: { corners: number; dim: number; cut: bool
   }
   return ''
 }
+
+/** The tools that draw where they're clicked, one point at a time. */
+const DRAWING = new Set(['room', 'divide', 'partition', 'dimension'])
 
 /** Kinds of drag that change the plan as they go (and so can be taken back when a pinch starts). */
 const PREVIEW_ONLY = new Set(['pan', 'rect', 'marquee'])
@@ -241,52 +247,6 @@ function openingInLine(floor: Floor, sym: PlanSymbol, att: NonNullable<PlanSymbo
   return { offset: att.offset + best.delta, mark: { a: here, b: best.at, kind: 'align' } }
 }
 
-/** A corner of a room open to the one being reshaped, on one of its corners (`at`): it moves with that corner. */
-interface Follower {
-  id: string
-  index: number
-  orig: Point
-  at: number
-}
-
-/** Two rooms open to each other along a whole wall of each: the room across, the space they make, their doors. */
-interface OpenPair {
-  other: Room
-  union: Point[]
-  poses: { id: string; pose: Point }[]
-  coves: { id: string; off: number[] }[]
-  /** Each room's ceiling stops at the line (rather than one across it). */
-  apart: boolean
-}
-
-/** The room across a room's open wall `i` (the same line from the other side) and the space they make together. */
-function openPair(floor: Floor, room: Room, i: number): OpenPair | null {
-  const a = room.points[i]
-  const b = room.points[(i + 1) % room.points.length]
-  const other = floor.rooms.find(
-    (r) => r.id !== room.id && r.points.some((p, j) => dist(p, b) < 0.5 && dist(r.points[(j + 1) % r.points.length], a) < 0.5),
-  )
-  const union = other && joinPoints(room, other)
-  if (!other || !union) return null
-  const poses = floor.symbols
-    .filter((s) => s.wall && (s.wall.roomId === room.id || s.wall.roomId === other.id))
-    .map((s) => ({ id: s.id, pose: symbolPose(s, floor.rooms) as Point }))
-  const coves = floor.symbols.filter((s) => (s.room === room.id || s.room === other.id) && s.cove?.off).map((s) => ({ id: s.id, off: s.cove!.off! }))
-  return { other, union, poses, coves, apart: !!room.ceilingBreaks?.includes(i) }
-}
-
-/** The corners of the rooms a room is open to that sit on these corners of it. */
-function followersOf(floor: Floor, room: Room, corners: Point[]): Follower[] {
-  return connectedRooms(room, floor.rooms)
-    .filter((r) => r.id !== room.id)
-    .flatMap((r) =>
-      r.points.flatMap((q, index) => {
-        const at = corners.findIndex((p) => dist(p, q) < 0.5)
-        return at >= 0 ? [{ id: r.id, index, orig: q, at }] : []
-      }),
-    )
-}
-
 /** Best per-axis correction that aligns any of `moving` with any of `targets` within `thr`. */
 function axisSnap(moving: Point[], targets: Point[], thr: number) {
   let dx: number | null = null
@@ -335,6 +295,8 @@ export function Canvas() {
   const drag = useRef<Drag | null>(null)
   const pointers = useRef(new Map<number, Point>())
   const pinch = useRef<{ dist: number; zoom: number; world: Point } | null>(null)
+  /** The finger down with a drawing tool: it draws where it lifts, unless a second finger makes it a pinch. */
+  const pendingTap = useRef<number | null>(null)
   const [rectPreview, setRectPreview] = useState<{ a: Point; b: Point } | null>(null)
   const [marquee, setMarquee] = useState<{ a: Point; b: Point } | null>(null)
   /** The symbol being moved or resized, for the distance guides. */
@@ -626,13 +588,18 @@ export function Canvas() {
 
   // ---------- polygon drawing ----------
   const finishPolygon = useCallback((pts: Point[]) => {
+    // Walls that cross: still drawing, to take a corner back (Backspace, or the bar's button) and go round again.
+    if (pts.length >= 3 && crossesItself(pts)) {
+      toast.error(t('These walls cross each other. Take back a corner and go round the room again.'))
+      return
+    }
     if (pts.length >= 3) addRoom(pts)
     setDrawPts([])
     setTyped('')
   }, [])
 
-  const isClosing = (pts: Point[], p: Point) =>
-    pts.length >= 3 && dist(pts[0], p) * useEditor.getState().view.zoom < 12
+  /** Whether a point's on the first corner (within `px` on screen), finishing the room. */
+  const isClosing = (pts: Point[], p: Point, px = 12) => pts.length >= 3 && dist(pts[0], p) * useEditor.getState().view.zoom < px
 
   useEffect(() => {
     if (tool !== 'room') return
@@ -644,10 +611,10 @@ export function Canvas() {
         setTyped('')
       } else if (e.key === 'Enter') {
         if (typed && drawPts.length && cursor) {
-          const len = parseLength(typed, units)
+          const last = drawPts[drawPts.length - 1]
+          const target = drawSnap(cursor, drawPts)
+          const len = parseLength(typed, units, dist(last, target))
           if (len && len > 0) {
-            const last = drawPts[drawPts.length - 1]
-            const target = drawSnap(cursor, drawPts)
             const dir = normalize(sub(target, last))
             if (dir.x || dir.y) setDrawPts([...drawPts, add(last, mul(dir, len))])
           }
@@ -658,7 +625,7 @@ export function Canvas() {
       } else if (e.key === 'Backspace') {
         if (typed) setTyped(typed.slice(0, -1))
         else setDrawPts(drawPts.slice(0, -1))
-      } else if (/^[0-9.,'" a-z]$/i.test(e.key) && drawPts.length) {
+      } else if (isLengthKey(e.key) && drawPts.length) {
         setTyped(typed + e.key)
       } else return
       e.preventDefault()
@@ -668,6 +635,70 @@ export function Canvas() {
   })
 
   // ---------- pointer handling ----------
+  /** A drawing tool used at `w` (a room's next corner, a division's ends, a wall's, a dimension's points). */
+  const drawAt = (w: Point, shift: boolean, touch: boolean) => {
+    const st = useEditor.getState()
+    const fl = currentFloor(st)
+      if (st.tool === 'room') {
+        if (touch) setCursor(w)
+        const p = drawSnap(w, drawPts)
+        // On the first corner (where it was clicked, whatever snapping makes of it; a finger's width by touch): done.
+        const reach = touch ? 24 : 12
+        if (isClosing(drawPts, p, reach) || isClosing(drawPts, w, reach)) return finishPolygon(drawPts)
+        if (drawPts.length && dist(drawPts[drawPts.length - 1], p) < 1) return
+        setDrawPts([...drawPts, p])
+        setTyped('')
+        return
+      }
+      if (st.tool === 'divide') {
+        if (touch) setCursor(w)
+        if (!cut) {
+          const from = outlinePoint(w)
+          if (!from) {
+            toast(t('Click a wall of the room to divide'), { description: t('Where the line between its two parts starts (a corner works too).') })
+            return
+          }
+          setCut({ roomId: from.room.id, a: from.p })
+          st.select({ kind: 'room', id: from.room.id })
+          return
+        }
+        const end = cutEnd(w, shift)
+        const room = fl.rooms.find((r) => r.id === cut.roomId)
+        const made = end && divideRoom(cut.roomId, cut.a, end)
+        setCut(null)
+        if (made && room) {
+          toast(t('Divided into {a} and {b}', { a: room.name, b: made.name }), {
+            description: t('No wall between them: each has its own floor, ceiling and lights. Rename them in their properties.'),
+          })
+        } else toast(t("That line doesn't divide the room in two"), { description: t('Start on one wall and end on another, across the room.') })
+        return
+      }
+      if (st.tool === 'partition') {
+        if (touch) setCursor(w)
+        if (!wallStart) setWallStart(wallPoint(w))
+        else {
+          const end = wallPoint(w, wallStart)
+          if (dist(end, wallStart) < 5) return
+          addPartition(wallStart, end)
+          setWallStart(null)
+        }
+        return
+      }
+      if (st.tool === 'dimension') {
+        if (touch) setCursor(w)
+        if (!dimDraft) setDimDraft({ a: pointSnap(w).p })
+        else if (!dimDraft.b) {
+          const b = dimEnd(dimDraft.a, w)
+          if (dist(b, dimDraft.a) > 1) setDimDraft({ a: dimDraft.a, b })
+        } else {
+          const d = addDimension({ a: dimDraft.a, b: dimDraft.b, offset: dimOffset(dimDraft.a, dimDraft.b, w) })
+          setDimDraft(null)
+          st.select({ kind: 'dimension', id: d.id })
+        }
+        return
+      }
+  }
+
   const onPointerDown = (e: RPointerEvent<SVGSVGElement>) => {
     const s = screenPos(e)
     pointers.current.set(e.pointerId, s)
@@ -676,8 +707,9 @@ export function Canvas() {
     const st = useEditor.getState()
 
     if (pointers.current.size === 2) {
-      // A second finger: it's a pinch. Whatever the first one had started moving goes back.
+      // A second finger: it's a pinch. Whatever the first one had started moving goes back (and draws nothing).
       clearTimeout(holdTimer.current)
+      pendingTap.current = null
       const was = drag.current
       if (was?.moved && !PREVIEW_ONLY.has(was.type)) st.undo()
       setMovingId(null)
@@ -704,13 +736,12 @@ export function Canvas() {
     const w = toWorld(s)
     const fl = currentFloor(st)
 
-    if (st.tool === 'room') {
-      if (e.pointerType !== 'mouse') setCursor(w) // touch has no hover
-      const p = drawSnap(w, drawPts)
-      if (isClosing(drawPts, p)) return finishPolygon(drawPts)
-      if (drawPts.length && dist(drawPts[drawPts.length - 1], p) < 1) return
-      setDrawPts([...drawPts, p])
-      setTyped('')
+    // The drawing tools: with a finger, where it lifts (so a second finger landing first makes a pinch, with no stray
+    // corner, and the finger can slide to the spot first); with a mouse or pen, where it's pressed.
+    if (DRAWING.has(st.tool)) {
+      setCursor(w)
+      if (e.pointerType === 'touch') pendingTap.current = e.pointerId
+      else drawAt(w, e.shiftKey, e.pointerType !== 'mouse')
       return
     }
     if (st.tool === 'rect' || st.tool === 'balcony' || st.tool === 'terrace') {
@@ -718,54 +749,6 @@ export function Canvas() {
       drag.current = { ...base, type: 'rect', start: p, current: p }
       return
     }
-    if (st.tool === 'divide') {
-      if (e.pointerType !== 'mouse') setCursor(w)
-      if (!cut) {
-        const from = outlinePoint(w)
-        if (!from) {
-          toast('Click a wall of the room to divide', { description: 'Where the line between its two parts starts (a corner works too).' })
-          return
-        }
-        setCut({ roomId: from.room.id, a: from.p })
-        st.select({ kind: 'room', id: from.room.id })
-        return
-      }
-      const end = cutEnd(w, e.shiftKey)
-      const room = fl.rooms.find((r) => r.id === cut.roomId)
-      const made = end && divideRoom(cut.roomId, cut.a, end)
-      setCut(null)
-      if (made && room) {
-        toast(`Divided into ${room.name} and ${made.name}`, {
-          description: 'No wall between them: each has its own floor, ceiling and lights. Rename them in their properties.',
-        })
-      } else toast("That line doesn't divide the room in two", { description: 'Start on one wall and end on another, across the room.' })
-      return
-    }
-    if (st.tool === 'partition') {
-      if (e.pointerType !== 'mouse') setCursor(w)
-      if (!wallStart) setWallStart(wallPoint(w))
-      else {
-        const end = wallPoint(w, wallStart)
-        if (dist(end, wallStart) < 5) return
-        addPartition(wallStart, end)
-        setWallStart(null)
-      }
-      return
-    }
-    if (st.tool === 'dimension') {
-      if (e.pointerType !== 'mouse') setCursor(w)
-      if (!dimDraft) setDimDraft({ a: pointSnap(w).p })
-      else if (!dimDraft.b) {
-        const b = dimEnd(dimDraft.a, w)
-        if (dist(b, dimDraft.a) > 1) setDimDraft({ a: dimDraft.a, b })
-      } else {
-        const d = addDimension({ a: dimDraft.a, b: dimDraft.b, offset: dimOffset(dimDraft.a, dimDraft.b, w) })
-        setDimDraft(null)
-        st.select({ kind: 'dimension', id: d.id })
-      }
-      return
-    }
-
     const target = (e.target as Element).closest('[data-kind]') as HTMLElement | null
     const kind = target?.dataset.kind
     const id = target?.dataset.id
@@ -783,7 +766,7 @@ export function Canvas() {
         st.select({ kind: 'symbol', id: sym.id })
       } else if (sym && (fixture || sym.led)) {
         if (st.wireSwitch) toggleWire(st.wireSwitch, sym.id)
-        else toast('Click a switch first, then the lights it should control.')
+        else toast(t('Click a switch first, then the lights it should control.'))
       } else {
         startPan()
       }
@@ -1283,6 +1266,10 @@ export function Canvas() {
 
   const onPointerUp = (e: RPointerEvent<SVGSVGElement>) => {
     const wasPinch = !!pinch.current
+    const tapped = pendingTap.current === e.pointerId
+    if (tapped) pendingTap.current = null
+    // A finger lifted with a drawing tool (and no pinch): it draws there.
+    if (tapped && !wasPinch && e.type === 'pointerup') drawAt(toWorld(screenPos(e)), false, true)
     pointers.current.delete(e.pointerId)
     if (pointers.current.size < 2) pinch.current = null
     clearTimeout(holdTimer.current)
@@ -1430,7 +1417,7 @@ export function Canvas() {
         : null
     const at = placed ?? mount
     const added = addSymbol(type, at ?? w, at?.rotation ?? 0, att ?? undefined)
-    if (!added) toast('Drop it onto a room.')
+    if (!added) toast(t('Drop it onto a room.'))
   }
 
   // ---------- rendering ----------
@@ -1500,7 +1487,9 @@ export function Canvas() {
       })}
     </g>
   )
-  const closing = drawCursor ? isClosing(drawPts, drawCursor) : false
+  // Shown closing exactly when a click (a tap) there would close the room (see drawAt).
+  const reach = touch ? 24 : 12
+  const closing = !!drawCursor && (isClosing(drawPts, drawCursor, reach) || (!!cursor && isClosing(drawPts, cursor, reach)))
 
   return (
     <>
@@ -1800,7 +1789,7 @@ export function Canvas() {
                   <line x1={0} y1={-hd} x2={0} y2={-hd - px(touch ? 34 : 22)} className="sel-outline" />
                   {touch && <circle data-kind="rotate" className="touch-hit" cx={0} cy={-hd - px(34)} r={px(22)} />}
                   <circle data-kind="rotate" className="handle rotate-handle" cx={0} cy={-hd - px(touch ? 34 : 22)} r={px(touch ? 10 : 7)}>
-                    <title>Rotate (hold Shift for free rotation)</title>
+                    <title>{t('Rotate (hold Shift for free rotation)')}</title>
                   </circle>
                 </>
               )}
@@ -1834,7 +1823,7 @@ export function Canvas() {
                       height={px((side ? 10 : 12) * k)}
                       rx={side ? px(5 * k) : 0}
                     >
-                      <title>{side ? 'Drag to stretch this side (Alt: both sides)' : 'Drag to resize from this corner (Alt: from the center)'}</title>
+                      <title>{side ? t('Drag to stretch this side (Alt: both sides)') : t('Drag to resize from this corner (Alt: from the center)')}</title>
                     </rect>
                   </g>
                 )
@@ -1938,7 +1927,7 @@ export function Canvas() {
                 <line x1={cx} y1={top} x2={cx} y2={top - px(touch ? 34 : 22)} className="sel-outline" pointerEvents="none" />
                 {touch && <circle data-kind="multi-rotate" className="touch-hit" cx={cx} cy={top - px(34)} r={px(22)} />}
                 <circle data-kind="multi-rotate" className="handle rotate-handle" cx={cx} cy={top - px(touch ? 34 : 22)} r={px(touch ? 10 : 7)}>
-                  <title>Turn them together (hold Shift for free rotation)</title>
+                  <title>{t('Turn them together (hold Shift for free rotation)')}</title>
                 </circle>
               </g>
             )
@@ -2011,9 +2000,12 @@ export function Canvas() {
             {drawCursor && drawPts.length > 0 && !(touch && dist(drawPts[drawPts.length - 1], drawCursor) < 1) && (() => {
               const last = drawPts[drawPts.length - 1]
               const L = dist(last, drawCursor)
+              // Typing: what's typed, and how it reads (a plain number by the length to the cursor; by touch, as the bar
+              // reads it, for the walls it makes).
+              const read = typed ? parseLength(typed, units, touch ? undefined : L) : null
               return (
                 <text x={drawCursor.x + px(12)} y={drawCursor.y - px(12)} fontSize={px(12)} className="draw-label">
-                  {typed ? `${typed}▏` : formatLength(L, units)}
+                  {typed ? `${typed}▏ ${read ? `= ${formatLength(read, units)}` : '?'}` : formatLength(L, units)}
                 </text>
               )
             })()}
@@ -2027,6 +2019,7 @@ export function Canvas() {
         corners={tool === 'room' ? drawPts.length : 0}
         busy={(tool === 'room' && drawPts.length > 0) || (tool === 'dimension' && !!dimDraft) || (tool === 'divide' && !!cut) || (tool === 'partition' && !!wallStart)}
         typed={typed}
+        units={units}
         onTyped={setTyped}
         onWall={(dir) => {
           const len = parseLength(typed, units)
@@ -2073,6 +2066,7 @@ function TouchToolBar(p: {
   corners: number
   busy: boolean
   typed: string
+  units: Units
   onTyped: (s: string) => void
   onWall: (dir: Point) => void
   onUndoCorner: () => void
@@ -2101,6 +2095,7 @@ function TouchToolBar(p: {
               aria-label={t('Length of the next wall')}
               className="h-10 w-24"
             />
+            {p.typed.trim() && <LengthReading text={p.typed} units={p.units} />}
             {dirs.map(([dir, Icon, label]) => (
               <Button key={label} variant="outline" size="icon-lg" disabled={!p.typed.trim()} onClick={() => p.onWall(dir)} aria-label={t('Next wall: {dir}', { dir: label })}>
                 <Icon />

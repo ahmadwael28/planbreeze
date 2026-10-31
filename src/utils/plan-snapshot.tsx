@@ -1,3 +1,4 @@
+import { t } from '@/i18n'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { PlanLayers } from '@/components/PlanLayers'
 import { DARK_THEME, LIGHT_THEME } from '@/model/theme'
@@ -38,7 +39,7 @@ export async function planSnapshot(): Promise<Blob> {
     const img = new Image()
     await new Promise<void>((resolve, reject) => {
       img.onload = () => resolve()
-      img.onerror = () => reject(new Error('Could not draw the plan'))
+      img.onerror = () => reject(new Error(t('Could not draw the plan')))
       img.src = url
     })
     const canvas = document.createElement('canvas')
@@ -46,7 +47,7 @@ export async function planSnapshot(): Promise<Blob> {
     canvas.height = Math.round(h * ratio)
     canvas.getContext('2d')!.drawImage(img, 0, 0, canvas.width, canvas.height)
     const blob = await new Promise<Blob | null>((r) => canvas.toBlob(r, 'image/png'))
-    if (!blob) throw new Error('Could not make the picture')
+    if (!blob) throw new Error(t('Could not make the picture'))
     return blob
   } finally {
     URL.revokeObjectURL(url)

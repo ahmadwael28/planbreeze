@@ -208,7 +208,7 @@ export async function reconcile(): Promise<void> {
       saveProject(remote.data)
       useEditor.getState().loadProject(remote.data)
       set({ saveState: 'saved', lastSaved: remote.updatedAt })
-      toast('Loaded the latest version of this plan from your account.')
+      toast(t('Loaded the latest version of this plan from your account.'))
     } else {
       set({ saveState: 'conflict', conflict: { projectId: p.id, remote } })
     }
@@ -275,15 +275,15 @@ async function welcome(user: CloudUser) {
   } catch {
     // listing failed; skip the offer
   }
-  const who = user.name || user.email || 'your account'
+  const who = user.name || user.email || t('your account')
   if (local.length) {
-    toast.success(`Signed in as ${who}. This plan now saves to your account.`, {
+    toast.success(t('Signed in as {who}. This plan now saves to your account.', { who }), {
       duration: 12000,
-      description: `${local.length} other plan${local.length === 1 ? ' is' : 's are'} only on this device.`,
-      action: { label: 'Upload them', onClick: () => void uploadLocal(local.map((m) => m.id)) },
+      description: local.length === 1 ? t('1 other plan is only on this device.') : t('{n} other plans are only on this device.', { n: local.length }),
+      action: { label: t('Upload them'), onClick: () => void uploadLocal(local.map((m) => m.id)) },
     })
   } else {
-    toast.success(`Signed in as ${who}. Your plans now save to your account.`)
+    toast.success(t('Signed in as {who}. Your plans now save to your account.', { who }))
   }
 }
 
@@ -293,7 +293,7 @@ function redirectUrl() {
 }
 
 export async function signInWithProvider(provider: OAuthProvider) {
-  if (!supabase) throw new Error('Cloud sign-in is not configured.')
+  if (!supabase) throw new Error(t('Cloud sign-in is not configured.'))
   sessionStorage.setItem(JUST_SIGNED_IN, '1')
   const { error } = await supabase.auth.signInWithOAuth({ provider, options: { redirectTo: redirectUrl() } })
   if (error) {
@@ -303,7 +303,7 @@ export async function signInWithProvider(provider: OAuthProvider) {
 }
 
 export async function signInWithEmail(email: string) {
-  if (!supabase) throw new Error('Cloud sign-in is not configured.')
+  if (!supabase) throw new Error(t('Cloud sign-in is not configured.'))
   sessionStorage.setItem(JUST_SIGNED_IN, '1')
   const { error } = await supabase.auth.signInWithOtp({ email, options: { emailRedirectTo: redirectUrl() } })
   if (error) throw new Error(error.message)
@@ -374,7 +374,7 @@ export async function fetchCloudProject(id: string): Promise<Project | null> {
 export async function openCloudProject(id: string) {
   if (!backend) return
   const remote = await backend.get(id)
-  if (!remote) throw new Error('That plan is no longer in your account.')
+  if (!remote) throw new Error(t('That plan is no longer in your account.'))
   synced[id] = { version: remote.version, updatedAt: remote.data.updatedAt }
   persistSynced()
   saveProject(remote.data)
@@ -394,10 +394,10 @@ export async function deleteCloudProject(id: string) {
 export async function renameCloudProject(id: string, name: string) {
   if (!backend) return
   const remote = await backend.get(id)
-  if (!remote) throw new Error('That plan is no longer in your account.')
+  if (!remote) throw new Error(t('That plan is no longer in your account.'))
   const data = { ...remote.data, name, updatedAt: Date.now() }
   const version = await backend.update(data, remote.version)
-  if (version === null) throw new Error('The plan changed on another device. Open it and rename it there.')
+  if (version === null) throw new Error(t('The plan changed on another device. Open it and rename it there.'))
   synced[id] = { version, updatedAt: data.updatedAt }
   persistSynced()
   if (loadProject(id)) saveProject(data)
@@ -422,7 +422,7 @@ export async function uploadLocal(ids: string[], quiet = false) {
     }
   }
   persistSynced()
-  if (!quiet) toast.success(`Uploaded ${n} plan${n === 1 ? '' : 's'} to your account.`)
+  if (!quiet) toast.success(n === 1 ? t('Uploaded 1 plan to your account.') : t('Uploaded {n} plans to your account.', { n }))
   return n
 }
 
@@ -463,7 +463,7 @@ export async function initCloud() {
   const err = url.searchParams.get('error_description') || url.searchParams.get('error')
   if (err) {
     sessionStorage.removeItem(JUST_SIGNED_IN)
-    toast.error(`Sign-in didn't complete: ${err}`)
+    toast.error(t("Sign-in didn't complete: {error}", { error: err }))
     for (const k of ['error', 'error_code', 'error_description']) url.searchParams.delete(k)
     window.history.replaceState(window.history.state, '', url.toString())
   }
@@ -490,7 +490,7 @@ interface PendingShare {
 
 /** The sharing API, for the signed-in user. */
 export function sharingApi(): SharingBackend {
-  if (!sharing || !me()) throw new Error('Sign in to share plans.')
+  if (!sharing || !me()) throw new Error(t('Sign in to share plans.'))
   return sharing
 }
 
@@ -505,13 +505,13 @@ export function shareLink(id: string, key?: string | null) {
 
 /** Make sure the open plan is saved in the account (it has to be there to be shared). */
 export async function ensureInCloud() {
-  if (!backend || !me()) throw new Error('Sign in to share plans.')
-  if (useCloud.getState().conflict) throw new Error('First choose which version of this plan to keep.')
+  if (!backend || !me()) throw new Error(t('Sign in to share plans.'))
+  if (useCloud.getState().conflict) throw new Error(t('First choose which version of this plan to keep.'))
   for (let i = 0; inFlight && i < 40; i++) await new Promise((r) => setTimeout(r, 250))
   clearTimeout(timer)
   await saveNow()
   const id = useEditor.getState().project.id
-  if (!synced[id]) throw new Error(useCloud.getState().error ?? "This plan isn't saved to your account yet. Check your connection and try again.")
+  if (!synced[id]) throw new Error(useCloud.getState().error ?? t("This plan isn't saved to your account yet. Check your connection and try again."))
 }
 
 /** Change what this user may do with the open plan (no undo step, and nothing to save). */
@@ -522,8 +522,8 @@ function setAccess(access: ProjectAccess | undefined) {
 /** The open plan isn't shared with this user any more: it stays on this device, to view. */
 function lostAccess(p: Project) {
   if (p.access?.role !== 'viewer') setAccess(p.access && { ...p.access, role: 'viewer' })
-  set({ saveState: 'error', error: "this plan isn't shared with you any more" })
-  toast.error("This plan isn't shared with you any more. Your copy stays on this device to view; make a copy to keep working on it.", {
+  set({ saveState: 'error', error: t("this plan isn't shared with you any more") })
+  toast.error(t("This plan isn't shared with you any more. Your copy stays on this device to view; make a copy to keep working on it."), {
     duration: 10000,
   })
 }
@@ -580,7 +580,7 @@ async function reconcileShared(p: Project): Promise<void> {
  * This user's own plans just open.
  */
 export async function openSharedProject(owner: string, id: string, key?: string) {
-  if (!backend || !sharing) throw new Error('Cloud sign-in is not configured.')
+  if (!backend || !sharing) throw new Error(t('Cloud sign-in is not configured.'))
   const user = useCloud.getState().user
   if (user && owner === user.id) return openCloudProject(id)
   // This device already has it as its own plan (e.g. its owner, signed out, followed its link): open that.
@@ -595,8 +595,8 @@ export async function openSharedProject(owner: string, id: string, key?: string)
   if (!remote || !found) {
     throw new Error(
       user
-        ? `This plan isn't shared with ${user.email ?? 'your account'}. Ask its owner to share it with that address, or sign in with the one they used.`
-        : 'Sign in to open this plan.',
+        ? t("This plan isn't shared with {who}. Ask its owner to share it with that address, or sign in with the one they used.", { who: user.email ?? t('your account') })
+        : t('Sign in to open this plan.'),
     )
   }
   const access: ProjectAccess = { owner, ownerEmail: found.ownerEmail, role: found.role, ...(key ? { key } : {}) }
@@ -621,7 +621,7 @@ async function openPendingShare() {
   if (Date.now() - link.at > PENDING_FOR) return localStorage.removeItem(PENDING_SHARE)
   if (!useCloud.getState().user && !link.key) {
     // Shared with people by email: they sign in first, and the link waits for them.
-    useCloud.getState().openSignIn(true, 'Sign in with the email address this plan was shared with to open it.')
+    useCloud.getState().openSignIn(true, t('Sign in with the email address this plan was shared with to open it.'))
     return
   }
   localStorage.removeItem(PENDING_SHARE)
@@ -629,8 +629,17 @@ async function openPendingShare() {
     await openSharedProject(link.owner, link.id, link.key)
     const p = useEditor.getState().project
     if (p.access) {
-      const by = p.access.ownerEmail ? ` by ${p.access.ownerEmail}` : ''
-      toast.success(p.access.role === 'viewer' ? `Opened “${p.name}”, shared${by} for you to view.` : `Opened “${p.name}”, shared${by}. Your changes save to it.`)
+      const who = p.access.ownerEmail
+      const view = p.access.role === 'viewer'
+      toast.success(
+        who
+          ? view
+            ? t('Opened “{name}”, shared by {email} for you to view.', { name: p.name, email: who })
+            : t('Opened “{name}”, shared by {email}. Your changes save to it.', { name: p.name, email: who })
+          : view
+            ? t('Opened “{name}”, shared for you to view.', { name: p.name })
+            : t('Opened “{name}”, shared with you. Your changes save to it.', { name: p.name }),
+      )
     }
   } catch (e) {
     toast.error((e as Error).message, { duration: 10000 })
@@ -661,10 +670,10 @@ export function makeOwnCopy() {
   const p = useEditor.getState().project
   const now = Date.now()
   const { access: _access, ...rest } = structuredClone(p)
-  const copy: Project = { ...rest, id: uid(), name: `${p.name} (copy)`, createdAt: now, updatedAt: now }
+  const copy: Project = { ...rest, id: uid(), name: t('{name} (copy)', { name: p.name }), createdAt: now, updatedAt: now }
   saveProject(copy)
   useEditor.getState().loadProject(copy)
-  toast.success(`Made a copy: “${copy.name}”. It's yours to change.`)
+  toast.success(t("Made a copy: “{name}”. It's yours to change.", { name: copy.name }))
 }
 
 /** Development only: run the sync engine against an in-memory cloud with a fake user. */

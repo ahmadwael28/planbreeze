@@ -1,8 +1,27 @@
 import { useEffect, useState } from 'react'
 import { Input } from '@/components/ui/input'
 import { cn } from '@/lib/utils'
-import { formatLength, parseLength } from '@/model/units'
+import { t } from '@/i18n'
+import { formatLength, isHuge, parseLength } from '@/model/units'
 import type { Units } from '@/model/types'
+
+/** How a length being typed reads (under the field while typing): the length, flagged if it's huge, or not a length. */
+export function LengthReading({ text, units, near, className }: { text: string; units: Units; near?: number; className?: string }) {
+  if (!text.trim()) return null
+  const v = parseLength(text, units, near)
+  return (
+    <span
+      dir="ltr"
+      className={cn(
+        'pointer-events-none rounded-md px-1.5 py-0.5 text-[11px] whitespace-nowrap tabular-nums shadow-sm',
+        v === null ? 'bg-destructive text-white' : v > 0 && isHuge(v) ? 'bg-amber-500 text-black' : 'bg-foreground text-background',
+        className,
+      )}
+    >
+      {v === null ? t('Not a length') : `= ${formatLength(v, units)}`}
+    </span>
+  )
+}
 
 interface Props {
   value: number
@@ -13,7 +32,11 @@ interface Props {
   id?: string
 }
 
-/** Text field that shows a formatted length and accepts "3.4", "340 cm", "11' 2\"", etc. */
+/**
+ * Text field that shows a formatted length and accepts "3.4", "340 cm", "11' 2\"", Arabic digits and units, etc. A plain
+ * number is read by the length there now (metres or centimetres, whichever's nearer it), and how it reads shows below
+ * as it's typed.
+ */
 export function LengthInput({ value, units, onChange, min = 0.5, className, id }: Props) {
   const [draft, setDraft] = useState<string | null>(null)
   const [invalid, setInvalid] = useState(false)
@@ -23,9 +46,11 @@ export function LengthInput({ value, units, onChange, min = 0.5, className, id }
     setInvalid(false)
   }, [value, units])
 
+  // What a plain number's read by: the length there now (a field at 0, a metre).
+  const near = value > 0 ? value : 100
   const commit = () => {
     if (draft === null) return
-    const v = parseLength(draft, units)
+    const v = parseLength(draft, units, near)
     if (v === null || v < min) {
       setInvalid(true)
       return
@@ -36,25 +61,31 @@ export function LengthInput({ value, units, onChange, min = 0.5, className, id }
   }
 
   return (
-    <Input dir="ltr"
-      id={id}
-      className={cn('h-8 tabular-nums', className)}
-      aria-invalid={invalid || undefined}
-      value={draft ?? formatLength(value, units)}
-      title={units === 'metric' ? 'e.g. 3.45, 345 cm' : 'e.g. 11\' 4", 11.5\', 136"'}
-      onChange={(e) => setDraft(e.target.value)}
-      onFocus={(e) => e.target.select()}
-      onBlur={commit}
-      onKeyDown={(e) => {
-        if (e.key === 'Enter') {
-          ;(e.target as HTMLInputElement).blur() // commits via onBlur
-        } else if (e.key === 'Escape') {
-          setDraft(null)
+    <div className="relative min-w-0">
+      <Input dir="ltr"
+        id={id}
+        className={cn('h-8 tabular-nums', className)}
+        aria-invalid={invalid || undefined}
+        value={draft ?? formatLength(value, units)}
+        title={units === 'metric' ? t('e.g. 3.45 m, 345 cm') : t('e.g. {examples}', { examples: `11' 4", 11.5', 136"` })}
+        onChange={(e) => {
+          setDraft(e.target.value)
           setInvalid(false)
-          ;(e.target as HTMLInputElement).blur()
-        }
-      }}
-    />
+        }}
+        onFocus={(e) => e.target.select()}
+        onBlur={commit}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') {
+            ;(e.target as HTMLInputElement).blur() // commits via onBlur
+          } else if (e.key === 'Escape') {
+            setDraft(null)
+            setInvalid(false)
+            ;(e.target as HTMLInputElement).blur()
+          }
+        }}
+      />
+      {draft !== null && <LengthReading text={draft} units={units} near={near} className="absolute top-full left-0 z-10 mt-1" />}
+    </div>
   )
 }
 

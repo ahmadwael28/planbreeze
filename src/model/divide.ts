@@ -4,8 +4,8 @@
  * open walls (Room.openEdges) always lie along open walls of the rooms across: see healOpenings.
  */
 import polygonClipping from 'polygon-clipping'
-import { add, dist, dot, inwardNormal, mul, normalize, pointInPolygon, projectOnSegment, signedArea, sub } from './geometry'
-import { isOpen, isOutdoor } from './project'
+import { add, crossesItself, dist, dot, inwardNormal, mul, normalize, pointInPolygon, projectOnSegment, signedArea, sub } from './geometry'
+import { isOpen, isOutdoor, symbolPose } from './project'
 import type { Floor, Point, Room } from './types'
 
 const cross = (a: Point, b: Point) => a.x * b.y - a.y * b.x
@@ -134,6 +134,7 @@ export function dividePoints(pts: Point[], a: Point, b: Point): [Point[], Point[
   const one = walk(ka, kb)
   const two = walk(kb, ka)
   if (one.length < 3 || two.length < 3 || Math.abs(signedArea(one)) < 100 || Math.abs(signedArea(two)) < 100) return null
+  if (crossesItself(one) || crossesItself(two)) return null
   return [one, two]
 }
 
@@ -342,4 +343,50 @@ export function healOpenings(floor: Floor, changed: (old: Room) => void): boolea
     r.openEdges = open.length ? [...new Set(open)].sort((x, y) => x - y) : undefined
   }
   return true
+}
+
+/** A corner of a room open to the one being reshaped, on one of its corners (`at`): it moves with that corner. */
+export interface Follower {
+  id: string
+  index: number
+  orig: Point
+  at: number
+}
+
+/** Two rooms open to each other along a whole wall of each: the room across, the space they make, their doors. */
+export interface OpenPair {
+  other: Room
+  union: Point[]
+  poses: { id: string; pose: Point }[]
+  coves: { id: string; off: number[] }[]
+  /** Each room's ceiling stops at the line (rather than one across it). */
+  apart: boolean
+}
+
+/** The room across a room's open wall `i` (the same line from the other side) and the space they make together. */
+export function openPair(floor: Floor, room: Room, i: number): OpenPair | null {
+  const a = room.points[i]
+  const b = room.points[(i + 1) % room.points.length]
+  const other = floor.rooms.find(
+    (r) => r.id !== room.id && r.points.some((p, j) => dist(p, b) < 0.5 && dist(r.points[(j + 1) % r.points.length], a) < 0.5),
+  )
+  const union = other && joinPoints(room, other)
+  if (!other || !union) return null
+  const poses = floor.symbols
+    .filter((s) => s.wall && (s.wall.roomId === room.id || s.wall.roomId === other.id))
+    .map((s) => ({ id: s.id, pose: symbolPose(s, floor.rooms) as Point }))
+  const coves = floor.symbols.filter((s) => (s.room === room.id || s.room === other.id) && s.cove?.off).map((s) => ({ id: s.id, off: s.cove!.off! }))
+  return { other, union, poses, coves, apart: !!room.ceilingBreaks?.includes(i) }
+}
+
+/** The corners of the rooms a room is open to that sit on these corners of it. */
+export function followersOf(floor: Floor, room: Room, corners: Point[]): Follower[] {
+  return connectedRooms(room, floor.rooms)
+    .filter((r) => r.id !== room.id)
+    .flatMap((r) =>
+      r.points.flatMap((q, index) => {
+        const at = corners.findIndex((p) => dist(p, q) < 0.5)
+        return at >= 0 ? [{ id: r.id, index, orig: q, at }] : []
+      }),
+    )
 }

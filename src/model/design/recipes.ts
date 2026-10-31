@@ -897,6 +897,9 @@ function kitchenPlans(L: Layout): KitchenPlan[] {
  * The units of a plan along their walls (the kept ones where they are), the hood, wall cabinets, then an island or a
  * table. False if its sink or hob couldn't go in.
  */
+/** The units along a kitchen's walls that are cabinets, in the style's cabinet finish. */
+const CABINETS = new Set(['counter', 'kitchen-sink', 'stove', 'oven-tower'])
+
 function placeKitchen(ctx: Ctx, plan: KitchenPlan): boolean {
   const { L, marks, style } = ctx
   const an = L.an
@@ -923,7 +926,7 @@ function placeKitchen(ctx: Ctx, plan: KitchenPlan): boolean {
     const f = an.faces[leg.face]
     const box = againstWall(facePoint(f, s), f.inward, m.w, m.d, 0, m.h)
     const extra: Partial<PlanSymbol> = { width: m.w, depth: m.d }
-    if (m.type === 'oven-tower') extra.frame = cabinets
+    if (CABINETS.has(m.type)) extra.frame = cabinets
     if (m.type === 'washing-machine') extra.style = 'built-in'
     if (m.type !== 'fridge' && m.type !== 'oven-tower') extra.top = style.worktop
     const counter = m.type === 'counter'
@@ -1014,7 +1017,7 @@ function placeCorner(ctx: Ctx, legs: Leg[], i: number, shallow: Box[]) {
   const box: Box = { x: mid.x, y: mid.y, w: CORNER, d: CORNER, rot, z0: 0, z1: 90 }
   // Its corner is at its back left: flipped when the corner is to its right.
   const flipX = dot(axes(rot).u, toward) > 0
-  if (L.fits(box, [], shallow)) L.add({ sym: L.sym('kitchen-corner', box, { width: CORNER, depth: CORNER, flipX, top: style.worktop }), box })
+  if (L.fits(box, [], shallow)) L.add({ sym: L.sym('kitchen-corner', box, { width: CORNER, depth: CORNER, flipX, top: style.worktop, frame: style.cabinets }), box })
 }
 
 /** An island along the main run where there's room for it and both aisles; a table as well (or instead) if there's room. */

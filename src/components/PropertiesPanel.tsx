@@ -1740,10 +1740,20 @@ function ShowerHeadPicker({ sym }: { sym: PlanSymbol }) {
   )
 }
 
-/** Swatches for the frame finishes an item comes in, plus any custom color. */
+/** The kitchen's cabinets: base units, wall cabinets, the tower and the island, all in the same finishes. */
+const KITCHEN_CABINETS = new Set(['counter', 'kitchen-sink', 'stove', 'kitchen-corner', 'wall-cabinet', 'oven-tower', 'kitchen-island'])
+
+/**
+ * Swatches for the frame finishes an item comes in, plus any custom color. A kitchen cabinet's finish can go on all of
+ * the kitchen's cabinets in one go.
+ */
 function FramePicker({ sym, frames, label }: { sym: PlanSymbol; frames: FrameColor[]; label?: string }) {
+  const floor = useFloor()
   const current = frameOf(sym) ?? frames[0]
   const custom = !frames.some((f) => f.hex === current.hex)
+  const unlike = KITCHEN_CABINETS.has(sym.type)
+    ? floor.symbols.filter((s) => s.id !== sym.id && KITCHEN_CABINETS.has(s.type) && frameOf(s)?.hex.toLowerCase() !== current.hex.toLowerCase())
+    : []
   const set = (hex: string) => updateSymbol(sym.id, (s) => void (s.frame = hex))
   const swatch = (f: FrameColor) => (f.metal ? `linear-gradient(135deg, ${f.hex} 20%, #ffffff 50%, ${f.hex} 80%)` : f.hex)
   const ring = 'ring-2 ring-primary ring-offset-2 ring-offset-background'
@@ -1755,8 +1765,8 @@ function FramePicker({ sym, frames, label }: { sym: PlanSymbol; frames: FrameCol
             <button
               key={f.hex}
               type="button"
-              title={f.name}
-              aria-label={`${f.name} frame`}
+              title={t(f.name)}
+              aria-label={t('{name} frame', { name: t(f.name) })}
               aria-pressed={f.hex === current.hex}
               onClick={() => set(f.hex)}
               className={cn('size-6 rounded-full border shadow-sm outline-none focus-visible:ring-2 focus-visible:ring-ring', f.hex === current.hex && ring)}
@@ -1784,7 +1794,21 @@ function FramePicker({ sym, frames, label }: { sym: PlanSymbol; frames: FrameCol
               }}
             />
           </label>
-          <span className="text-xs text-muted-foreground">{current.name}</span>
+          <span className="text-xs text-muted-foreground">{t(current.name)}</span>
+          {unlike.length > 0 && (
+            <Button
+              variant="link"
+              size="sm"
+              className="h-auto basis-full justify-start p-0 text-xs"
+              onClick={() =>
+                useEditor.getState().commit((d) => {
+                  for (const s of draftFloor(d).symbols) if (KITCHEN_CABINETS.has(s.type)) s.frame = current.hex
+                })
+              }
+            >
+              {unlike.length === 1 ? t('The same on the other kitchen cabinet') : t('The same on the other {n} kitchen cabinets', { n: unlike.length })}
+            </Button>
+          )}
         </div>
       )}
     </Field>
@@ -2283,7 +2307,7 @@ function SymbolProps({ sym, units }: { sym: PlanSymbol; units: Units }) {
           ? t('Drop')
           : beam
             ? t('Below the ceiling')
-            : def?.fixture === 'switch'
+            : def?.fixture === 'switch' || sym.type === 'outlet'
               ? t('Mount height')
               : sym.type === 'shower' && sym.glassToCeiling
                 ? t('Door height')
@@ -2744,7 +2768,7 @@ function SymbolProps({ sym, units }: { sym: PlanSymbol; units: Units }) {
             </Field>
           )}
           {sym.type === 'range-hood' && styleOf(sym) !== 'built-in' && <p className="text-xs text-muted-foreground">{t('Its chimney goes up to the ceiling.')}</p>}
-          {def?.frames && <FramePicker sym={sym} frames={def.frames} label={def.frameLabel} />}
+          {def?.frames && <FramePicker sym={sym} frames={def.frames} label={def.frameLabel && t(def.frameLabel)} />}
           {hasWorktop(sym) && <WorktopPicker sym={sym} label={sym.type === 'shower-bench' ? t('Top') : undefined} />}
           {beamClad && (
             <Choice

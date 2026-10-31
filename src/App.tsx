@@ -32,13 +32,13 @@ import {
   duplicateSelection,
   groupSelection,
   hasClipboard,
+  nudge,
   pasteClipboard,
   removeVertices,
   rotateSelection,
   selectAll,
   useEditor,
 } from '@/store/editor'
-import { copyItems, moveItems, refsOf } from '@/model/items'
 import { lastProjectId, listProjects, loadProject, purgeOldTrash, saveProject } from '@/store/storage'
 import type { Project } from '@/model/types'
 import { newProject } from '@/model/project'
@@ -122,24 +122,6 @@ function LayerToggle() {
     </div>
   )
 }
-
-function nudge(dx: number, dy: number) {
-  const { selection, commit } = useEditor.getState()
-  if (!selection) return
-  commit((d) => {
-    const f = draftFloor(d)
-    // A door or window slides along its wall.
-    if (selection.kind === 'symbol') {
-      const s = f.symbols.find((x) => x.id === selection.id)
-      if (s?.wall) {
-        s.wall.offset += dx || dy
-        return
-      }
-    }
-    moveItems(f, copyItems(f, refsOf(selection)), dx, dy)
-  })
-}
-
 
 function useKeyboardShortcuts() {
   useEffect(() => {

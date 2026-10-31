@@ -1,3 +1,4 @@
+import { t } from '@/i18n'
 /**
  * AI recognition of floor-plan drawings with Claude (vision + structured output).
  * Runs in the browser with the user's own API key; loaded on demand.
@@ -71,13 +72,13 @@ export async function recognizePlan(
       { signal },
     )
     if (response.stop_reason === 'refusal') {
-      throw new Error('The model declined to process this image. Try a different drawing.')
+      throw new Error(t('The model declined to process this image. Try a different drawing.'))
     }
     if (response.stop_reason === 'max_tokens') {
-      throw new Error('The drawing was too complex to convert in one go. Try cropping it to one floor.')
+      throw new Error(t('The drawing was too complex to convert in one go. Try cropping it to one floor.'))
     }
     const plan = response.parsed_output
-    if (!plan) throw new Error('Could not read a floor plan from the response. Please try again.')
+    if (!plan) throw new Error(t('Could not read a floor plan from the response. Please try again.'))
 
     const cm = (p: { x: number; y: number }) => ({ x: p.x * 100, y: p.y * 100 })
     return {
@@ -91,12 +92,12 @@ export async function recognizePlan(
       model: response.model,
     }
   } catch (error) {
-    if (error instanceof Anthropic.AuthenticationError) throw new Error('That API key was rejected. Check it and try again.')
-    if (error instanceof Anthropic.PermissionDeniedError) throw new Error('This API key is not allowed to use the model.')
-    if (error instanceof Anthropic.RateLimitError) throw new Error('Rate limit reached. Wait a moment and try again.')
-    if (error instanceof Anthropic.APIUserAbortError) throw new Error('Cancelled.')
-    if (error instanceof Anthropic.APIConnectionError) throw new Error('Could not reach the Anthropic API. Check your connection.')
-    if (error instanceof Anthropic.APIError) throw new Error(`The API returned an error (${error.status}): ${error.message}`)
+    if (error instanceof Anthropic.AuthenticationError) throw new Error(t('That API key was rejected. Check it and try again.'))
+    if (error instanceof Anthropic.PermissionDeniedError) throw new Error(t('This API key is not allowed to use the model.'))
+    if (error instanceof Anthropic.RateLimitError) throw new Error(t('Rate limit reached. Wait a moment and try again.'))
+    if (error instanceof Anthropic.APIUserAbortError) throw new Error(t('Cancelled.'))
+    if (error instanceof Anthropic.APIConnectionError) throw new Error(t('Could not reach the Anthropic API. Check your connection.'))
+    if (error instanceof Anthropic.APIError) throw new Error(t('The API returned an error ({status}): {message}', { status: String(error.status), message: error.message }))
     throw error
   }
 }

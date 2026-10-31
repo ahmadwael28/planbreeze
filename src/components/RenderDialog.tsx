@@ -12,7 +12,7 @@ import { t } from '@/i18n'
 import { useLayout } from '@/hooks/use-layout'
 import { currentFloor, useEditor } from '@/store/editor'
 import { useUi } from '@/store/ui'
-import { estimate } from '@/three/renderQuality'
+import { estimate, TUNING } from '@/three/renderQuality'
 import type { RenderTuning } from '@/three/renderQuality'
 import { viewAspect } from '@/three/renderSource'
 import type { RenderJob } from '@/three/render'
@@ -223,7 +223,7 @@ export function RenderDialog() {
             {t('Realistic render')} <BetaBadge />
           </DialogTitle>
           <DialogDescription>
-            {t('The 3D view as it is now, with light bouncing round the rooms as a camera would see it: soft shadows, real reflections, every light that’s on. No AI: just more time for more detail.')}
+            {t('The 3D view as it is now, with light bouncing round the rooms as a camera would see it: soft shadows, real reflections, and up to {n} of the lights that are on (in the room in view, then the nearest beyond it). No AI: just more time for more detail.', { n: TUNING.maxLights })}
           </DialogDescription>
           <p className="text-xs text-muted-foreground">
             {t('Beta: still being worked on. Some materials may look a little different from the 3D view, and the first render on a device waits a minute or two for the graphics card.')}

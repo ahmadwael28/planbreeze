@@ -6,6 +6,7 @@
 - floors, less what's built on them;
 - walls up to the ceiling, less openings, plus columns, niches, reveals and boxes;
 - ceilings, with gypsum levels, bulkhead sides, coves, pockets, gaps, boxes and beams;
+- stair openings (`stairOpenings`: stairs that reach the floor above), off the ceiling below and the floor above, with the gypsum faces round them; `takeoff(floor, below, above)` needs the floors round it;
 - stone (place `'stone'`): worktops, vanity and bench tops, niche sills, and the shelves on toilet boxes and half walls. Each piece is counted in its stone (a `WORKTOPS` id, or `SHELF_STONE`), with its front-edge length.
 
 The Summary panel and each room's "Surfaces to finish" are built from it. It measures what the 3D view builds, from the same model helpers: `builtBox` and `halfWallBoxes` in `model/built.ts`, the `ceilingZones`/`bandEdge` functions in `model/lighting.ts`, and `wallBands`. When a 3D shape changes, the takeoff follows it.
@@ -26,6 +27,11 @@ Everything's properties are shown as an `Inspector` with `Panel`s (`src/componen
 - **Keep the same order for every item:** Size, then the item's own panels (e.g. `vanity-basin`, `shower-glass`), Options, Style and finish (`look`), Light (`light`), Position (`place`).
 - **A new setting** goes in the panel it belongs to; a new group of settings gets its own panel. Either way, its current value goes into that panel's summary. Don't add loose sections.
 - **Reuse panel ids across items** (`size`, `look`, `light`, `place`, `options`), so an open or closed panel stays that way from one item to the next.
+
+## Lengths and room shapes
+
+- **Typed lengths** go through `parseLength(text, units, near)` (`src/model/units.ts`). It reads Arabic digits and units. A plain number is metres or centimetres, whichever is nearer `near`: the field's current value, or the length being drawn. A new length field uses `LengthInput` (which shows how the text reads as it's typed), not a number input.
+- **A room's walls can't cross.** `commit` refuses a change that reshapes a room so its walls cross (`crossesItself`), and `healDrag` takes such a drag back. New rooms are checked where they're made: drawing (`finishPolygon`), dividing (`dividePoints`), importing. Check any new way of making rooms the same way.
 
 ## Plans in storage: never lose one
 

@@ -1,3 +1,4 @@
+import { t } from '@/i18n'
 import { getLayout } from '@/hooks/use-layout'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { PlanLayers } from '@/components/PlanLayers'
@@ -16,7 +17,7 @@ interface ExportOptions {
 /** Render a floor to a standalone SVG document. `pxPerCm` sets the pixel size of the output. */
 export function floorToSvg(floor: Floor, pxPerCm: number, opts: ExportOptions) {
   const pts = floorBounds(floor)
-  if (!pts.length) throw new Error('This floor is empty — nothing to export.')
+  if (!pts.length) throw new Error(t('This floor is empty — nothing to export.'))
   const b = bbox(pts)
   const plan = Math.max(b.maxX - b.minX, b.maxY - b.minY)
   const margin = plan * 0.06 + 30
@@ -105,7 +106,7 @@ export async function exportPng(project: Project, floor: Floor, opts: ExportOpti
   try {
     await new Promise<void>((resolve, reject) => {
       img.onload = () => resolve()
-      img.onerror = () => reject(new Error('Could not render image'))
+      img.onerror = () => reject(new Error(t('Could not make the picture')))
       img.src = url
     })
     const canvas = document.createElement('canvas')
@@ -114,7 +115,7 @@ export async function exportPng(project: Project, floor: Floor, opts: ExportOpti
     const ctx = canvas.getContext('2d')!
     ctx.drawImage(img, 0, 0, canvas.width, canvas.height)
     const blob = await new Promise<Blob | null>((r) => canvas.toBlob(r, 'image/png'))
-    if (!blob) throw new Error('Could not encode PNG')
+    if (!blob) throw new Error(t('Could not make the picture'))
     await saveBlob(blob, `${safeName(project.name)}-${safeName(floor.name)}.png`)
   } finally {
     URL.revokeObjectURL(url)

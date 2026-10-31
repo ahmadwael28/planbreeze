@@ -143,7 +143,7 @@ export function ViewpointBar({
                   {on && (
                     <DropdownMenu modal={false}>
                       <DropdownMenuTrigger asChild>
-                        <Button size="icon" className="rounded-l-none rounded-r-full border-l border-primary-foreground/25" aria-label={`Options for ${vp.label}`}>
+                        <Button size="icon" className="rounded-l-none rounded-r-full border-l border-primary-foreground/25" aria-label={t('Options for {name}', { name: vp.label })}>
                           <MoreHorizontal />
                         </Button>
                       </DropdownMenuTrigger>

@@ -1,3 +1,4 @@
+import { t } from '@/i18n'
 export interface LoadedImage {
   name: string
   /** JPEG data URL, long side ≤ STORE_MAX px (kept as the tracing background). */
@@ -40,9 +41,9 @@ async function decode(url: string): Promise<HTMLImageElement> {
   try {
     await img.decode()
   } catch {
-    throw new Error('This image format could not be read. Try a JPEG or PNG (iPhone HEIC photos may need converting).')
+    throw new Error(t('This image format could not be read. Try a JPEG or PNG (iPhone HEIC photos may need converting).'))
   }
-  if (!img.naturalWidth) throw new Error('The image appears to be empty.')
+  if (!img.naturalWidth) throw new Error(t('The image appears to be empty.'))
   return img
 }
 

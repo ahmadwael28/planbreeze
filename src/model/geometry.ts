@@ -1,3 +1,4 @@
+import polygonClipping from 'polygon-clipping'
 import type { Point } from './types'
 
 export const add = (a: Point, b: Point): Point => ({ x: a.x + b.x, y: a.y + b.y })
@@ -99,6 +100,93 @@ export function projectOnSegment(p: Point, a: Point, b: Point) {
   const t = l2 === 0 ? 0 : Math.max(0, Math.min(1, dot(sub(p, a), ab) / l2))
   const point = add(a, mul(ab, t))
   return { t, point, dist: dist(p, point) }
+}
+
+/**
+ * Whether a polygon's sides cross or touch one another (other than each meeting the next at a corner), or it has no
+ * area to speak of: no room can be that shape. Corners on top of each other count as one.
+ */
+export function crossesItself(points: Point[]): boolean {
+  const pts = points.filter((p, i) => dist(p, points[(i + 1) % points.length]) > 0.5)
+  const n = pts.length
+  if (n < 3 || area(pts) < 1) return true
+  const orient = (a: Point, b: Point, c: Point) => (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x)
+  const meet = (a: Point, b: Point, c: Point, d: Point) =>
+    (orient(a, b, c) * orient(a, b, d) < 0 && orient(c, d, a) * orient(c, d, b) < 0) ||
+    projectOnSegment(c, a, b).dist < 0.5 ||
+    projectOnSegment(d, a, b).dist < 0.5 ||
+    projectOnSegment(a, c, d).dist < 0.5 ||
+    projectOnSegment(b, c, d).dist < 0.5
+  for (let i = 0; i < n; i++) {
+    for (let j = i + 2; j < n; j++) {
+      if (i === 0 && j === n - 1) continue
+      if (meet(pts[i], pts[(i + 1) % n], pts[j], pts[(j + 1) % n])) return true
+    }
+  }
+  return false
+}
+
+type Ring = [number, number][]
+const toRing = (pts: Point[]): Ring => pts.map((p) => [p.x, p.y])
+/** A ring as polygon-clipping gives it back (closed: its last point is its first), as corners. */
+const fromRing = (r: Ring): Point[] => r.slice(0, -1).map(([x, y]) => ({ x, y }))
+const overlapBoxes = (a: Point[], b: Point[]) => {
+  const p = bbox(a)
+  const q = bbox(b)
+  return p.minX < q.maxX && q.minX < p.maxX && p.minY < q.maxY && q.minY < p.maxY
+}
+
+/**
+ * An outline (with its holes) less what's cut out of it (stairs going up through a slab): the pieces left, each an
+ * outline with its holes. As it was if nothing cut reaches it.
+ */
+export function cutOut(outer: Point[], holes: Point[][], cuts: Point[][]): { outer: Point[]; holes: Point[][] }[] {
+  const near = cuts.filter((c) => c.length >= 3 && overlapBoxes(outer, c))
+  if (!near.length) return [{ outer, holes }]
+  try {
+    const left = polygonClipping.difference([toRing(outer), ...holes.map(toRing)], ...near.map((c) => [toRing(c)]))
+    return left.map(([o, ...h]) => ({ outer: fromRing(o), holes: h.map(fromRing) }))
+  } catch {
+    // The clipping gave up (it can, on shapes meeting at odd angles): uncut rather than nothing.
+    return [{ outer, holes }]
+  }
+}
+
+/** How much of a polygon others cover (cm²; where they overlap each other, once). */
+export function overlapArea(poly: Point[], others: Point[][]): number {
+  const near = others.filter((c) => c.length >= 3 && overlapBoxes(poly, c))
+  if (!near.length) return 0
+  const sum = (pieces: Ring[][]) => pieces.reduce((t, [o, ...h]) => t + area(fromRing(o)) - h.reduce((s, x) => s + area(fromRing(x)), 0), 0)
+  try {
+    const [first, ...rest] = near.map((c): Ring[] => [toRing(c)])
+    return sum(polygonClipping.intersection([toRing(poly)], polygonClipping.union(first, ...rest)))
+  } catch {
+    // Each on its own (counting any overlap between them twice), or nothing if even that fails.
+    try {
+      return near.reduce((t, c) => t + sum(polygonClipping.intersection([toRing(poly)], [toRing(c)])), 0)
+    } catch {
+      return 0
+    }
+  }
+}
+
+/** The stretches of the segment a–b where `inside` holds (sampled every `step` cm). */
+export function runsInside(a: Point, b: Point, inside: (p: Point) => boolean, step = 2): [Point, Point][] {
+  const L = dist(a, b)
+  const n = Math.max(1, Math.round(L / step))
+  const at = (t: number) => add(a, mul(sub(b, a), t))
+  const out: [Point, Point][] = []
+  let start: number | null = null
+  for (let i = 0; i < n; i++) {
+    const on = inside(at((i + 0.5) / n))
+    if (on && start === null) start = i / n
+    if (!on && start !== null) {
+      out.push([at(start), at(i / n)])
+      start = null
+    }
+  }
+  if (start !== null) out.push([at(start), b])
+  return out
 }
 
 /** Unit normal of edge a->b pointing into the polygon with the given signed area. */

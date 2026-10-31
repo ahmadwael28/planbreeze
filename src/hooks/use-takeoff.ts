@@ -5,12 +5,19 @@ import { SHELF_STONE, takeoff } from '@/model/takeoff'
 import { WORKTOPS } from '@/model/symbols'
 import type { TakeoffPart, TakeoffPlace } from '@/model/takeoff'
 import type { ProjectImage, Surface } from '@/model/types'
-import { useFloor } from '@/store/editor'
+import { useEditor, useFloor } from '@/store/editor'
 
-/** The takeoff of the floor being looked at (see model/takeoff), worked out again only when it changes. */
+/**
+ * The takeoff of the floor being looked at (see model/takeoff), with the floors round it (stairs through it), worked
+ * out again only when they change.
+ */
 export function useTakeoff(): TakeoffPart[] {
   const floor = useFloor()
-  return useMemo(() => takeoff(floor), [floor])
+  const floors = useEditor((s) => s.project.floors)
+  const at = floors.indexOf(floor)
+  const below = at > 0 ? floors[at - 1] : undefined
+  const above = at >= 0 && at < floors.length - 1
+  return useMemo(() => takeoff(floor, below, above), [floor, below, above])
 }
 
 /** What a finish is called, and which one (its color or photo, its size, its design). */

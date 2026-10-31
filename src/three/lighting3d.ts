@@ -7,8 +7,8 @@
 import * as THREE from 'three'
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js'
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js'
-import { inwardNormal, offsetEdges, pointInPolygon, projectOnSegment, signedArea } from '@/model/geometry'
-import { bandEdge, ceilingDropAt, ceilingHeightAt, ceilingLight, ceilingOutline, ceilingRoom, ceilingZones, COVE_LIP, COVE_WIDTH, coveRuns, PANEL_EDGE, gapDrops, hiddenLightInGap, lightHex, onCeilingJoin, SHADOW_GAP } from '@/model/lighting'
+import { cutOut, inwardNormal, offsetEdges, pointInPolygon, projectOnSegment, signedArea } from '@/model/geometry'
+import { bandEdge, ceilingDropAt, ceilingHeightAt, ceilingLight, ceilingOutline, ceilingRoom, ceilingZones, COVE_LIP, COVE_WIDTH, coveRuns, PANEL_EDGE, gapDrops, hiddenLightInGap, lightHex, onCeilingJoin, openingSides, SHADOW_GAP } from '@/model/lighting'
 import { symbolPose } from '@/model/project'
 import { frameOf, styleOf } from '@/model/symbols'
 import type { FixtureKind } from '@/model/symbols'
@@ -45,9 +45,9 @@ export interface SwitchHandle {
 const gypsum = () => new THREE.MeshStandardMaterial({ color: '#f5f5f4', roughness: 0.95 })
 
 /** Downward-facing plane (visible from below only) covering `outer` minus `inner`, at height y. */
-function ceilingPlane(outer: Point[], inner: Point[] | undefined, y: number): THREE.BufferGeometry {
+function ceilingPlane(outer: Point[], holes: Point[][], y: number): THREE.BufferGeometry {
   const shape = new THREE.Shape(outer.map((p) => new THREE.Vector2(p.x, p.y)))
-  if (inner) shape.holes.push(new THREE.Path(inner.map((p) => new THREE.Vector2(p.x, p.y))))
+  for (const h of holes) shape.holes.push(new THREE.Path(h.map((p) => new THREE.Vector2(p.x, p.y))))
   const g = new THREE.ShapeGeometry(shape)
   g.deleteAttribute('uv') // match the vertical bands so everything merges into one mesh
   g.rotateX(Math.PI / 2) // normal now points down
@@ -80,10 +80,12 @@ function band(poly: Point[], y0: number, y1: number, facing: 'in' | 'out', keep?
   return g
 }
 
-export function buildCeilings(floor: Floor, base: number): THREE.Object3D[] {
+export function buildCeilings(floor: Floor, base: number, openings: Point[][] = []): THREE.Object3D[] {
   const H = base + floor.height
   const geos: THREE.BufferGeometry[] = []
   const gapGeos: THREE.BufferGeometry[] = []
+  // A level of ceiling, less the stairs going up through it (`openings`).
+  const level = (outer: Point[], holes: Point[][], y: number) => cutOut(outer, holes, openings).map((p) => ceilingPlane(p.outer, p.holes, y))
   for (const plain of floor.rooms) {
     // Balconies are open to the sky.
     if (plain.points.length < 3 || plain.kind) continue
@@ -97,14 +99,14 @@ export function buildCeilings(floor: Floor, base: number): THREE.Object3D[] {
     // Curtain pockets and a hidden light's gap: open up to the slab.
     const pockets = wallCeiling === 'gypsum' ? [...new Set([...(room.curtainPockets ?? []), ...(room.hiddenGaps ?? [])])].filter((i) => i < room.points.length) : []
     const cut = wallCeiling === 'gypsum' ? ceilingOutline(room) : gaps.length ? offsetEdges(room.points, room.points.map((_, i) => (gaps.includes(i) ? -SHADOW_GAP.width : undefined))) : room.points
-    geos.push(ceilingPlane(wallCeiling === 'structure' ? cut : room.points, undefined, H - 0.2))
+    geos.push(...level(wallCeiling === 'structure' ? cut : room.points, [], H - 0.2))
     if (gaps.length) {
       const surface = wallCeiling === 'structure' ? H - 0.2 : H - c!.drop
       const top = Math.min(surface + SHADOW_GAP.depth, H - 0.1)
       for (const i of gaps) {
         if (pockets.includes(i)) continue
         const j = (i + 1) % room.points.length
-        gapGeos.push(ceilingPlane([room.points[i], room.points[j], cut[j], cut[i]], undefined, top))
+        gapGeos.push(ceilingPlane([room.points[i], room.points[j], cut[j], cut[i]], [], top))
         if (top > surface + 0.5) geos.push(band([cut[i], cut[j]], surface, top, 'in'))
       }
     }
@@ -140,7 +142,9 @@ export function buildCeilings(floor: Floor, base: number): THREE.Object3D[] {
       close(L)
     }
     if (!c) continue
-    ceilingZones(room).forEach((z) => geos.push(ceilingPlane(z.outer, z.inner, H - z.drop)))
+    ceilingZones(room).forEach((z) => geos.push(...level(z.outer, z.inner ? [z.inner] : [], H - z.drop)))
+    // Round a stair opening through the gypsum: its faces from each lowered level up to the slab.
+    for (const o of openings) for (const s of openingSides(room, o)) geos.push(band([s.a, s.b], H - s.drop, H, 'in'))
     const keep = (p: Point, q: Point) => !onCeilingJoin(room, p, q)
     switch (c.style) {
       case 'tray':

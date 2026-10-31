@@ -1,7 +1,9 @@
+import { t } from '@/i18n'
 /**
  * Realistic renders of the 3D view, path traced (with three-gpu-pathtracer): light followed as it bounces round the
- * rooms, off the walls and floors, through windows and glass and into mirrors, from every light that's on (not only the
- * few near the camera the view lights with), the sun and the sky by the time of day. What's drawn is what the view
+ * rooms, off the walls and floors, through windows and glass and into mirrors, from up to TUNING.maxLights of the lights
+ * that are on (in the room in view, then the nearest beyond it; not only the few the view lights with), the sun and the
+ * sky by the time of day. What's drawn is what the view
  * shows, from where it's seen, at the size asked for, in a renderer of its own so the view carries on as it was. No AI
  * anywhere: the grain left after the samples is smoothed, if asked, by an edge-keeping filter.
  */
@@ -280,7 +282,7 @@ function bvhWorker() {
 /** Start a render of the 3D view as it's seen now; it goes on drawing (and telling how far it's got) till it's done. */
 export async function startRender(opts: RenderOptions): Promise<RenderJob> {
   const src = renderSource()
-  if (!src) throw new Error('The 3D view is not open')
+  if (!src) throw new Error(t('The 3D view is not open'))
   const tune = { ...TUNING, ...opts.tuning }
   const restore = src.plain()
   let copied: ReturnType<typeof copyScene>
@@ -559,7 +561,7 @@ export async function startRender(opts: RenderOptions): Promise<RenderJob> {
     },
     toBlob: () => {
       if (!whole && !disposed) show(true)
-      return new Promise((resolve, reject) => canvas.toBlob((b) => (b ? resolve(b) : reject(new Error('Could not make the picture'))), 'image/png'))
+      return new Promise((resolve, reject) => canvas.toBlob((b) => (b ? resolve(b) : reject(new Error(t('Could not make the picture')))), 'image/png'))
     },
     dispose: () => {
       if (!disposed) cleanUp()

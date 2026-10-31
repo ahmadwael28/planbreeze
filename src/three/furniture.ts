@@ -1742,14 +1742,15 @@ function kitchen(k: Kit, w: number, d: number, h: number, opts: KitchenOpts) {
  * A corner unit: base cabinets in an L round an inside corner (the corner at the back left), two doors meeting at
  * its inside corner opening onto a carousel, an L of worktop over it.
  */
-function kitchenCorner(k: Kit, w: number, d: number, h: number) {
+function kitchenCorner(k: Kit, w: number, d: number, h: number, opts: Pick<KitchenOpts, 'top' | 'color'>) {
   const g = new THREE.Group()
   const toe = 10
   const top = 4
   const a = Math.min(60, w - 10, d - 10)
   const L = -w / 2
   const B = -d / 2
-  const white = k.q(COLORS.white, 'satin')
+  const color = opts.color ?? COLORS.white
+  const white = k.q(color, 'satin')
   const plinth = k.q(COLORS.dark, 'satin')
   // Along the back, and down the left side.
   g.add(box(w - 2, toe, a - 10, 0, 0, B + (a - 10) / 2, plinth))
@@ -1758,20 +1759,34 @@ function kitchenCorner(k: Kit, w: number, d: number, h: number) {
   g.add(box(a - 4, h - top - toe, d - a, L + (a - 4) / 2, toe, B + a + (d - a) / 2, white))
   const fh = h - top - toe - 1
   // A door on each face of the inside corner, hinged together (a bi-fold onto the carousel).
-  front(k, g, w - a - 0.6, fh, (L + a + w / 2) / 2, toe + 0.5, B + a - 2.1, COLORS.white, 'bar')
+  front(k, g, w - a - 0.6, fh, (L + a + w / 2) / 2, toe + 0.5, B + a - 2.1, color, 'bar')
   const side = new THREE.Group()
   side.rotation.y = Math.PI / 2
   side.position.set(L + a - 2.1, 0, B + a + (d - a) / 2)
-  front(k, side, d - a - 0.6, fh, 0, toe + 0.5, 0, COLORS.white, 'none')
+  front(k, side, d - a - 0.6, fh, 0, toe + 0.5, 0, color, 'none')
   g.add(side)
   // The worktop, in an L.
-  g.add(box(w, top, a, 0, h - top, B + a / 2, k.top()))
-  g.add(box(a, top, d - a, L + a / 2, h - top, B + a + (d - a) / 2, k.top()))
+  g.add(box(w, top, a, 0, h - top, B + a / 2, k.top(opts.top)))
+  g.add(box(a, top, d - a, L + a / 2, h - top, B + a + (d - a) / 2, k.top(opts.top)))
   return g
 }
 
-/** A dishwasher under the worktop: a panel like the doors around it (built in), or its own steel or black door. */
-function dishwasher(k: Kit, sym: PlanSymbol, w: number, d: number, h: number) {
+/** The finish of the base cabinet a built-in unit stands beside (in line with it, side by side), if any. */
+function besideCabinets(sym: PlanSymbol, others: PlanSymbol[]): string | undefined {
+  const turn = (a: number) => ((a % 360) + 360) % 360
+  const near = others
+    .filter((o) => ['counter', 'kitchen-sink', 'stove', 'kitchen-corner'].includes(o.type) && Math.abs(turn(o.rotation - sym.rotation)) < 1)
+    .map((o) => ({ o, d: Math.hypot(o.x - sym.x, o.y - sym.y) - (o.width + sym.width) / 2 }))
+    .filter((x) => x.d < 5)
+    .sort((a, b) => a.d - b.d)[0]
+  return near && frameOf(near.o)?.hex
+}
+
+/**
+ * A dishwasher under the worktop: a panel like the doors around it (built in: in `panel`, the finish of the cabinets
+ * beside it), or its own steel or black door.
+ */
+function dishwasher(k: Kit, sym: PlanSymbol, w: number, d: number, h: number, panel?: string) {
   const g = new THREE.Group()
   const toe = 10
   const top = 4
@@ -1780,7 +1795,7 @@ function dishwasher(k: Kit, sym: PlanSymbol, w: number, d: number, h: number) {
   g.add(box(w, h - top - toe, d - 4, 0, toe, -2, k.q(COLORS.white, 'satin')))
   const fz = d / 2 - 3.1
   const fh = h - top - toe - 1
-  if (color.toLowerCase() === '#f4f3ef') front(k, g, w - 2, fh, 0, toe + 0.5, fz, color, 'bar')
+  if (color.toLowerCase() === '#f4f3ef') front(k, g, w - 2, fh, 0, toe + 0.5, fz, panel ?? color, 'bar')
   else {
     const steel = color.toLowerCase() === '#c9ccd0'
     g.add(rbox(w - 2, fh - 8, 1.8, 0.5, 0, toe + 0.5, fz, k.q(color, steel ? 'metal' : 'gloss')))
@@ -3744,22 +3759,22 @@ export function symbolModel(
       g = rangeHood(k, sym, w, d, h, ceilingH - (sym.elevation ?? 155) - h)
       break
     case 'counter':
-      g = kitchen(k, w, d, h, { top: sym.top })
+      g = kitchen(k, w, d, h, { top: sym.top, color: frameOf(sym)?.hex })
       break
     case 'kitchen-corner':
-      g = kitchenCorner(k, w, d, h)
+      g = kitchenCorner(k, w, d, h, { top: sym.top, color: frameOf(sym)?.hex })
       break
     case 'kitchen-sink':
-      g = kitchen(k, w, d, h, { sink: true, top: sym.top })
+      g = kitchen(k, w, d, h, { sink: true, top: sym.top, color: frameOf(sym)?.hex })
       break
     case 'stove':
-      g = kitchen(k, w, d, h, { stove: true, top: sym.top })
+      g = kitchen(k, w, d, h, { stove: true, top: sym.top, color: frameOf(sym)?.hex })
       break
     case 'fridge':
       g = fridge(k, w, d, h)
       break
     case 'dishwasher':
-      g = dishwasher(k, sym, w, d, h)
+      g = dishwasher(k, sym, w, d, h, besideCabinets(sym, others))
       break
     case 'washing-machine':
       g = washingMachine(k, sym, w, d, h)

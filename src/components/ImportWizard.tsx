@@ -22,7 +22,7 @@ import { DEFAULT_RECOGNIZE } from '@/import/recognize'
 import type { DrawingKind } from '@/import/recognize'
 import { useRecognition } from '@/import/useRecognition'
 import type { EraseStroke, LoadedImage } from '@/import/image'
-import { area, bbox, dist, polygonPath, projectOnSegment } from '@/model/geometry'
+import { area, bbox, crossesItself, dist, polygonPath, projectOnSegment } from '@/model/geometry'
 import { floorBounds, newProject } from '@/model/project'
 import { formatLength } from '@/model/units'
 import type { Floor, Point, Underlay } from '@/model/types'
@@ -671,7 +671,13 @@ export function ImportWizard() {
     const st = useEditor.getState()
     const res = method === 'trace' ? { rooms: [], openings: [] } : result
     if (!res) return
-    const content = buildFloorContent(res, importWall)
+    const built = buildFloorContent(res, importWall)
+    // A room read with its walls crossing (corners out of order) can't be measured or built: left out, with the doors
+    // and windows on it.
+    const crossing = new Set(built.rooms.filter((r) => crossesItself(r.points)).map((r) => r.id))
+    const content = crossing.size
+      ? { ...built, rooms: built.rooms.filter((r) => !crossing.has(r.id)), symbols: built.symbols.filter((s) => !(s.wall && crossing.has(s.wall.roomId))) }
+      : built
     const underlay: Underlay | undefined =
       method === 'trace' || (method === 'auto' && keepUnderlay)
         ? {
@@ -688,7 +694,7 @@ export function ImportWizard() {
         : undefined
 
     if (target === 'new') {
-      const p = newProject(img.name === 'Hand sketch' ? 'My sketch' : 'Imported plan')
+      const p = newProject(img.name === 'Hand sketch' ? t('My sketch') : t('Imported plan'))
       Object.assign(p.floors[0], content, { underlay })
       saveProject(p)
       st.loadProject(p)
@@ -731,6 +737,14 @@ export function ImportWizard() {
         content.symbols.length
           ? t('Created {rooms} and {n} doors/windows. Tap a room to fine-tune its walls.', { rooms, n: content.symbols.length })
           : t('Created {rooms}. Tap a room to fine-tune its walls.', { rooms }),
+        crossing.size
+          ? {
+              description:
+                crossing.size === 1
+                  ? t('1 room came out with its walls crossing and was left out: draw it over the drawing.')
+                  : t('{n} rooms came out with their walls crossing and were left out: draw them over the drawing.', { n: crossing.size }),
+            }
+          : undefined,
       )
     }
     close()
@@ -785,20 +799,20 @@ export function ImportWizard() {
             <p className="font-medium">{t("When the result isn't right")}</p>
             <ul className="list-disc space-y-1 pl-5 text-xs leading-relaxed text-muted-foreground">
               <li>
-                <b className="text-foreground">{t('Two rooms come out as one:')}</b> the doorway between them is wider than “Close doorways up to”.
-                Raise it.
+                <b className="text-foreground">{t('Two rooms come out as one:')}</b>{' '}
+                {t('the doorway between them is wider than “Close doorways up to”. Raise it.')}
               </li>
               <li>
-                <b className="text-foreground">{t('A room is missing:')}</b> it leaks to the outside through a gap, often a window drawn without
-                lines. Raise “Close doorways up to”, or the line sensitivity if the walls are pale.
+                <b className="text-foreground">{t('A room is missing:')}</b>{' '}
+                {t('it leaks to the outside through a gap, often a window drawn without lines. Raise “Close doorways up to”, or the line sensitivity if the walls are pale.')}
               </li>
               <li>
-                <b className="text-foreground">{t('Furniture or text becomes rooms:')}</b> choose Printed plan under Drawing type, so only thick
-                walls count.
+                <b className="text-foreground">{t('Furniture or text becomes rooms:')}</b>{' '}
+                {t('choose Printed plan under Drawing type, so only thick walls count.')}
               </li>
               <li>
-                <b className="text-foreground">{t('Still wrong:')}</b> crop the image to just the plan, or use Trace to draw over it. You can
-                also fix any room afterwards by dragging its corners and walls.
+                <b className="text-foreground">{t('Still wrong:')}</b>{' '}
+                {t('crop the image to just the plan, or use Trace to draw over it. You can also fix any room afterwards by dragging its corners and walls.')}
               </li>
             </ul>
           </div>
@@ -1105,7 +1119,7 @@ export function ImportWizard() {
                       </div>
                     ) : (
                       <Button className="w-full" disabled={!apiKey.trim()} onClick={runAi}>
-                        <Wand2 /> {ai.status === 'done' ? 'Recognize again' : 'Recognize plan'}
+                        <Wand2 /> {ai.status === 'done' ? t('Recognize again') : t('Recognize plan')}
                       </Button>
                     )}
                     {ai.status === 'running' && <p className="text-xs text-muted-foreground">{t('This usually takes 20–60 seconds.')}</p>}
@@ -1155,7 +1169,7 @@ export function ImportWizard() {
                   {t('Change image')}
                 </Button>
                 <Button onClick={create} disabled={!canCreate}>
-                  {method === 'trace' ? 'Start tracing' : target === 'new' ? 'Create plan' : 'Add to floor'}
+                  {method === 'trace' ? t('Start tracing') : target === 'new' ? t('Create plan') : t('Add to floor')}
                 </Button>
               </div>
             </div>

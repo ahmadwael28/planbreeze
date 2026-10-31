@@ -183,7 +183,7 @@ export function PrintDialog() {
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="fit">Fit to page ({scaleLabel(layout.fitScale, units)})</SelectItem>
+                    <SelectItem value="fit">{t('Fit to page ({scale})', { scale: scaleLabel(layout.fitScale, units) })}</SelectItem>
                     {scales.map((n) => (
                       <SelectItem key={n} value={String(n)}>
                         {scaleLabel(n, units)}
@@ -255,7 +255,7 @@ export function PrintDialog() {
                 {t('Cancel')}
               </Button>
               <Button onClick={download} disabled={busy || layout.empty}>
-                {busy ? <Loader label={t('Making the PDF')} /> : <FileDown />} Download PDF
+                {busy ? <Loader label={t('Making the PDF')} /> : <FileDown />} {t('Download PDF')}
               </Button>
             </div>
           </div>

@@ -127,7 +127,7 @@ export function ShareDialog() {
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
-          <DialogTitle className="truncate pr-6">Share “{project.name}”</DialogTitle>
+          <DialogTitle className="truncate pe-6">{t('Share “{name}”', { name: project.name })}</DialogTitle>
           <DialogDescription>
             {t("People you add open it by signing in with that email address. Planbreeze doesn't email them, so send them the link.")}
           </DialogDescription>
@@ -237,7 +237,7 @@ export function ShareDialog() {
           <Button variant="outline" disabled={status !== 'ready'} onClick={() => void copyLink()}>
             <Link2 /> {t('Copy link')}
           </Button>
-          <Button onClick={() => setOpen(false)}>Done</Button>
+          <Button onClick={() => setOpen(false)}>{t('Done')}</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

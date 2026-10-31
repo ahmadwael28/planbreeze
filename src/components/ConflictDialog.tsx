@@ -52,7 +52,7 @@ export function ConflictDialog() {
           <Button variant="outline" onClick={() => void resolveConflict('theirs')}>
             {t('Use the version from my account')}
           </Button>
-          <Button onClick={() => void resolveConflict('mine')}>Keep this device's version</Button>
+          <Button onClick={() => void resolveConflict('mine')}>{t("Keep this device's version")}</Button>
         </AlertDialogFooter>
       </AlertDialogContent>
     </AlertDialog>

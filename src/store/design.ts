@@ -1,3 +1,4 @@
+import { t } from '@/i18n'
 /**
  * The interior design suggestions (see model/design): the options last used (kept between visits), the wizard's state,
  * and designing a single room straight away from its properties.
@@ -91,7 +92,7 @@ export function redesignRoom(roomId: string) {
   // The next idea that's really different from the one showing.
   const design = nextIdea(floor, room, use, uses, opts, roomId in variants ? variants[roomId] : -1, shown[roomId] ?? null)
   if (!design) {
-    toast('No other layout fits this room', { description: 'Move or remove something to make room for more ideas.' })
+    toast(t('No other layout fits this room'), { description: t('Move or remove something to make room for more ideas.') })
     return
   }
   st.commit((d) => applyDesigns(draftFloor(d), [design]))

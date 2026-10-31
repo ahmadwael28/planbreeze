@@ -20,12 +20,14 @@ import polygonClipping from 'polygon-clipping'
 import { beamFinish, builtBox, halfWallBoxes, hangDepth } from './built'
 import { aroundColumns, wallColumns } from './developed'
 import { finishOf, FINISHES, startsAtFloor, WALL_WHITE, wallBands, wallSurfaceAt } from './finishes'
-import { add, area, bbox, dist, inwardNormal, mul, pointInPolygon, projectOnSegment, signedArea } from './geometry'
+import { add, area, bbox, dist, inwardNormal, mul, overlapArea, pointInPolygon, projectOnSegment, signedArea } from './geometry'
 import {
   bandEdge,
   ceilingDropAt,
   ceilingOutline,
   ceilingRoom,
+  openingSides,
+  openingUnderGypsum,
   ceilingZones,
   COVE_LIP,
   COVE_WIDTH,
@@ -34,7 +36,7 @@ import {
   PANEL_EDGE,
   SHADOW_GAP,
 } from './lighting'
-import { isOpen, isOutdoor, roomOuter, symbolPose } from './project'
+import { isOpen, isOutdoor, roomOuter, stairOpenings, symbolPose } from './project'
 import type { ResolvedPose } from './project'
 import { alcoveOpenings, CEILING_AC, hasWorktop, partitionTop, stoneSill, styleOf, SYMBOL_MAP, SYMBOLS, tankBoxDepth, vanitySinks, worktopOf } from './symbols'
 import type { Ceiling, CeilingStyle, Floor, PlanSymbol, Point, Room, Surface, WallSurface } from './types'
@@ -76,6 +78,10 @@ const WINDOW_REVEAL = 0.5
 
 interface Ctx {
   floor: Floor
+  /** There's a floor above: stairs go up through the ceiling. */
+  above: boolean
+  /** Where the stairs from the floor below come up through this one's floor. */
+  under: Point[][]
   H: number
   openings: Opening[]
   /** Footprints of what stands solid on the floor up to the ceiling (columns, walls on their own): faces against them don't show. */
@@ -202,14 +208,20 @@ function clippedArea(mp: [number, number][][][]) {
 }
 
 /** A room's own floor: less the smaller rooms drawn in it (with their walls). */
-function floorArea(room: Room, rooms: Room[]) {
+/** The smaller rooms drawn inside a room (a closet in a bedroom): their floors aren't its. */
+function roomsInside(room: Room, rooms: Room[]) {
   const mine = area(room.points)
   const box = bbox(room.points)
-  const inside = rooms.filter((r) => {
+  return rooms.filter((r) => {
     if (r === room || r.points.length < 3 || isOutdoor(r) || area(r.points) >= mine) return false
     const b = bbox(r.points)
     return b.minX < box.maxX && b.maxX > box.minX && b.minY < box.maxY && b.maxY > box.minY
   })
+}
+
+function floorArea(room: Room, rooms: Room[]) {
+  const mine = area(room.points)
+  const inside = roomsInside(room, rooms)
   if (!inside.length) return mine
   try {
     return clippedArea(polygonClipping.difference([ring(room.points)], ...inside.map((r) => [ring(roomOuter(r))])))
@@ -239,6 +251,8 @@ function wallTop(ctx: Ctx, room: Room, edge: number, gaps: Set<number>) {
 function roomParts(ctx: Ctx, room: Room) {
   const { floor } = ctx
   ctx.out.push({ room: room.id, place: 'floor', what: 'Floor', surface: room.floor, area: floorArea(room, floor.rooms) })
+  const hole = Math.max(0, overlapArea(room.points, ctx.under) - roomsInside(room, floor.rooms).reduce((s, r) => s + overlapArea(roomOuter(r), ctx.under), 0))
+  if (hole > 0.5) ctx.out.push({ room: room.id, place: 'floor', what: 'Stair opening', surface: room.floor, area: -hole })
   if (isOutdoor(room)) return
 
   // Its walls, as the 3D view finishes them: each face round the room up to its ceiling, around its doors and windows
@@ -586,6 +600,24 @@ const beam: Rule = (sym, ctx, pose) => {
  * What each kind of item does to the finished surfaces round it. Doors, windows and niches (items set in a wall) also
  * have their openings taken off the walls (see roomParts).
  */
+/** Stairs going up to the floor above: the ceiling's cut away over them (in each room they're under). */
+const stairs: Rule = (sym, ctx) => {
+  if (!ctx.above) return
+  const hole = stairOpenings({ ...ctx.floor, symbols: [sym] })[0]
+  for (const room of ctx.floor.rooms) {
+    if (room.points.length < 3 || isOutdoor(room)) continue
+    const a = overlapArea(room.points, [hole])
+    if (a < 0.5) continue
+    const c = room.ceiling ? ceilingRoom(room, ctx.floor) : null
+    const board = c ? Math.min(a, openingUnderGypsum(c, hole)) : 0
+    if (board > 0.5) ctx.out.push({ room: room.id, place: 'ceiling', what: 'Stair opening', surface: CEILING_PAINT, area: -board, from: sym.id, board: true })
+    if (a - board > 0.5) ctx.out.push({ room: room.id, place: 'ceiling', what: 'Stair opening', surface: CEILING_PAINT, area: -(a - board), from: sym.id })
+    // Round the hole, the gypsum's upright faces up to the slab (as the 3D view builds them).
+    const sides = c ? openingSides(c, hole).reduce((s, e) => s + dist(e.a, e.b) * e.drop, 0) : 0
+    if (sides > 0.5) ctx.out.push({ room: room.id, place: 'ceiling', what: 'Stair opening sides', surface: CEILING_PAINT, area: sides, from: sym.id, board: true })
+  }
+}
+
 const RULES: Record<string, Rule> = {
   // Columns: a column in a wall's sides and front (the wall behind it doesn't show: see roomParts), a column on its own
   // all round; finished like the wall (the room's walls).
@@ -657,6 +689,7 @@ const RULES: Record<string, Rule> = {
   'wall-niche': niche,
   // From the ceiling: gypsum boxes and beams; air conditioning set into it, in place of the ceiling there.
   'gypsum-box': hanging,
+  stairs,
   beam,
   ...Object.fromEntries(
     [...CEILING_AC].map((type): [string, Rule] => [
@@ -686,7 +719,7 @@ const UNTOUCHED = new Set([
   'outlet', 'switch', 'light', 'spot', 'led-profile', 'track', 'cove-light', 'gap-light', 'pocket-light',
   'pendant', 'linear-pendant', 'chandelier', 'wall-light',
   'ceiling-flat', 'ceiling-tray', 'ceiling-cove', 'ceiling-floating', 'ceiling-stepped',
-  'stairs', 'person', 'label',
+  'person', 'label',
 ])
 
 /** Kinds in the library with neither a rule nor a place in UNTOUCHED: each needs one (see the top of this file). */
@@ -697,25 +730,28 @@ if (import.meta.env?.DEV) {
   if (missing.length) console.error(`takeoff: no rule for ${missing.join(', ')} — add one to RULES (or to UNTOUCHED) in src/model/takeoff.ts`)
 }
 
-const cache = new WeakMap<Floor, TakeoffPart[]>()
+const cache = new WeakMap<Floor, { below?: Floor; above: boolean; parts: TakeoffPart[] }>()
 
-/** The takeoff of a floor's finished surfaces, part by part (see the top of this file). */
-export function takeoff(floor: Floor): TakeoffPart[] {
+/**
+ * The takeoff of a floor's finished surfaces, part by part (see the top of this file). `below`: the floor under it
+ * (its stairs come up through this one); `above`: whether there's one over it (this one's stairs go on up).
+ */
+export function takeoff(floor: Floor, below?: Floor, above = false): TakeoffPart[] {
   const hit = cache.get(floor)
-  if (hit) return hit
+  if (hit && hit.below === below && hit.above === above) return hit.parts
   const solids = floor.symbols
     .filter((s) => s.type === 'wall-post' || s.type === 'column' || (s.type === 'partition' && !s.partial))
     .map((s) => {
       const at = framed(symbolPose(s, floor.rooms))
       return [at(-s.width / 2, -s.depth / 2), at(s.width / 2, -s.depth / 2), at(s.width / 2, s.depth / 2), at(-s.width / 2, s.depth / 2)]
     })
-  const ctx: Ctx = { floor, H: floor.height, openings: wallOpenings(floor), solids, out: [] }
+  const ctx: Ctx = { floor, above, under: below ? stairOpenings(below) : [], H: floor.height, openings: wallOpenings(floor), solids, out: [] }
   for (const room of floor.rooms) if (room.points.length >= 3) roomParts(ctx, room)
   for (const sym of floor.symbols) {
     const rule = RULES[sym.type]
     if (rule) rule(sym, ctx, symbolPose(sym, floor.rooms))
   }
-  cache.set(floor, ctx.out)
+  cache.set(floor, { below, above, parts: ctx.out })
   return ctx.out
 }
 

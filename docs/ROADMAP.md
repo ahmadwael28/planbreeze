@@ -433,7 +433,7 @@ Each milestone is about one to two weeks of work. It ships and deploys on its ow
 - Sign-out clears the AI key and settings.
 - *Done when:* a crash shows a way out; a deleted plan comes back from the trash; a backup file restores every plan.
 
-**M2. Right numbers, right Arabic**
+**M2. Right numbers, right Arabic** ✓ shipped 1 Nov 2026
 - **Length input:**
   - Arabic digits (٠-٩) and ٫ accepted;
   - an entry unit (cm by default in Arabic);

@@ -1,4 +1,5 @@
 import { produce } from 'immer'
+import { toast } from 'sonner'
 import { t } from '@/i18n'
 import { create } from 'zustand'
 import {
@@ -11,7 +12,7 @@ import {
   rectPoints,
   uid,
 } from '@/model/project'
-import { bbox, dist, dot, labelPoint, normalize, pointInPolygon, signedArea, sub } from '@/model/geometry'
+import { add, bbox, crossesItself, dist, dot, inwardNormal, labelPoint, mul, normalize, pointInPolygon, signedArea, sub } from '@/model/geometry'
 import { allRefs, clipFootprint, clipSize, copyFloor, copyItems, deleteItems, exists, moveItems, pasteItems, refKey, refsOf, rotateItems, selectionOf, setGroup } from '@/model/items'
 import { nameSwitchesAfterRooms, newSwitchLabel, switchRoom } from '@/model/switches'
 import { arrange, arrangeable } from '@/model/arrange'
@@ -21,9 +22,9 @@ import type { Side } from '@/model/guides'
 import { fixSizes } from '@/model/sizes'
 import type { Clip } from '@/model/items'
 import { CEILING_STYLES, mergeRoomLights, OTHER_LIGHTS, pruneControls, remapEdges, remapEdgeValues, ROOM_LIGHTS } from '@/model/lighting'
-import { columnIntoWall, dimensionPoints, findWallSnap, isOpen, isOutdoor, ledgeNear, moveWall, roomOuter, symbolPose } from '@/model/project'
+import { columnIntoWall, dimensionPoints, findWallSnap, isOpen, isOutdoor, ledgeNear, moveWall, roomOuter, SLAB, symbolPose, wallMountPose } from '@/model/project'
 import { alcoveFit } from '@/model/developed'
-import { dividePoints, healOpenings, joinPoints, openedPoints, sharedStretch, wallAcross } from '@/model/divide'
+import { connectedRooms, dividePoints, followersOf, healOpenings, joinPoints, movedLine, openedPoints, openPair, sharedStretch, wallAcross } from '@/model/divide'
 import { beamSpan } from '@/model/beams'
 import { personDepth, personSupport } from '@/model/people'
 import { behindSofa } from '@/model/placement'
@@ -193,7 +194,7 @@ export const useEditor = create<EditorState>((set, get) => ({
   loadProject: (p) => {
     opened(p.id)
     set((s) => ({
-      project: fixVanities(fixBenches(fixSwitchNames(fixRoomLights(fixSizes(p))))),
+      project: fixOutlets(fixVanities(fixBenches(fixSwitchNames(fixRoomLights(fixSizes(p)))))),
       past: [],
       future: [],
       floorId: p.floors[0].id,
@@ -211,6 +212,9 @@ export const useEditor = create<EditorState>((set, get) => ({
       healAll(d)
     })
     if (next === project) return
+    // A room can't be made a shape whose walls cross (its area and walls would be nonsense): the change isn't made.
+    const crossed = crossedRoom(project, next)
+    if (crossed) return refuseCrossing(crossed)
     set({ project: next, past: [...past, project].slice(-HISTORY_LIMIT), future: [] })
   },
 
@@ -406,6 +410,22 @@ function fixSwitchNames(p: Project): Project {
   })
 }
 
+/** Outlets from before they were mounted on walls: onto the wall they're by (flush, facing into the room). */
+function fixOutlets(p: Project): Project {
+  const moves: { f: number; i: number; pose: { x: number; y: number; rotation: number } }[] = []
+  p.floors.forEach((f, fi) =>
+    f.symbols.forEach((s, i) => {
+      if (s.type !== 'outlet' || s.wall || s.room) return
+      const pose = wallMountPose(s, f.rooms, s.depth / 2 + 15, s.depth)
+      if (pose && (Math.abs(pose.x - s.x) > 0.05 || Math.abs(pose.y - s.y) > 0.05 || Math.abs(pose.rotation - s.rotation) > 0.05)) moves.push({ f: fi, i, pose })
+    }),
+  )
+  if (!moves.length) return p
+  return produce(p, (d) => {
+    for (const m of moves) Object.assign(d.floors[m.f].symbols[m.i], m.pose)
+  })
+}
+
 /** A plan as loaded, with any room's extra hidden lights of a kind merged into its first (see mergeRoomLights). */
 function fixRoomLights(p: Project): Project {
   if (!p.floors.some((f) => f.symbols.some((s) => s.room && ROOM_LIGHTS.includes(s.type)))) return p
@@ -450,6 +470,8 @@ export function addSymbol(type: string, at?: Point, rotation = 0, wall?: PlanSym
   const sym = { ...newSymbol(type, Math.round(p.x * 10) / 10, Math.round(p.y * 10) / 10), rotation, wall }
   // A beam runs from wall to wall, the short way across the room it's put in.
   if (type === 'beam') Object.assign(sym, beamSpan(p, floor0.rooms) ?? {})
+  // Stairs reach the floor above: its height and the slab under it.
+  if (type === 'stairs') sym.height = floor0.height + SLAB
   if (def?.wall) sym.depth = st0.project.defaultWallThickness
   // A half wall lines up with the box of a wall-hung toilet in its room.
   if (sym.type === 'partition' && sym.partial && sym.height === LEDGE_HEIGHT) sym.height = ledgeNear(floor0, p) ?? sym.height
@@ -909,9 +931,111 @@ function healAll(d: Project) {
   for (const f of d.floors) healOpenings(f, (old) => fixRoom(f, old))
 }
 
-/** Match up open walls again after a drag (part of its undo step). */
+/**
+ * The arrow keys: what's picked a step that way, as dragging it does. A door or window slides along its wall; a room's
+ * picked corners move (one corner, with the corners of rooms open to it that sit on it); its picked wall moves square
+ * to itself (the line between two open rooms, for both); a room moves with the rooms open to it; anything else as it is.
+ */
+export function nudge(dx: number, dy: number) {
+  const { selection, commit } = useEditor.getState()
+  if (!selection) return
+  // The rooms as they are now (not as they're being changed): what reshaping the open line maps their walls from.
+  const before = currentFloor(useEditor.getState())
+  commit((d) => {
+    const f = draftFloor(d)
+    if (selection.kind === 'symbol') {
+      const s = f.symbols.find((x) => x.id === selection.id)
+      if (s?.wall) {
+        s.wall.offset += dx || dy
+        return
+      }
+    }
+    if (selection.kind === 'room') {
+      const room = f.rooms.find((r) => r.id === selection.id)
+      if (!room) return
+      const step = (p: Point) => ({ x: p.x + dx, y: p.y + dy })
+      const corners = selection.vertices ?? (selection.vertex !== undefined ? [selection.vertex] : [])
+      if (corners.length) {
+        const followers = corners.length > 1 ? [] : followersOf(f, room, [room.points[corners[0]]])
+        for (const i of corners) if (room.points[i]) room.points[i] = step(room.points[i])
+        for (const o of followers) {
+          const r = f.rooms.find((x) => x.id === o.id)
+          if (r) r.points[o.index] = step(o.orig)
+        }
+        return
+      }
+      if (selection.edge !== undefined) {
+        const i = selection.edge
+        const pts = room.points
+        const a = pts[i]
+        const b = pts[(i + 1) % pts.length]
+        if (!a || !b) return
+        const outward = mul(inwardNormal(a, b, signedArea(pts)), -1)
+        // The step square to the wall (along it, nothing).
+        const amount = dx * outward.x + dy * outward.y
+        if (Math.abs(amount) < 1e-6) return
+        if (isOpen(room, i)) {
+          const orig = before.rooms.find((r) => r.id === room.id)
+          const pair = orig && openPair(before, orig, i)
+          const line = pair && movedLine(pair.union, a, b, outward, amount)
+          const parts = pair && line && dividePoints(pair.union, line[0], line[1])
+          if (!orig || !pair || !line || !parts) return
+          const mine = pointInPolygon(sub(mul(add(line[0], line[1]), 0.5), outward), parts[0]) ? 0 : 1
+          reshapeOpen(
+            f,
+            [
+              [orig, parts[mine]],
+              [pair.other, parts[1 - mine]],
+            ],
+            pair.poses,
+            pair.coves,
+            pair.apart,
+          )
+          return
+        }
+        room.points = moveWall(pts, i, amount)
+        return
+      }
+      for (const r of connectedRooms(room, f.rooms)) r.points = r.points.map(step)
+      return
+    }
+    moveItems(f, copyItems(f, refsOf(selection)), dx, dy)
+  })
+}
+
+/**
+ * A room reshaped since `prev` so its walls cross one another in `next` (one that did already is let be). New rooms are
+ * checked where they're made (drawing, dividing, importing), so copies of one that crossed already can be made.
+ */
+function crossedRoom(prev: Project, next: Project): Room | null {
+  for (const f of next.floors) {
+    const before = prev.floors.find((x) => x.id === f.id)
+    for (const r of f.rooms) {
+      const old = before?.rooms.find((x) => x.id === r.id)
+      if (!old || old.points === r.points) continue
+      if (crossesItself(r.points) && !crossesItself(old.points)) return r
+    }
+  }
+  return null
+}
+
+function refuseCrossing(room: Room) {
+  toast.error(t("That would make the walls of {name} cross, so it wasn't changed.", { name: room.name }))
+}
+
+/**
+ * Match up open walls again after a drag (part of its undo step). A drag that left a room's walls crossing is taken
+ * back.
+ */
 export function healDrag() {
   useEditor.getState().mutate(healAll)
+  const st = useEditor.getState()
+  const before = st.past[st.past.length - 1]
+  const crossed = before && crossedRoom(before, st.project)
+  if (crossed) {
+    useEditor.setState({ project: before, past: st.past.slice(0, -1) })
+    refuseCrossing(crossed)
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -968,6 +1092,8 @@ export function divideRoom(roomId: string, a: Point, b: Point): Room | null {
       if (sw.controls?.some((id) => copies.has(id))) sw.controls = [...sw.controls, ...sw.controls.flatMap((id) => (copies.has(id) ? [copies.get(id)!] : []))]
     }
   })
+  // Not made after all (a part's walls would cross): nothing to pick.
+  if (!currentFloor(useEditor.getState()).rooms.some((r) => r.id === other.id)) return null
   useEditor.setState({ selection: { kind: 'room', id: other.id }, tool: 'select' })
   return other
 }

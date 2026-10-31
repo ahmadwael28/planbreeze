@@ -1,6 +1,6 @@
 import polygonClipping from 'polygon-clipping'
 import { isDraft } from 'immer'
-import { offsetEdges, offsetEdgesStepped, offsetPolygon, pointInPolygon, projectOnSegment, signedArea } from './geometry'
+import { offsetEdges, offsetEdgesStepped, offsetPolygon, overlapArea, pointInPolygon, projectOnSegment, runsInside, signedArea } from './geometry'
 import type { Ceiling, CeilingStyle, Floor, LightColor, LightSettings, PlanSymbol, Point, Room } from './types'
 
 export const LIGHT_COLORS: Record<LightColor, { label: string; kelvin: number; hex: string }> = {
@@ -372,6 +372,30 @@ function bandZone(room: Room, outer: Point[], inner: Point[], drop: number): Zon
 const zoneCache = new WeakMap<Room, Zone[]>()
 
 /** Areas of a room's ceiling at different heights, for drawing and 3D. `drop` is below the structural ceiling. */
+/**
+ * Where a stair opening goes up through a room's gypsum ceiling: the stretches of its outline under each lowered level,
+ * and how far that level hangs (an upright face from it up to the slab, round the hole).
+ */
+export function openingSides(room: Room, opening: Point[]): { a: Point; b: Point; drop: number }[] {
+  const out: { a: Point; b: Point; drop: number }[] = []
+  for (const z of ceilingZones(room)) {
+    if (z.drop < 0.5) continue
+    const inZone = (p: Point) => pointInPolygon(p, z.outer) && !(z.inner && pointInPolygon(p, z.inner))
+    opening.forEach((a, i) => {
+      const b = opening[(i + 1) % opening.length]
+      for (const [p, q] of runsInside(a, b, inZone)) out.push({ a: p, b: q, drop: z.drop })
+    })
+  }
+  return out
+}
+
+/** How much of a stair opening is under each lowered level of a room's gypsum ceiling (cm², the rest under the slab). */
+export function openingUnderGypsum(room: Room, opening: Point[]): number {
+  return ceilingZones(room)
+    .filter((z) => z.drop >= 0.5)
+    .reduce((t, z) => t + overlapArea(z.outer, [opening]) - (z.inner ? overlapArea(z.inner, [opening]) : 0), 0)
+}
+
 export function ceilingZones(room: Room): Zone[] {
   // Rooms being changed (drafts) are worked out afresh each time.
   if (isDraft(room) || isDraft(room.points)) return zonesOf(room)

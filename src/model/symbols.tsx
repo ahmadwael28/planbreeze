@@ -1,3 +1,4 @@
+import { t as tr } from '@/i18n'
 import type { ReactNode, SVGProps } from 'react'
 import { lightHex } from './lighting'
 import type { PlanTheme } from './theme'
@@ -1718,6 +1719,8 @@ export const SYMBOLS: SymbolDef[] = [
     type: 'counter',
     name: 'Counter',
     category: 'Kitchen',
+    frames: VANITY_FINISHES,
+    frameLabel: 'Finish',
     width: 120,
     depth: 60,
     height: 90,
@@ -1735,6 +1738,8 @@ export const SYMBOLS: SymbolDef[] = [
     type: 'kitchen-sink',
     name: 'Sink',
     category: 'Kitchen',
+    frames: VANITY_FINISHES,
+    frameLabel: 'Finish',
     width: 80,
     depth: 60,
     height: 90,
@@ -1753,6 +1758,8 @@ export const SYMBOLS: SymbolDef[] = [
     type: 'stove',
     name: 'Stove',
     category: 'Kitchen',
+    frames: VANITY_FINISHES,
+    frameLabel: 'Finish',
     width: 60,
     depth: 60,
     height: 90,
@@ -1849,6 +1856,8 @@ export const SYMBOLS: SymbolDef[] = [
     width: 90,
     depth: 90,
     height: 90,
+    frames: VANITY_FINISHES,
+    frameLabel: 'Finish',
     render: (w, d, t) => {
       const k = kit(t)
       const a = Math.min(60, w - 10, d - 10)
@@ -2514,6 +2523,7 @@ export const SYMBOLS: SymbolDef[] = [
     width: 20,
     depth: 20,
     height: 30,
+    wallMount: true,
     render: (w, d, t) => {
       const k = kit(t)
       return (
@@ -3038,7 +3048,7 @@ export const SYMBOLS: SymbolDef[] = [
         fill={t.label}
         fontFamily="system-ui, sans-serif"
       >
-        {sym?.label || 'Label'}
+        {sym?.label || tr('Label')}
       </text>
     ),
   },

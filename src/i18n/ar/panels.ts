@@ -132,6 +132,7 @@ export default {
   'Column sides': 'جوانب الأعمدة',
   'Cove lip and trough': 'حافة الكوف ومجراه',
   'Covered by what hangs or stands there': 'ما يغطيه المعلّق أو القائم هناك',
+  'Stair opening': 'فتحة الدرج',
   'Covered by what’s built on it': 'ما يغطيه المبني عليها',
   'Doorway reveals': 'جوانب فتحات الأبواب',
   'Half walls': 'الحوائط النصفية',
@@ -187,4 +188,10 @@ export default {
     'استخدم الملف الأصلي أو مسحًا ضوئيًا واضحًا، بعرض 1500 بكسل على الأقل. لقطات الشاشة الصغيرة الضبابية تُفقد الحوائط الرفيعة.',
   'Crisp lines': 'خطوط واضحة',
   'Blurry or tiny': 'ضبابية أو صغيرة',
+  // M2: kitchen cabinets, frames
+  'The same on the other kitchen cabinet': 'نفس التشطيب على وحدة المطبخ الأخرى',
+  'The same on the other {n} kitchen cabinets': 'نفس التشطيب على وحدات المطبخ الأخرى ({n})',
+  '{name} frame': 'إطار {name}',
+  // M2 review: stairs
+  'Stair opening sides': 'جوانب فتحة الدرج',
 } as Record<string, string>

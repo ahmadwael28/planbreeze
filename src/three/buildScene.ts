@@ -1,8 +1,8 @@
 import * as THREE from 'three'
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js'
-import { add, bbox, dist, dot, inwardNormal, labelPoint, mul, normalize, pointInPolygon, projectOnSegment, signedArea, sub } from '@/model/geometry'
+import { add, bbox, cutOut, dist, dot, inwardNormal, labelPoint, mul, normalize, pointInPolygon, projectOnSegment, signedArea, sub } from '@/model/geometry'
 import { isSelected } from '@/model/items'
-import { isOpen, isOutdoor, railingRuns, roomOuter, symbolPose, wallEnds } from '@/model/project'
+import { isOpen, isOutdoor, railingRuns, roomOuter, SLAB, stairOpenings, symbolPose, wallEnds } from '@/model/project'
 import { floorOrigin } from '@/model/divide'
 import { CEILING_AC, NICHES, partitionTop, SYMBOL_MAP } from '@/model/symbols'
 import { beamFinish, builtBox, halfWallBoxes, hangDepth } from '@/model/built'
@@ -32,7 +32,7 @@ import type { PoolRoom } from './lightPool'
  * A plan rotation of θ degrees (clockwise on screen) is a rotation of -θ around the Y axis.
  */
 
-export const SLAB = 15
+export { SLAB }
 
 export interface PickInfo {
   floorId: string
@@ -43,8 +43,9 @@ export interface PickInfo {
 export type FloorFilter = 'upToCurrent' | 'all' | 'current'
 
 /** Extrude a plan polygon vertically between heights z0 and z1 (relative to `base`). */
-function prism(poly: Point[], z0: number, z1: number, base: number): THREE.BufferGeometry {
+function prism(poly: Point[], z0: number, z1: number, base: number, holes: Point[][] = []): THREE.BufferGeometry {
   const shape = new THREE.Shape(poly.map((p) => new THREE.Vector2(p.x, p.y)))
+  for (const h of holes) shape.holes.push(new THREE.Path(h.map((p) => new THREE.Vector2(p.x, p.y))))
   const g = new THREE.ExtrudeGeometry(shape, { depth: z1 - z0, bevelEnabled: false })
   g.rotateX(Math.PI / 2) // (x, y, z) → (x, -z, y)
   g.translate(0, base + z1, 0)
@@ -337,8 +338,15 @@ export function buildProjectGroup(project: Project, opts: BuildOptions): THREE.G
     const group = new THREE.Group()
     group.name = floor.name
 
+    // Stairs on the floor below come up through this one's slab and floor; this floor's go on up through its ceiling
+    // (if there's a floor above).
+    const below = idx > 0 ? stairOpenings(project.floors[idx - 1]) : []
+    const above = idx < project.floors.length - 1 ? stairOpenings(floor) : []
+
     // Slab under every room (outer outline) and colored floor surfaces.
-    const slabGeos = floor.rooms.filter((r) => r.points.length >= 3).map((r) => prism(roomOuter(r), -SLAB, 0, floorBase))
+    const slabGeos = floor.rooms
+      .filter((r) => r.points.length >= 3)
+      .flatMap((r) => cutOut(roomOuter(r), [], below).map((piece) => prism(piece.outer, -SLAB, 0, floorBase, piece.holes)))
     if (slabGeos.length) {
       const merged = mergeGeometries(slabGeos)
       slabGeos.forEach((g) => g.dispose())
@@ -348,8 +356,13 @@ export function buildProjectGroup(project: Project, opts: BuildOptions): THREE.G
       if (room.points.length < 3) continue
       // Facing up: the outline mirrored (plan y runs down the screen, three.js z toward the viewer), laid flat. Its
       // texture coordinates are then the plan's x and -y, in cm.
-      const shape = new THREE.Shape(room.points.map((p) => new THREE.Vector2(p.x, -p.y)))
-      const geo = new THREE.ShapeGeometry(shape)
+      const flat = (pts: Point[]) => pts.map((p) => new THREE.Vector2(p.x, -p.y))
+      const shapes = cutOut(room.points, [], below).map((piece) => {
+        const shape = new THREE.Shape(flat(piece.outer))
+        for (const h of piece.holes) shape.holes.push(new THREE.Path(flat(h)))
+        return shape
+      })
+      const geo = new THREE.ShapeGeometry(shapes)
       geo.rotateX(-Math.PI / 2)
       geo.translate(0, floorBase + 0.3, 0)
       const hl = isSelected(sel, 'room', room.id)
@@ -409,7 +422,7 @@ export function buildProjectGroup(project: Project, opts: BuildOptions): THREE.G
 
     // Gypsum ceilings (seen from inside the rooms).
     if (opts.showCeilings) {
-      for (const obj of buildCeilings(floor, floorBase)) group.add(obj)
+      for (const obj of buildCeilings(floor, floorBase, above)) group.add(obj)
     }
 
     // Curtains hang under lit curtain pockets: where each pocket light runs.
