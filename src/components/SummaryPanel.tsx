@@ -139,7 +139,7 @@ export function SummaryPanel() {
               </TableFooter>
             </Table>
             <p className="text-xs text-muted-foreground">
-              {t('In {unit}. Floors less what’s built on them; walls up to the ceiling less doors and windows, with columns, niches, window reveals and what’s built against them (a toilet’s box, half walls, benches, a tiled vanity); ceilings with their gypsum bands, sides, coves, pockets, boxes and beams. Tap a room for every part.', { unit: units === 'metric' ? 'm²' : 'ft²' })}
+              {t('In {unit}. Floors less what’s built on them; walls up to the ceiling less doors and windows, with columns, niches, window reveals and what’s built against them (a toilet’s box, half walls, benches, a tiled vanity); ceilings with their gypsum bands, sides, coves, pockets, boxes and beams (a beam tiled like the walls counts with them). Tap a room for every part.', { unit: units === 'metric' ? 'm²' : 'ft²' })}
             </p>
           </div>
         </>

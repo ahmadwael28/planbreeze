@@ -3,10 +3,14 @@
  * alcove filled in round its niches, a vanity built in and tiled. The 3D view clads them (see buildScene) and the
  * takeoff counts their faces (see takeoff), from the same boxes.
  */
+import { FINISHES, WALL_WHITE, wallBands, wallSurfaceAt } from './finishes'
+import { area, pointInPolygon, projectOnSegment } from './geometry'
 import { openSides } from './guides'
+import { isOpen, isOutdoor, symbolPose } from './project'
 import { ownWalls, showerRuns, stretchBox } from './shower'
 import { alcoveOpenings, alcoveSolids, ledgeHeight, stoneSill, styleOf, tankBoxDepth } from './symbols'
-import type { Floor, PlanSymbol } from './types'
+import type { Floor, PlanSymbol, Room, WallSurface } from './types'
+import { wallBehind } from './walls'
 
 /** A shower bench's stone top (cm), and how thick a floating one is under it. */
 export const BENCH_TOP = 3
@@ -82,4 +86,59 @@ export function halfWallBoxes(sym: PlanSymbol, floor: Floor): { x0: number; x1: 
     const [z0, z1] = [fz * b.y0, fz * b.y1].sort((p, q) => p - q)
     return { x0, x1, z0, z1 }
   })
+}
+
+/** How far a beam (or a gypsum box) comes down below the ceiling slab (cm): as set, or as such beams usually do. */
+export const hangDepth = (sym: Pick<PlanSymbol, 'height'>) => sym.height || 30
+
+/** A wall with no finish of its own (nor the room's): plain white paint, as it's drawn. */
+const PLAIN: WallSurface = { finish: 'paint', color: WALL_WHITE }
+
+/**
+ * What a beam's sides and underside are finished with: like the walls it's built into (the wall it runs along, if it
+ * runs along one; else those its two ends meet; else the room's walls), as each of them is finished (its own finish,
+ * the room's, or plain white), as the 3D view clads it and the takeoff counts it; or null, plain like the ceiling. As
+ * chosen (PlanSymbol.clad: wallpaper or slats there painted, as on a window's reveals); left to itself, like the walls
+ * where they're tiled as high as the beam hangs (a tiled bathroom's: each wall it meets), else like the ceiling.
+ */
+export function beamFinish(sym: PlanSymbol, floor: Floor): WallSurface | null {
+  if (sym.type !== 'beam' || sym.clad === 'ceiling') return null
+  const pose = symbolPose(sym, floor.rooms)
+  const room = floor.rooms
+    .filter((r) => r.points.length >= 3 && !isOutdoor(r) && pointInPolygon(pose, r.points))
+    .sort((a, b) => area(a.points) - area(b.points))[0]
+  const finishOf = (edge: number) => (room && wallSurfaceAt(room, edge)) ?? PLAIN
+  // The wall it runs along (either long side against it), or the walls its ends meet.
+  const along = wallBehind(pose, sym.depth, floor.rooms) ?? wallBehind({ ...pose, rotation: pose.rotation + 180 }, sym.depth, floor.rooms)
+  const walls = room && along?.room.id === room.id ? [finishOf(along.edge)] : room ? endWalls(sym, pose, room).map(finishOf) : []
+  const s = walls[0] ?? room?.walls ?? PLAIN
+  if (sym.clad === 'walls') return ['paper', 'slats'].includes(FINISHES[s.finish].kind) ? { finish: 'paint', color: s.above ?? WALL_WHITE } : s
+  const bottom = floor.height - hangDepth(sym)
+  const tiled = (x: WallSurface) => {
+    const bands = wallBands(x, floor.height)
+    const at = bands.find((b) => bottom < b.z1) ?? bands[bands.length - 1]
+    return FINISHES[at.surface.finish].kind === 'tile'
+  }
+  return room && (walls.length ? walls : [s]).every(tiled) ? s : null
+}
+
+/** The walls of a room a beam's two ends meet (each end, the nearest wall just past it). */
+function endWalls(sym: PlanSymbol, pose: { x: number; y: number; rotation: number }, room: Room): number[] {
+  const r = (pose.rotation * Math.PI) / 180
+  const out: number[] = []
+  for (const side of [-1, 1]) {
+    const p = { x: pose.x + side * (sym.width / 2 + 3) * Math.cos(r), y: pose.y + side * (sym.width / 2 + 3) * Math.sin(r) }
+    let best = -1
+    let near = 12
+    room.points.forEach((a, i) => {
+      if (isOpen(room, i)) return
+      const d = projectOnSegment(p, a, room.points[(i + 1) % room.points.length]).dist
+      if (d < near) {
+        near = d
+        best = i
+      }
+    })
+    if (best >= 0) out.push(best)
+  }
+  return out
 }

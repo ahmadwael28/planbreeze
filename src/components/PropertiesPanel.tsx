@@ -77,6 +77,7 @@ import { wallBehind } from '@/model/walls'
 import { alcoveFit, wallColumns, wallSign } from '@/model/developed'
 import { CEILING_STYLES, ceilingHeightAt, kelvinName, kelvinOf } from '@/model/lighting'
 import { FINISHES } from '@/model/finishes'
+import { beamFinish } from '@/model/built'
 import { roomSurfaces } from '@/model/takeoff'
 import { finishLabel, useTakeoff } from '@/hooks/use-takeoff'
 import { DEFAULT_RAILING, isOpen, isOutdoor, keepBack, ledgeNear, linedUp, OUTDOOR, RAILING_THICKNESS, ROOM_COLORS, roomOuter, setWallLength, symbolPose } from '@/model/project'
@@ -2466,11 +2467,14 @@ function SymbolProps({ sym, units }: { sym: PlanSymbol; units: Units }) {
   }
 
   // Its look: its style, its finish (frame), its worktop or stone top.
-  const look = !!STYLES[sym.type] || !!def?.frames || hasWorktop(sym) || sym.type === 'range-hood'
+  const look = !!STYLES[sym.type] || !!def?.frames || hasWorktop(sym) || sym.type === 'range-hood' || beam
+  // A beam: finished like the walls round it (their tiles) or plain like the ceiling, as chosen or by itself.
+  const beamClad = beam ? (beamFinish(sym, floor) ? 'walls' : 'ceiling') : undefined
   const lookSummary = [
     STYLES[sym.type] ? t(STYLES[sym.type].find((p) => p.id === styleOf(sym))?.name ?? '') : undefined,
     def?.frames ? t(frameOf(sym)?.name ?? '') : undefined,
     hasWorktop(sym) ? t(worktopOf(sym).name) : undefined,
+    beamClad === 'walls' ? t('Like the walls') : beamClad === 'ceiling' ? t('Like the ceiling') : undefined,
   ]
     .filter(Boolean)
     .join(' · ')
@@ -2742,6 +2746,30 @@ function SymbolProps({ sym, units }: { sym: PlanSymbol; units: Units }) {
           {sym.type === 'range-hood' && styleOf(sym) !== 'built-in' && <p className="text-xs text-muted-foreground">{t('Its chimney goes up to the ceiling.')}</p>}
           {def?.frames && <FramePicker sym={sym} frames={def.frames} label={def.frameLabel} />}
           {hasWorktop(sym) && <WorktopPicker sym={sym} label={sym.type === 'shower-bench' ? t('Top') : undefined} />}
+          {beamClad && (
+            <Choice
+              label={t('Finished like')}
+              value={beamClad}
+              onChange={(v) => updateSymbol(sym.id, (s) => void (s.clad = v))}
+              options={[
+                { value: 'walls', label: tc('finish', 'The walls') },
+                { value: 'ceiling', label: tc('finish', 'The ceiling') },
+              ]}
+            >
+              <p className="text-xs text-muted-foreground">
+                {sym.clad
+                  ? beamClad === 'walls'
+                    ? t("Its sides and underside finished like the room's walls (their tiles, or the paint over them at its height).")
+                    : t('Painted like the ceiling.')
+                  : t("By itself: tiled like the room's walls where they're tiled up to it, else painted like the ceiling.")}{' '}
+                {sym.clad && (
+                  <button className="underline underline-offset-2 hover:text-foreground" onClick={() => updateSymbol(sym.id, (s) => void delete s.clad)}>
+                    {t('As the walls are')}
+                  </button>
+                )}
+              </p>
+            </Choice>
+          )}
         </Panel>
       )}
 
@@ -2906,7 +2934,7 @@ function SymbolProps({ sym, units }: { sym: PlanSymbol; units: Units }) {
               <MoveHorizontal /> {t('Wall to wall')}
             </Button>
             <p className="text-xs text-muted-foreground">
-              {t("Hung from the ceiling slab, drawn dashed as plans show what's overhead. A gypsum ceiling lower than it hides it. Suggested designs keep tall furniture and ceiling spots clear of it.")}
+              {t("Hung from the ceiling slab, drawn dashed over what's under it, as plans show what's overhead: pick it by its outline or its centre line (picked, anywhere in it). A gypsum ceiling lower than it hides it. Suggested designs keep tall furniture and ceiling spots clear of it.")}
             </p>
           </div>
         )}

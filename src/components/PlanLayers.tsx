@@ -47,6 +47,8 @@ interface Props {
   forPrint?: boolean
   /** Library categories (and 'Dimensions') shown faded and not clickable, to work around them. */
   faded?: string[]
+  /** What's picked (with the select tool): a beam's then taken anywhere in it, not only by its outline (see SymbolGraphic). */
+  selected?: string
   /** The project's photos (finishes using one show in its color). */
   images?: ProjectImage[]
 }
@@ -64,6 +66,7 @@ const SymbolGraphic = memo(function SymbolGraphic({
   forPrint,
   faded,
   columns,
+  edges,
 }: {
   sym: PlanSymbol
   rooms: Room[]
@@ -72,6 +75,11 @@ const SymbolGraphic = memo(function SymbolGraphic({
   faded?: boolean
   /** For a shower: what's in its glass's way on the floor (columns, walls, toilets' boxes: see model/shower). */
   columns?: PlanSymbol[]
+  /**
+   * Picked only by its outline and centre line (something overhead, drawn over what's on the floor): a click inside it
+   * goes through to what's under it.
+   */
+  edges?: boolean
 }) {
   const def = SYMBOL_MAP.get(sym.type)
   const pose = symbolPose(sym, rooms)
@@ -86,7 +94,16 @@ const SymbolGraphic = memo(function SymbolGraphic({
       opacity={faded ? FADE : undefined}
       pointerEvents={faded ? 'none' : undefined}
     >
-      {!forPrint && <rect x={-sym.width / 2} y={-depth / 2} width={sym.width} height={depth} fill="transparent" />}
+      {!forPrint &&
+        (edges ? (
+          <g fill="none" stroke="transparent" strokeWidth={12} vectorEffect="non-scaling-stroke" pointerEvents={faded ? 'none' : 'stroke'}>
+            <rect x={-sym.width / 2} y={-depth / 2} width={sym.width} height={depth} vectorEffect="non-scaling-stroke" />
+            <line x1={-sym.width / 2} y1={0} x2={sym.width / 2} y2={0} vectorEffect="non-scaling-stroke" />
+          </g>
+        ) : (
+          <rect x={-sym.width / 2} y={-depth / 2} width={sym.width} height={depth} fill="transparent" />
+        ))}
+      <g pointerEvents={edges ? 'none' : undefined}>
       {def ? (
         // A shower with glass where there's no wall: which sides that is, for where its head goes, and its glass round
         // the columns there, for where its door is (see model/shower).
@@ -101,6 +118,7 @@ const SymbolGraphic = memo(function SymbolGraphic({
       ) : (
         <rect x={-sym.width / 2} y={-depth / 2} width={sym.width} height={depth} fill="#f87171" />
       )}
+      </g>
     </g>
   )
 })
@@ -615,6 +633,7 @@ export function PlanLayers({
   forPrint,
   faded = [],
   images,
+  selected,
 }: Props) {
   if (ghost) {
     return (
@@ -691,17 +710,19 @@ export function PlanLayers({
           )}
         </g>
       </g>
-      {/* Beams overhead: dashed, under the furniture so that can still be picked. */}
-      <g>
-        {beams.map((s) => (
-          <SymbolGraphic key={s.id} sym={s} rooms={floor.rooms} theme={theme} forPrint={forPrint} faded={fade(s)} />
-        ))}
-      </g>
       <g opacity={lighting ? 0.22 : 1} pointerEvents={lighting ? 'none' : undefined}>
         {furniture.map((s) => (
           <SymbolGraphic key={s.id} sym={s} rooms={floor.rooms} theme={theme} forPrint={forPrint} faded={fade(s)} columns={s.type === 'shower' ? columns : undefined} />
         ))}
       </g>
+      {/* In the ceiling plan, beams under the gypsum boxes and wall items, all of each one pickable (the furniture's faded). */}
+      {lighting && (
+        <g>
+          {beams.map((s) => (
+            <SymbolGraphic key={s.id} sym={s} rooms={floor.rooms} theme={theme} forPrint={forPrint} faded={fade(s)} />
+          ))}
+        </g>
+      )}
       {lighting && (
         <g>
           {boxes.map((s) => (
@@ -716,6 +737,18 @@ export function PlanLayers({
             <SymbolGraphic key={s.id} sym={s} rooms={floor.rooms} theme={theme} forPrint={forPrint} faded={fade(s)} />
           ))}
       </g>
+      {/*
+        Beams overhead: dashed, over what's on the floor, as plans draw what's overhead, picked by their outline and centre
+        line so what's under them still can be; the picked one anywhere in it (to drag it), lights, labels and dimensions
+        still over it. (In the ceiling plan, below.)
+      */}
+      {!lighting && (
+        <g>
+          {beams.map((s) => (
+            <SymbolGraphic key={s.id} sym={s} rooms={floor.rooms} theme={theme} forPrint={forPrint} faded={fade(s)} edges={s.id !== selected} />
+          ))}
+        </g>
+      )}
       {lighting && (
         <g opacity={fadedSet.has('Lighting') ? FADE : undefined} pointerEvents={fadedSet.has('Lighting') ? 'none' : undefined}>
           {coves.map((s) => {

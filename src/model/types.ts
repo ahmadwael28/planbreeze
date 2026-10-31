@@ -313,6 +313,11 @@ export interface PlanSymbol {
   partial?: boolean
   /** Walls standing on their own, lower than the ceiling: glass from their top up to it. */
   glassTop?: boolean
+  /**
+   * Beams: finished like the walls of their room (tiles where they're tiled) or plain like the ceiling. Left out, like
+   * the walls where those are tiled as high as the beam hangs, else like the ceiling (see beamFinish).
+   */
+  clad?: 'walls' | 'ceiling'
   /** A wall-hung toilet's tank box: how far it comes out from the wall (cm; TANK_BOX if left out). */
   tankDepth?: number
   /** Toilets with a concealed tank: the pan stands on the floor against the wall or box (back to wall), not hung. */

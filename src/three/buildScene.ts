@@ -5,7 +5,7 @@ import { isSelected } from '@/model/items'
 import { isOpen, isOutdoor, railingRuns, roomOuter, symbolPose, wallEnds } from '@/model/project'
 import { floorOrigin } from '@/model/divide'
 import { CEILING_AC, NICHES, partitionTop, SYMBOL_MAP } from '@/model/symbols'
-import { builtBox, halfWallBoxes } from '@/model/built'
+import { beamFinish, builtBox, halfWallBoxes, hangDepth } from '@/model/built'
 import type { PlanTheme } from '@/model/theme'
 import type { Floor, PlanSymbol, Point, Project, Room, Selection, Surface, WallSurface } from '@/model/types'
 import { startsAtFloor, wallBands, wallSurfaceAt } from '@/model/finishes'
@@ -139,6 +139,51 @@ function rectGeo(o: THREE.Vector3, u: THREE.Vector3, v: THREE.Vector3, lu: numbe
   geo.setIndex([0, 1, 2, 0, 2, 3])
   geo.computeVertexNormals()
   return geo
+}
+
+/**
+ * A beam finished like the walls round it (`s`, see beamFinish): its four sides from its underside up to the slab (a
+ * gypsum ceiling hides what's above it), and its underside, in the finish at each height (tiles to theirs, paint
+ * above), just outside its own plain box; picked as the beam, casting no shadow (as the ceilings cast none).
+ */
+function beamCladding(sym: PlanSymbol, s: WallSurface, floor: Floor, base: number, wallMat: (s: Surface) => THREE.Material, pick: PickInfo): THREE.Group {
+  const g = new THREE.Group()
+  const pose = symbolPose(sym, floor.rooms)
+  const top = floor.height
+  const bottom = floor.height - hangDepth(sym)
+  const w = sym.width
+  const d = sym.depth
+  const up = new THREE.Vector3(0, 1, 0)
+  const v3 = (x: number, y: number, z: number) => new THREE.Vector3(x, y, z)
+  const faces: { A: [number, number]; B: [number, number]; u0: number }[] = [
+    { A: [-w / 2, d / 2], B: [w / 2, d / 2], u0: 0 },
+    { A: [w / 2, d / 2], B: [w / 2, -d / 2], u0: w },
+    { A: [w / 2, -d / 2], B: [-w / 2, -d / 2], u0: w + d },
+    { A: [-w / 2, -d / 2], B: [-w / 2, d / 2], u0: 2 * w + d },
+  ]
+  const bands = wallBands(s, floor.height)
+  // Just outside the box, closed round it: each side a little past its corners, the lowest down to the underside.
+  const T = 0.3
+  for (const band of bands) {
+    const z0 = band.z0 <= bottom ? bottom - T : band.z0
+    const z1 = Math.min(band.z1, top)
+    if (z1 - z0 < 0.5 || band.z1 <= bottom) continue
+    for (const fc of faces) {
+      const A = v3(fc.A[0], z0, fc.A[1])
+      const along = v3(fc.B[0], z0, fc.B[1]).sub(A)
+      const len = along.length()
+      along.normalize()
+      const out = along.clone().cross(up)
+      g.add(mesh(rectGeo(A.addScaledVector(out, T).addScaledVector(along, -T), along, up, len + 2 * T, z1 - z0, fc.u0 - T, z0), wallMat(band.surface), pick))
+    }
+  }
+  // Its underside, facing down, in the finish at its height.
+  const low = bands.find((b) => bottom < b.z1) ?? bands[bands.length - 1]
+  g.add(mesh(rectGeo(v3(-w / 2 - T, bottom - T, -d / 2 - T), v3(1, 0, 0), v3(0, 0, 1), w + 2 * T, d + 2 * T), wallMat(low.surface), pick))
+  g.position.set(pose.x, base, pose.y)
+  g.rotation.y = (-pose.rotation * Math.PI) / 180
+  g.traverse((o) => (o.castShadow = false))
+  return g
 }
 
 /** A triangle facing down (an underside), with texture coordinates in cm across it from (u0, 0). */
@@ -392,6 +437,11 @@ export function buildProjectGroup(project: Project, opts: BuildOptions): THREE.G
         const obj = buildFixture(sym, def.fixture, floor, floorBase, handles)
         if (obj) group.add(obj)
         continue
+      }
+      // A beam's built with the ceilings (see buildCeilings); finished like the walls round it, it's clad here.
+      if (sym.type === 'beam' && opts.showCeilings) {
+        const s = beamFinish(sym, floor)
+        if (s) group.add(beamCladding(sym, s, floor, floorBase, (x) => wallMat(x), { floorId: floor.id, kind: 'symbol', id: sym.id }))
       }
       if (sym.type === 'gypsum-box' || sym.type === 'beam' || def?.ceilingStyle) continue
       const pose = symbolPose(sym, floor.rooms)

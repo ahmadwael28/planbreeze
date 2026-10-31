@@ -1567,6 +1567,7 @@ export function Canvas() {
           showAreas={settings.showAreas}
           faded={settings.faded}
           images={project.images}
+          selected={tool === 'select' && selection?.kind === 'symbol' ? selection.id : undefined}
         />
         </g>
         {/* Tracing: the drawing over the plan, to read its lines and dimensions through what's drawn. Only its ink shows:

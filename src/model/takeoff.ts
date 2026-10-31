@@ -7,7 +7,8 @@
  * - Walls: up to the ceiling (a gypsum one's, or into its pockets and gaps), less doors and windows and what's built
  *   against them; plus what's built and finished like them: columns' sides, niches' linings, window reveals, a toilet's
  *   box, a shower's half wall, a bench, a tiled vanity…
- * - Ceilings: the slab, or the gypsum (its bands, bulkhead sides, cove, panel edges, pockets and gaps, boxes, beams).
+ * - Ceilings: the slab, or the gypsum (its bands, bulkhead sides, cove, panel edges, pockets and gaps, boxes, beams;
+ *   a beam in a room tiled up to it is tiled like the walls, and counted with them).
  * - Stone: worktops, a vanity's or a bench's stone top, niches' sills, the shelves on toilets' boxes and half walls;
  *   each in its stone (one of WORKTOPS, or the light stone shelves are), with the length of its front edge.
  *
@@ -16,10 +17,10 @@
  * cut into a wall or hung from a ceiling needs its rule, so the takeoff keeps up with it on its own.
  */
 import polygonClipping from 'polygon-clipping'
-import { builtBox, halfWallBoxes } from './built'
+import { beamFinish, builtBox, halfWallBoxes, hangDepth } from './built'
 import { aroundColumns, wallColumns } from './developed'
 import { finishOf, FINISHES, startsAtFloor, WALL_WHITE, wallBands, wallSurfaceAt } from './finishes'
-import { add, area, bbox, dist, inwardNormal, mul, pointInPolygon, signedArea } from './geometry'
+import { add, area, bbox, dist, inwardNormal, mul, pointInPolygon, projectOnSegment, signedArea } from './geometry'
 import {
   bandEdge,
   ceilingDropAt,
@@ -33,7 +34,7 @@ import {
   PANEL_EDGE,
   SHADOW_GAP,
 } from './lighting'
-import { isOutdoor, roomOuter, symbolPose } from './project'
+import { isOpen, isOutdoor, roomOuter, symbolPose } from './project'
 import type { ResolvedPose } from './project'
 import { alcoveOpenings, CEILING_AC, hasWorktop, partitionTop, stoneSill, styleOf, SYMBOL_MAP, SYMBOLS, tankBoxDepth, vanitySinks, worktopOf } from './symbols'
 import type { Ceiling, CeilingStyle, Floor, PlanSymbol, Point, Room, Surface, WallSurface } from './types'
@@ -128,29 +129,71 @@ function stone(ctx: Ctx, room: Room, what: string, kind: string, a: number, leng
   if (a > 0.5) ctx.out.push({ room: room.id, place: 'stone', what, stone: kind, area: a, length, from })
 }
 
-/** Whether a face of something built shows: what's just in front of it (`at`, facing `n`) is in the room, not a wall or a column. */
+/**
+ * Whether a face of something built shows: what's just in front of it (`at`, facing `n`) is in the room (or the next
+ * one, open to it), not in a wall or a column.
+ */
 function shows(ctx: Ctx, room: Room, at: Point, n: Point) {
   const q = add(at, mul(n, 3))
-  return pointInPolygon(q, room.points) && !ctx.solids.some((s) => pointInPolygon(q, s))
+  const inside = pointInPolygon(q, room.points) || openTo(ctx, room).some((r) => pointInPolygon(q, r.points))
+  return inside && !ctx.solids.some((s) => pointInPolygon(q, s))
 }
 
-/** The faces of a box (x0…x1 across, y0…y1 back to front, in an item's frame) that show: each one's length. */
-function boxFaces(ctx: Ctx, room: Room, at: (x: number, y: number) => Point, b: { x0: number; x1: number; y0: number; y1: number }, skip: ('back' | 'front' | 'left' | 'right')[] = []) {
-  const faces = [
-    { side: 'back' as const, a: at(b.x0, b.y0), b: at(b.x1, b.y0) },
-    { side: 'front' as const, a: at(b.x0, b.y1), b: at(b.x1, b.y1) },
-    { side: 'left' as const, a: at(b.x0, b.y0), b: at(b.x0, b.y1) },
-    { side: 'right' as const, a: at(b.x1, b.y0), b: at(b.x1, b.y1) },
-  ]
+/** The rooms a room's open to (across its open walls: one space, divided into rooms). */
+function openTo(ctx: Ctx, room: Room): Room[] {
+  const out = new Set<Room>()
+  const n = room.points.length
+  const sa = signedArea(room.points)
+  for (const i of room.openEdges ?? []) {
+    const a = room.points[i]
+    const b = room.points[(i + 1) % n]
+    if (!a || !b) continue
+    const p = add(mul(add(a, b), 0.5), mul(inwardNormal(a, b, sa), -2))
+    const r = ctx.floor.rooms.find((x) => x !== room && x.points.length >= 3 && !isOutdoor(x) && pointInPolygon(p, x.points))
+    if (r) out.add(r)
+  }
+  return [...out]
+}
+
+type Side = 'back' | 'front' | 'left' | 'right'
+
+/** The faces of a box (x0…x1 across, y0…y1 back to front, in an item's frame): each one's side, length, middle, which way it faces, and whether it shows. */
+function boxSides(ctx: Ctx, room: Room, at: (x: number, y: number) => Point, b: { x0: number; x1: number; y0: number; y1: number }) {
   const c = at((b.x0 + b.x1) / 2, (b.y0 + b.y1) / 2)
-  return faces
-    .filter((f) => !skip.includes(f.side))
-    .filter((f) => {
-      const m = mul(add(f.a, f.b), 0.5)
-      const len = Math.hypot(m.x - c.x, m.y - c.y) || 1
-      return shows(ctx, room, m, { x: (m.x - c.x) / len, y: (m.y - c.y) / len })
+  return [
+    { side: 'back' as Side, a: at(b.x0, b.y0), b: at(b.x1, b.y0) },
+    { side: 'front' as Side, a: at(b.x0, b.y1), b: at(b.x1, b.y1) },
+    { side: 'left' as Side, a: at(b.x0, b.y0), b: at(b.x0, b.y1) },
+    { side: 'right' as Side, a: at(b.x1, b.y0), b: at(b.x1, b.y1) },
+  ].map((f) => {
+    const m = mul(add(f.a, f.b), 0.5)
+    const len = Math.hypot(m.x - c.x, m.y - c.y) || 1
+    const n = { x: (m.x - c.x) / len, y: (m.y - c.y) / len }
+    return { side: f.side, length: dist(f.a, f.b), mid: m, n, shows: shows(ctx, room, m, n) }
+  })
+}
+
+/** The faces of a box (as boxSides) that show: each one's length. */
+function boxFaces(ctx: Ctx, room: Room, at: (x: number, y: number) => Point, b: { x0: number; x1: number; y0: number; y1: number }, skip: Side[] = []) {
+  return boxSides(ctx, room, at, b)
+    .filter((f) => !skip.includes(f.side) && f.shows)
+    .map((f) => f.length)
+}
+
+/** The finish of the wall a face (its middle `at`, facing `n`) is right up against: the nearest wall there. */
+function wallAgainst(ctx: Ctx, at: Point, n: Point): { s: WallSurface; room?: Room; top: number } {
+  const q = add(at, mul(n, 1))
+  let best: { room: Room; edge: number; d: number } | null = null
+  for (const r of ctx.floor.rooms) {
+    if (r.points.length < 3 || isOutdoor(r)) continue
+    r.points.forEach((a, i) => {
+      if (isOpen(r, i)) return
+      const d = projectOnSegment(q, a, r.points[(i + 1) % r.points.length]).dist
+      if (d < 5 && (!best || d < best.d)) best = { room: r, edge: i, d }
     })
-    .map((f) => dist(f.a, f.b))
+  }
+  const b = best as { room: Room; edge: number } | null
+  return b ? { s: wallOf(b.room, b.edge), room: b.room, top: wallTop(ctx, b.room, b.edge, hiddenGapWalls(ctx.floor, b.room)) } : { s: PLAIN_WALL, top: ctx.H }
 }
 
 /** Area of polygons left after clipping (outer rings less their holes). */
@@ -442,30 +485,100 @@ function builtStone(sym: PlanSymbol, ctx: Ctx, pose: ResolvedPose) {
   }
 }
 
-/** A gypsum box or a beam: its underside and the sides that show below the ceiling; the ceiling and walls it covers. */
+/** A gypsum box: its underside and the sides that show below the ceiling, gypsum board painted; the ceiling and walls it covers. */
 const hanging: Rule = (sym, ctx, pose) => {
   const room = roomAt(ctx.floor, pose)
   if (!room) return
-  const box = sym.height || 30
+  const box = hangDepth(sym)
   const drop = room.ceiling ? ceilingDropAt(ceilingRoom(room, ctx.floor), pose) : 0
   const below = box - drop
   if (below < 0.5) return
   const w = sym.width
   const d = sym.depth
-  const board = sym.type === 'gypsum-box'
-  const what = board ? 'Gypsum box' : 'Beam'
-  const p = framed(pose)
-  const sides = boxFaces(ctx, room, p, { x0: -w / 2, x1: w / 2, y0: -d / 2, y1: d / 2 })
-  const covered = 2 * (w + d) - sides.reduce((t, l) => t + l, 0)
-  const a = w * d + sides.reduce((t, l) => t + l, 0) * below
-  ctx.out.push({ room: room.id, place: 'ceiling', what, surface: CEILING_PAINT, area: a, from: sym.id, ...(board && { board }) })
+  const sides = boxSides(ctx, room, framed(pose), { x0: -w / 2, x1: w / 2, y0: -d / 2, y1: d / 2 })
+  const a = w * d + sides.reduce((t, f) => t + (f.shows ? f.length : 0), 0) * below
+  ctx.out.push({ room: room.id, place: 'ceiling', what: 'Gypsum box', surface: CEILING_PAINT, area: a, from: sym.id, board: true })
   underCeiling(ctx, room, pose, w * d, sym.id)
-  // Against a wall, the top of the wall behind it hidden.
-  if (covered > 0.5) {
-    const at = wallBehind(pose, d, ctx.floor.rooms)
-    const s = at ? wallOf(at.room, at.edge) : PLAIN_WALL
-    const top = ctx.H - drop
-    clad(ctx, { room: room.id, what: 'Hidden behind what’s built', from: sym.id }, s, covered, top - below, top, -1)
+  // Against a wall, the top of each wall it's against hidden (as high as that wall shows).
+  const top = ctx.H - drop
+  for (const f of sides) {
+    if (f.shows) continue
+    const wall = wallAgainst(ctx, f.mid, f.n)
+    clad(ctx, { room: (wall.room ?? room).id, what: 'Hidden behind what’s built', from: sym.id }, wall.s, f.length, top - below, Math.min(top, wall.top), -1)
+  }
+}
+
+/**
+ * A beam, hung from the slab: what shows of it below the ceiling (a gypsum one hides it where it's as low; measured
+ * every centimetre along it, as a tray's or a cove's band comes down near the walls). Its sides and underside are
+ * finished like the walls round it (see beamFinish, as the 3D view clads it) or painted like the ceiling; the ceiling
+ * under it is taken off, and the walls its ends (or a side) are against, where it hides them.
+ */
+const beam: Rule = (sym, ctx, pose) => {
+  const home = roomAt(ctx.floor, pose)
+  if (!home) return
+  const box = hangDepth(sym)
+  const w = sym.width
+  const d = sym.depth
+  const p = framed(pose)
+  const bottom = ctx.H - box
+  const inRoom = (at: Point) => roomAt(ctx.floor, at) ?? home
+  // How far it shows below the ceiling at a point, and the room that's in.
+  const below = (at: Point) => {
+    const r = inRoom(at)
+    return { r, b: Math.max(0, box - (r.ceiling ? ceilingDropAt(ceilingRoom(r, ctx.floor), at) : 0)) }
+  }
+  const s = beamFinish(sym, ctx.floor)
+  // What's counted, by room: each stretch of side (its length and how far it shows), the underside, the ceiling under it.
+  const sideParts = new Map<Room, { length: number; below: number }[]>()
+  const under = new Map<Room, number>()
+  const addSide = (r: Room, length: number, b: number) => {
+    const list = sideParts.get(r) ?? []
+    const last = list[list.length - 1]
+    if (last && Math.abs(last.below - b) < 0.05) last.length += length
+    else list.push({ length, below: b })
+    sideParts.set(r, list)
+  }
+  const n = Math.max(1, Math.round(w))
+  const step = w / n
+  const xs = Array.from({ length: n }, (_, i) => -w / 2 + (i + 0.5) * step)
+  // Its underside: centimetre by centimetre along its middle.
+  for (const x of xs) {
+    const { r, b } = below(p(x, 0))
+    if (b >= 0.5) under.set(r, (under.get(r) ?? 0) + step * d)
+  }
+  if (!under.size) return
+  // Its sides, each measured just outside it (a band or a pocket can run along it); its ends, just past them.
+  for (const f of boxSides(ctx, home, p, { x0: -w / 2, x1: w / 2, y0: -d / 2, y1: d / 2 })) {
+    const long = f.side === 'back' || f.side === 'front'
+    const samples = long
+      ? xs.map((x) => ({ at: p(x, (f.side === 'back' ? -1 : 1) * (d / 2 + 1)), length: step }))
+      : [{ at: p((f.side === 'left' ? -1 : 1) * (w / 2 + 1), 0), length: d }]
+    if (!f.shows) {
+      // Against a wall: the strip of it the beam hides, off that wall (in its room), as high as it shows.
+      const wall = wallAgainst(ctx, f.mid, f.n)
+      for (const smp of samples) {
+        const { b } = below(smp.at)
+        const z1 = Math.min(bottom + b, wall.top)
+        if (z1 - bottom >= 0.5) clad(ctx, { room: (wall.room ?? home).id, what: 'Hidden behind what’s built', from: sym.id }, wall.s, smp.length, bottom, z1, -1)
+      }
+      continue
+    }
+    for (const smp of samples) {
+      const { r, b } = below(smp.at)
+      if (b >= 0.5) addSide(r, smp.length, b)
+    }
+  }
+  for (const [r, list] of sideParts) {
+    for (const st of list) {
+      if (s) clad(ctx, { room: r.id, what: 'Beams', from: sym.id }, s, st.length, bottom, bottom + st.below)
+      else ctx.out.push({ room: r.id, place: 'ceiling', what: 'Beams', surface: CEILING_PAINT, area: st.length * st.below, from: sym.id })
+    }
+  }
+  for (const [r, a] of under) {
+    if (s) cladFlat(ctx, { room: r.id, what: 'Beams', from: sym.id }, s, a, bottom)
+    else ctx.out.push({ room: r.id, place: 'ceiling', what: 'Beams', surface: CEILING_PAINT, area: a, from: sym.id })
+    underCeiling(ctx, r, pose, a, sym.id)
   }
 }
 
@@ -544,7 +657,7 @@ const RULES: Record<string, Rule> = {
   'wall-niche': niche,
   // From the ceiling: gypsum boxes and beams; air conditioning set into it, in place of the ceiling there.
   'gypsum-box': hanging,
-  beam: hanging,
+  beam,
   ...Object.fromEntries(
     [...CEILING_AC].map((type): [string, Rule] => [
       type,
