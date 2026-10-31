@@ -52,6 +52,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import { useLayout } from '@/hooks/use-layout'
 import { cn } from '@/lib/utils'
 import { useCloud } from '@/cloud/store'
+import { openProjectFile } from '@/store/backup'
 import { openDesign } from '@/store/design'
 import { currentFloor, isViewOnly, useEditor } from '@/store/editor'
 import { useUi } from '@/store/ui'
@@ -496,12 +497,7 @@ export function TopBar({ onToggleSidebar, sidebarOpen }: Props) {
           onChange={async (e) => {
             const file = e.target.files?.[0]
             e.target.value = ''
-            if (file) {
-              await run(
-                async (m) => useEditor.getState().loadProject(await m.importJson(file)),
-                t('Opened “{name}”', { name: file.name }),
-              )
-            }
+            if (file) await openProjectFile(file)
           }}
         />
         {!compact && <AccountButton />}

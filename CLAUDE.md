@@ -27,6 +27,14 @@ Everything's properties are shown as an `Inspector` with `Panel`s (`src/componen
 - **A new setting** goes in the panel it belongs to; a new group of settings gets its own panel. Either way, its current value goes into that panel's summary. Don't add loose sections.
 - **Reuse panel ids across items** (`size`, `look`, `light`, `place`, `options`), so an open or closed panel stays that way from one item to the next.
 
+## Plans in storage: never lose one
+
+Plans live in localStorage through `src/store/storage.ts`; backups are in `src/store/backup.ts`.
+- **Deleting a plan** goes through `trashProject` (kept in Recently deleted for 30 days), never by removing `fp.project.*` keys. `deleteProject` is only for leaving someone else's shared plan.
+- **Storing a plan that isn't opened** (restoring, importing many) uses `storeProject`. **Opening a plan** goes through `useEditor.getState().loadProject`, which lets a plan deleted earlier in the session be saved again.
+- **Writes that can fill the browser** go through `writeRoomy`. It drops the longest-deleted plans only when that's enough to make room, and puts them all back otherwise.
+- **Parts of the UI** sit inside an `ErrorBoundary` (`src/components/ErrorBoundary.tsx`): the plan, the 3D view and the panel, each with a way on. Every dialog is wrapped in a `DialogGuard` in `App.tsx`. A new dialog gets one too.
+
 ## Repo habits
 
 - **Line endings are mixed (LF and CRLF).** Python's text-mode writes on Windows turn LF into CRLF, so edit with the Edit tool or write in binary. Don't run Prettier: the code isn't Prettier-formatted.

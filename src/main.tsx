@@ -6,6 +6,8 @@ import { useLayout } from '@/hooks/use-layout'
 import { ThemeProvider } from '@/components/theme-provider'
 import { Toaster } from '@/components/ui/sonner'
 import { TooltipProvider } from '@/components/ui/tooltip'
+import { CrashScreen, ErrorBoundary } from '@/components/ErrorBoundary'
+import { reloadOnUpdate } from '@/store/recovery'
 import './index.css'
 import App from './App.tsx'
 
@@ -24,10 +26,14 @@ function Root() {
   )
 }
 
+reloadOnUpdate()
+
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <ThemeProvider>
-      <Root />
+      <ErrorBoundary fallback={(error) => <CrashScreen error={error} />}>
+        <Root />
+      </ErrorBoundary>
     </ThemeProvider>
   </StrictMode>,
 )

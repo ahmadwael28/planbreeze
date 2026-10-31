@@ -28,6 +28,7 @@ import { beamSpan } from '@/model/beams'
 import { personDepth, personSupport } from '@/model/people'
 import { behindSofa } from '@/model/placement'
 import { LEDGE_HEIGHT, SYMBOL_MAP } from '@/model/symbols'
+import { opened } from '@/store/storage'
 import type {
   CeilingStyle,
   Dimension,
@@ -189,7 +190,8 @@ export const useEditor = create<EditorState>((set, get) => ({
   settings: loadSettings(),
   fitRequest: 0,
 
-  loadProject: (p) =>
+  loadProject: (p) => {
+    opened(p.id)
     set((s) => ({
       project: fixVanities(fixBenches(fixSwitchNames(fixRoomLights(fixSizes(p))))),
       past: [],
@@ -198,7 +200,8 @@ export const useEditor = create<EditorState>((set, get) => ({
       selection: null,
       tool: 'select',
       fitRequest: s.fitRequest + 1,
-    })),
+    }))
+  },
 
   commit: (recipe) => {
     const { project, past } = get()
@@ -274,7 +277,11 @@ export const useEditor = create<EditorState>((set, get) => ({
   setViewport: (w, h) => set({ viewport: { w, h } }),
   setSettings: (s) => {
     const settings = { ...get().settings, ...s }
-    localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings))
+    try {
+      localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings))
+    } catch {
+      // Storage full or blocked: they apply for now all the same.
+    }
     set({ settings })
   },
   requestFit: () => set({ fitRequest: get().fitRequest + 1 }),

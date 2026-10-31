@@ -11,8 +11,8 @@ function when(at: number) {
   if (days === 1) return t('Yesterday, {time}', { time })
   return d.toLocaleDateString(lang, { day: 'numeric', month: 'short', year: days > 300 ? 'numeric' : undefined })
 }
-import { useState } from 'react'
-import { Check, Cloud, CloudUpload, Eye, FilePlus2, HardDrive, Pencil, Trash2, UserMinus, Users } from 'lucide-react'
+import { useRef, useState } from 'react'
+import { ArchiveRestore, Check, ChevronDown, Cloud, CloudUpload, Download, Eye, FilePlus2, HardDrive, Pencil, RotateCcw, Trash2, UserMinus, Users } from 'lucide-react'
 import { Loader } from '@/components/ui/loader'
 import { toast } from 'sonner'
 import { Badge } from '@/components/ui/badge'
@@ -22,10 +22,24 @@ import { Input } from '@/components/ui/input'
 import { cn } from '@/lib/utils'
 import { useCloud } from '@/cloud/store'
 import type { SharedPlan, ShareRole } from '@/cloud/backend'
-import { deleteCloudProject, leaveSharedProject, listCloud, listSharedWithMe, openCloudProject, openSharedProject, renameCloudProject, uploadLocal } from '@/cloud/sync'
+import {
+  deleteCloudProject,
+  fetchCloudProject,
+  isSynced,
+  leaveSharedProject,
+  listCloud,
+  listSharedWithMe,
+  openCloudProject,
+  openSharedProject,
+  renameCloudProject,
+  uploadLocal,
+} from '@/cloud/sync'
 import { newProject } from '@/model/project'
+import type { Project } from '@/model/types'
+import { fullBackup, openProjectFile, saveBackup } from '@/store/backup'
 import { useEditor } from '@/store/editor'
-import { deleteProject, listProjects, loadProject, saveProject } from '@/store/storage'
+import { listProjects, listTrash, loadProject, purgeTrashed, restoreProject, saveProject, trashProject, TRASH_DAYS } from '@/store/storage'
+import type { TrashedMeta } from '@/store/storage'
 import { useUi } from '@/store/ui'
 import { ConfirmDialog } from './ConfirmDialog'
 
@@ -50,9 +64,10 @@ interface SharedEntry {
   local: boolean
 }
 
-function merge(local: ReturnType<typeof listProjects>, cloud: Awaited<ReturnType<typeof listCloud>>): Entry[] {
+/** This device's plans and the account's, together. `inCloud`: which are in the account, before its list arrives. */
+function merge(local: ReturnType<typeof listProjects>, cloud: Awaited<ReturnType<typeof listCloud>>, inCloud = (_id: string) => false): Entry[] {
   const map = new Map<string, Entry>()
-  for (const m of local) if (!m.shared) map.set(m.id, { id: m.id, name: m.name, updatedAt: m.updatedAt, local: true, cloud: false })
+  for (const m of local) if (!m.shared) map.set(m.id, { id: m.id, name: m.name, updatedAt: m.updatedAt, local: true, cloud: inCloud(m.id) })
   for (const c of cloud) {
     const e = map.get(c.id)
     if (e) {
@@ -88,12 +103,21 @@ export function ProjectsDialog() {
   const [uploading, setUploading] = useState(false)
   const [toDelete, setToDelete] = useState<Entry | null>(null)
   const [renaming, setRenaming] = useState<{ id: string; name: string } | null>(null)
+  const [trash, setTrash] = useState<TrashedMeta[]>([])
+  const [showTrash, setShowTrash] = useState(false)
+  const [toPurge, setToPurge] = useState<TrashedMeta | null>(null)
+  const [emptying, setEmptying] = useState(false)
+  const [backingUp, setBackingUp] = useState(false)
+  const restoreRef = useRef<HTMLInputElement>(null)
+  /** When a plan was last deleted straight away (a second click straight after asks first: the rows have moved). */
+  const lastQuick = useRef(0)
 
   const refresh = async () => {
     saveProject(useEditor.getState().project)
     const local = listProjects()
-    setEntries(merge(local, []))
+    setEntries(merge(local, [], useCloud.getState().user ? isSynced : undefined))
     setShared(mergeShared(local, []))
+    setTrash(listTrash())
     if (!useCloud.getState().user) return
     setLoadingCloud(true)
     try {
@@ -164,20 +188,83 @@ export function ProjectsDialog() {
     close()
     useUi.getState().openStart(true)
   }
+  /**
+   * Delete a plan: kept in Recently deleted in this browser, as it was last changed (here, or in the account), to be put
+   * back. If it can't be kept, it isn't deleted.
+   */
   const remove = async (e: Entry) => {
+    setBusyId(e.id)
     try {
-      if (e.cloud) await deleteCloudProject(e.id)
-      if (e.local) deleteProject(e.id)
-      if (e.id === current.id) {
+      const here = e.id === current.id ? useEditor.getState().project : e.local ? loadProject(e.id) : null
+      const there = e.cloud ? await fetchCloudProject(e.id) : null
+      const newest = [here, there].filter((p): p is Project => !!p).sort((a, b) => b.updatedAt - a.updatedAt)[0]
+      if (!trashProject(e.id, newest, e.cloud)) {
+        throw new Error(t("there's no room in this browser to keep it, to put back. Empty Recently deleted or download a backup first"))
+      }
+      if (e.cloud) {
+        try {
+          await deleteCloudProject(e.id)
+        } catch (err) {
+          restoreProject(e.id)
+          throw err
+        }
+      }
+      // The plan open now (another may have been opened while the account was answering).
+      if (useEditor.getState().project.id === e.id) {
         const next = listProjects()[0]
         const p = (next && loadProject(next.id)) || newProject()
         saveProject(p)
         useEditor.getState().loadProject(p)
       }
+      toast(t('“{name}” moved to Recently deleted.', { name: e.name }), { action: { label: t('Undo'), onClick: () => void putBack(e.id) } })
     } catch (err) {
       toast.error(t("Couldn't delete: {error}", { error: (err as Error).message }))
+    } finally {
+      setBusyId(null)
     }
     await refresh()
+  }
+  const quickDelete = (e: Entry, now: number) => {
+    if (e.cloud || now - lastQuick.current < 800) return setToDelete(e)
+    lastQuick.current = now
+    void remove(e)
+  }
+  /** A deleted plan back in the list (and in the account, if it was there and this user's signed in). */
+  const putBack = async (id: string) => {
+    const was = listTrash().find((m) => m.id === id)
+    const p = restoreProject(id)
+    if (!p) {
+      toast.error(t("Couldn't put it back: there isn't room in this browser, or it's gone."))
+    } else {
+      const up = was?.cloud && useCloud.getState().user ? (await uploadLocal([p.id], true)) > 0 : true
+      if (up) toast.success(t('“{name}” is back in your plans.', { name: p.name }))
+      else toast.warning(t("“{name}” is back on this device, but couldn't go back to your account. Upload it from here once you're online.", { name: p.name }))
+    }
+    await refresh()
+  }
+  const purge = (ids: string[]) => {
+    for (const id of ids) purgeTrashed(id)
+    setTrash(listTrash())
+  }
+  const backUp = async () => {
+    setBackingUp(true)
+    try {
+      saveProject(useEditor.getState().project)
+      const { backup, missed, unlisted } = await fullBackup()
+      await saveBackup(backup)
+      if (unlisted) toast.warning(t("Your account couldn't be reached, so the backup has the plans in this browser only."))
+      if (missed) {
+        toast.warning(
+          missed === 1
+            ? t("1 plan in your account couldn't be fetched, so it isn't in the backup.")
+            : t("{n} plans in your account couldn't be fetched, so they aren't in the backup.", { n: missed }),
+        )
+      }
+    } catch (err) {
+      toast.error(t("Couldn't make the backup: {error}", { error: (err as Error).message }))
+    } finally {
+      setBackingUp(false)
+    }
   }
   const rename = async (e: Entry, raw: string) => {
     setRenaming(null)
@@ -212,7 +299,7 @@ export function ProjectsDialog() {
   return (
     <>
       <Dialog open={open} onOpenChange={onOpenChange}>
-        <DialogContent className="sm:max-w-lg">
+        <DialogContent className="max-h-[90dvh] overflow-y-auto sm:max-w-lg">
           <DialogHeader>
             <DialogTitle>{t('Projects')}</DialogTitle>
             <DialogDescription>
@@ -290,11 +377,17 @@ export function ProjectsDialog() {
                 </button>
                 )}
                 {renaming?.id !== p.id && (
-                  <Button variant="ghost" size="icon-sm" aria-label={t('Rename {name}', { name: p.name })} onClick={() => setRenaming({ id: p.id, name: p.name })}>
+                  <Button
+                    variant="ghost"
+                    size="icon-sm"
+                    aria-label={t('Rename {name}', { name: p.name })}
+                    onClick={() => setRenaming({ id: p.id, name: p.name })}
+                    disabled={busyId !== null}
+                  >
                     <Pencil />
                   </Button>
                 )}
-                <Button variant="ghost" size="icon-sm" aria-label={t('Delete {name}', { name: p.name })} onClick={() => setToDelete(p)}>
+                <Button variant="ghost" size="icon-sm" aria-label={t('Delete {name}', { name: p.name })} onClick={(ev) => quickDelete(p, ev.timeStamp)} disabled={busyId !== null}>
                   <Trash2 />
                 </Button>
               </li>
@@ -337,6 +430,70 @@ export function ProjectsDialog() {
               </ul>
             </section>
           )}
+          {trash.length > 0 && (
+            <section className="space-y-2">
+              <button
+                type="button"
+                className="flex items-center gap-1.5 text-start text-sm font-medium outline-none focus-visible:underline"
+                onClick={() => setShowTrash(!showTrash)}
+                aria-expanded={showTrash}
+              >
+                <ChevronDown className={cn('size-4 text-muted-foreground transition-transform', !showTrash && '-rotate-90 rtl:rotate-90')} />
+                {t('Recently deleted')}
+                <span className="font-normal text-muted-foreground">{trash.length}</span>
+              </button>
+              {showTrash && (
+                <>
+                  <ul className="max-h-48 divide-y overflow-y-auto rounded-lg border">
+                    {trash.map((m) => (
+                      <li key={m.id} className="flex items-center gap-1 pe-2">
+                        <div className="flex min-w-0 flex-1 flex-col gap-0.5 px-3 py-2">
+                          <span dir="auto" className="truncate text-sm">{m.name}</span>
+                          <span className="text-xs text-muted-foreground">
+                            {t('Deleted')} · {when(m.deletedAt)}
+                          </span>
+                        </div>
+                        <Button variant="ghost" size="sm" onClick={() => void putBack(m.id)}>
+                          <RotateCcw /> {t('Put back')}
+                        </Button>
+                        <Button variant="ghost" size="icon-sm" aria-label={t('Delete {name} for good', { name: m.name })} onClick={() => setToPurge(m)}>
+                          <Trash2 />
+                        </Button>
+                      </li>
+                    ))}
+                  </ul>
+                  <p className="text-xs text-muted-foreground">
+                    {t('Deleted plans are kept in this browser for {days} days, or until it needs the room.', { days: TRASH_DAYS })}{' '}
+                    <button type="button" className="underline underline-offset-2 hover:text-foreground" onClick={() => setEmptying(true)}>
+                      {t('Empty it now')}
+                    </button>
+                  </p>
+                </>
+              )}
+            </section>
+          )}
+          <div className="flex flex-wrap gap-2 border-t pt-3">
+            <Button variant="outline" size="sm" onClick={() => void backUp()} disabled={backingUp}>
+              {backingUp ? <Loader label={t('Making the backup')} /> : <Download />}
+              {t('Download all my plans')}
+            </Button>
+            <Button variant="outline" size="sm" onClick={() => restoreRef.current?.click()}>
+              <ArchiveRestore /> {t('Restore from a backup…')}
+            </Button>
+            <input
+              ref={restoreRef}
+              type="file"
+              accept=".json,application/json"
+              hidden
+              onChange={async (ev) => {
+                const file = ev.target.files?.[0]
+                ev.target.value = ''
+                if (!file) return
+                await openProjectFile(file)
+                await refresh()
+              }}
+            />
+          </div>
         </DialogContent>
       </Dialog>
       <ConfirmDialog
@@ -345,10 +502,30 @@ export function ProjectsDialog() {
         title={t('Delete “{name}”?', { name: toDelete?.name ?? '' })}
         description={
           toDelete?.cloud
-            ? t('This permanently removes the plan from your account and from this browser. It cannot be undone.')
-            : t('This permanently removes the project from this browser. It cannot be undone.')
+            ? t("It's removed from your account, and from anyone it's shared with. This browser keeps it in Recently deleted for {days} days, to put back.", {
+                days: TRASH_DAYS,
+              })
+            : t('It goes to Recently deleted, where it’s kept for {days} days, to put back.', { days: TRASH_DAYS })
         }
         onConfirm={() => toDelete && void remove(toDelete)}
+      />
+      <ConfirmDialog
+        open={!!toPurge}
+        onOpenChange={(o) => !o && setToPurge(null)}
+        title={t('Delete “{name}” for good?', { name: toPurge?.name ?? '' })}
+        description={t("It can't be put back after this.")}
+        confirmLabel={t('Delete for good')}
+        onConfirm={() => toPurge && purge([toPurge.id])}
+      />
+      <ConfirmDialog
+        open={emptying}
+        onOpenChange={setEmptying}
+        title={t('Empty Recently deleted?')}
+        description={
+          trash.length === 1 ? t("The plan in it is deleted for good. It can't be put back.") : t("The {n} plans in it are deleted for good. They can't be put back.", { n: trash.length })
+        }
+        confirmLabel={t('Delete for good')}
+        onConfirm={() => purge(trash.map((m) => m.id))}
       />
       <ConfirmDialog
         open={!!toLeave}

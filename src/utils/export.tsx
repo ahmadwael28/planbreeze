@@ -2,7 +2,7 @@ import { getLayout } from '@/hooks/use-layout'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { PlanLayers } from '@/components/PlanLayers'
 import { bbox } from '@/model/geometry'
-import { floorBounds, uid } from '@/model/project'
+import { floorBounds } from '@/model/project'
 import { LIGHT_THEME } from '@/model/theme'
 import type { Floor, Project, Units } from '@/model/types'
 
@@ -124,24 +124,4 @@ export async function exportPng(project: Project, floor: Floor, opts: ExportOpti
 export function exportJson(project: Project) {
   const blob = new Blob([JSON.stringify(project, null, 2)], { type: 'application/json' })
   return saveBlob(blob, `${safeName(project.name)}.floorplan.json`)
-}
-
-export async function importJson(file: File): Promise<Project> {
-  const data = JSON.parse(await file.text()) as Project
-  if (!data || !Array.isArray(data.floors) || !data.floors.length) {
-    throw new Error('Not a valid floor plan file.')
-  }
-  for (const f of data.floors) {
-    if (!Array.isArray(f.rooms) || !Array.isArray(f.symbols)) throw new Error('Not a valid floor plan file.')
-  }
-  const now = Date.now()
-  return {
-    ...data,
-    id: uid(), // import as a new project so nothing is overwritten
-    access: undefined, // and it's the importer's own, even if it was exported from a shared plan
-    units: data.units === 'imperial' ? 'imperial' : 'metric',
-    defaultWallThickness: data.defaultWallThickness || 10,
-    createdAt: now,
-    updatedAt: now,
-  }
 }

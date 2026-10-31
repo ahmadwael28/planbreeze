@@ -35,6 +35,7 @@ import type { Theme } from '@/components/theme-provider'
 import { cn } from '@/lib/utils'
 import { useCloud } from '@/cloud/store'
 import { reconcile, signOut } from '@/cloud/sync'
+import { openProjectFile } from '@/store/backup'
 import { openDesign } from '@/store/design'
 import { currentFloor, isViewOnly, useEditor } from '@/store/editor'
 import type { Settings } from '@/store/editor'
@@ -215,7 +216,7 @@ export function PhoneMenu() {
         onChange={async (e) => {
           const file = e.target.files?.[0]
           e.target.value = ''
-          if (file) await run(async (m) => useEditor.getState().loadProject(await m.importJson(file)), t('Opened “{name}”', { name: file.name }))
+          if (file) await openProjectFile(file)
         }}
       />
       <Dialog open={open} onOpenChange={setOpen}>

@@ -1,5 +1,5 @@
 import { lazy, Suspense, useEffect, useRef } from 'react'
-import { LayoutGrid, Lightbulb, Maximize } from 'lucide-react'
+import { Download, FolderOpen, LayoutGrid, Lightbulb, Map as MapIcon, Maximize, Undo2 } from 'lucide-react'
 import { Loader } from '@/components/ui/loader'
 import { toast } from 'sonner'
 import { Canvas } from '@/components/Canvas'
@@ -39,10 +39,16 @@ import {
   useEditor,
 } from '@/store/editor'
 import { copyItems, moveItems, refsOf } from '@/model/items'
-import { lastProjectId, listProjects, loadProject, saveProject } from '@/store/storage'
+import { lastProjectId, listProjects, loadProject, purgeOldTrash, saveProject } from '@/store/storage'
+import type { Project } from '@/model/types'
+import { newProject } from '@/model/project'
+import { download, safeName } from '@/store/backup'
+import { useDesign } from '@/store/design'
+import { safeStart } from '@/store/recovery'
+import { DialogGuard, ErrorBoundary, PartCrash } from '@/components/ErrorBoundary'
 import { useUi } from '@/store/ui'
 import { useCloud } from '@/cloud/store'
-import { connectMemoryCloudForTesting, initCloud } from '@/cloud/sync'
+import { connectMemoryCloudForTesting, initCloud, resolveConflict } from '@/cloud/sync'
 import { ConflictDialog } from '@/components/ConflictDialog'
 import { SignInDialog } from '@/components/SignInDialog'
 import { ShareDialog } from '@/components/ShareDialog'
@@ -242,8 +248,9 @@ function useKeyboardShortcuts() {
 function useAutosave() {
   useEffect(() => {
     let timer: ReturnType<typeof setTimeout> | undefined
+    let pending: Project | null = null
     let warned = false
-    const save = (p = useEditor.getState().project) => {
+    const save = (p: Project) => {
       if (saveProject(p)) {
         warned = false
       } else if (!warned) {
@@ -258,20 +265,45 @@ function useAutosave() {
       clearTimeout(timer)
       // Switching projects: store the one being left right away so no edit is lost.
       if (s.project.id !== prev.project.id) save(prev.project)
-      const p = s.project
-      timer = setTimeout(() => save(p), 400)
+      const p = (pending = s.project)
+      timer = setTimeout(() => {
+        pending = null
+        save(p)
+      }, 400)
     })
-    const flush = () => saveProject(useEditor.getState().project)
+    // Leaving the page, or it's hidden (switching apps on a phone, which may close it unseen): saved right away.
+    const flush = () => {
+      if (!pending) return
+      clearTimeout(timer)
+      const p = pending
+      pending = null
+      save(p)
+    }
+    const onHide = () => document.visibilityState === 'hidden' && flush()
     window.addEventListener('beforeunload', flush)
+    window.addEventListener('pagehide', flush)
+    document.addEventListener('visibilitychange', onHide)
     return () => {
       unsub()
       clearTimeout(timer)
       window.removeEventListener('beforeunload', flush)
+      window.removeEventListener('pagehide', flush)
+      document.removeEventListener('visibilitychange', onHide)
     }
   }, [])
 }
 
 function loadInitialProject() {
+  purgeOldTrash()
+  if (safeStart()) {
+    // The new plan's the last one now, so a normal start next time doesn't open the one that failed either.
+    const p = newProject()
+    saveProject(p)
+    useEditor.getState().loadProject(p)
+    useUi.getState().openProjects(true)
+    toast(t('Started with a new plan, without opening the last one. Your plans are all here.'), { id: 'safe-start', duration: 8000 })
+    return
+  }
   const id = lastProjectId() ?? listProjects()[0]?.id
   const saved = id ? loadProject(id) : null
   const p = saved || sampleProject()
@@ -323,6 +355,61 @@ function useFocusBackToView() {
   }, [])
 }
 
+/** The plan couldn't be drawn: try again, open another plan, or keep a copy of this one. */
+function PlanCrash({ error, retry }: { error: Error; retry: () => void }) {
+  const canUndo = useEditor((s) => s.past.length > 0)
+  return (
+    <div className="grid h-full place-items-center">
+      <PartCrash className="max-w-md" title={t("The plan couldn't be shown")} error={error} retry={retry}>
+        {canUndo && (
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => {
+              useEditor.getState().undo()
+              retry()
+            }}
+          >
+            <Undo2 /> {t('Undo the last change')}
+          </Button>
+        )}
+        <Button size="sm" variant="outline" onClick={() => useUi.getState().openProjects(true)}>
+          <FolderOpen /> {t('Open another plan')}
+        </Button>
+        <Button
+          size="sm"
+          variant="outline"
+          onClick={() => {
+            const p = useEditor.getState().project
+            download(p, `${safeName(p.name)}.floorplan.json`)
+          }}
+        >
+          <Download /> {t('Download this plan')}
+        </Button>
+      </PartCrash>
+    </div>
+  )
+}
+
+/** If the dialog for a plan changed on two devices fails: the two choices, plainly, so the plan can sync again. */
+function ConflictChoice() {
+  const conflict = useCloud((s) => s.conflict)
+  if (!conflict) return null
+  return (
+    <div role="alertdialog" className="fixed inset-x-0 bottom-4 z-50 mx-auto w-[min(28rem,calc(100%-2rem))] space-y-3 rounded-xl border bg-card p-4 text-sm shadow-lg">
+      <p className="font-medium">{t('This plan was changed on another device')}</p>
+      <div className="flex flex-wrap gap-2">
+        <Button size="sm" variant="outline" onClick={() => void resolveConflict('theirs')}>
+          {t('Use the version from my account')}
+        </Button>
+        <Button size="sm" onClick={() => void resolveConflict('mine')}>
+          {t("Keep this device's version")}
+        </Button>
+      </div>
+    </div>
+  )
+}
+
 export default function App() {
   const sidebarOpen = useUi((s) => s.sidebarOpen)
   const setSidebarOpen = useUi((s) => s.setSidebarOpen)
@@ -332,6 +419,7 @@ export default function App() {
   const requestFit = useEditor((s) => s.requestFit)
   const hint = useHint(tool)
   const layout = useLayout()
+  const projectId = useEditor((s) => s.project.id)
   // A new language: everything on screen again in it (the app itself carries on).
   const lang = useLang()
 
@@ -350,9 +438,11 @@ export default function App() {
         <main className="relative min-w-0 flex-1" data-tour="canvas">
           {viewMode === '2d' && (
             <>
-              <Canvas />
-              <LayerToggle />
-              <EmptyState />
+              <ErrorBoundary resetKey={projectId} fallback={(error, retry) => <PlanCrash error={error} retry={retry} />}>
+                <Canvas />
+                <LayerToggle />
+                <EmptyState />
+              </ErrorBoundary>
               {/* With the tools along the bottom, zooming to fit is up here (pinching does the rest). */}
               {layout.bottomBar && (
                 <Button variant="outline" size="icon" className="absolute end-3 top-3 z-10 bg-background/95 shadow-sm backdrop-blur" onClick={requestFit} aria-label={t('Zoom to fit')}>
@@ -370,6 +460,18 @@ export default function App() {
           {/* Once opened, the 3D view stays alive while hidden, so switching back to it is instant. */}
           {(viewMode === '3d' || seen3d) && (
             <div className={viewMode === '3d' ? 'h-full' : 'hidden'}>
+              <ErrorBoundary
+                resetKey={viewMode}
+                fallback={(error, retry) => (
+                  <div className="grid h-full place-items-center">
+                    <PartCrash className="max-w-md" title={t('The 3D view ran into a problem')} error={error} retry={retry}>
+                      <Button size="sm" variant="outline" onClick={() => useEditor.getState().setViewMode('2d')}>
+                        <MapIcon /> {t('Back to the plan')}
+                      </Button>
+                    </PartCrash>
+                  </div>
+                )}
+              >
               <Suspense
                 fallback={
                   <div className="grid h-full place-content-center justify-items-center gap-3 text-sm text-muted-foreground">
@@ -380,6 +482,7 @@ export default function App() {
               >
                 <Viewer3D />
               </Suspense>
+              </ErrorBoundary>
             </div>
           )}
           <FloorBar />
@@ -388,17 +491,39 @@ export default function App() {
         <Sidebar open={sidebarOpen} />
       </div>
       {viewMode === '2d' && layout.bottomBar && <BottomBar />}
-      <ProjectsDialog />
-      <StartDialog />
-      <ImportWizard />
-      <PrintDialog />
-      <RenderDialog />
-      <SignInDialog />
-      <ShareDialog />
-      <ConflictDialog />
-      <DesignDialog />
-      <TileLayoutDialog />
-      <GuidedTour />
+      <DialogGuard close={() => useUi.getState().openProjects(false)}>
+        <ProjectsDialog />
+      </DialogGuard>
+      <DialogGuard close={() => useUi.getState().openStart(false)}>
+        <StartDialog />
+      </DialogGuard>
+      <DialogGuard close={() => useUi.getState().openImport(null)}>
+        <ImportWizard />
+      </DialogGuard>
+      <DialogGuard close={() => useUi.getState().openPrint(false)}>
+        <PrintDialog />
+      </DialogGuard>
+      <DialogGuard close={() => useUi.getState().openRender(false)}>
+        <RenderDialog />
+      </DialogGuard>
+      <DialogGuard close={() => useCloud.getState().openSignIn(false)}>
+        <SignInDialog />
+      </DialogGuard>
+      <DialogGuard close={() => useUi.getState().openShare(false)}>
+        <ShareDialog />
+      </DialogGuard>
+      <DialogGuard close={() => {}} fallback={<ConflictChoice />}>
+        <ConflictDialog />
+      </DialogGuard>
+      <DialogGuard close={() => useDesign.getState().close()}>
+        <DesignDialog />
+      </DialogGuard>
+      <DialogGuard close={() => useUi.getState().openTileLayout(null)}>
+        <TileLayoutDialog />
+      </DialogGuard>
+      <DialogGuard close={() => useUi.getState().setTourStep(null)}>
+        <GuidedTour />
+      </DialogGuard>
     </div>
   )
 }

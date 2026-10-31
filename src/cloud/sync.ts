@@ -12,11 +12,12 @@
  */
 import type { Session, SupabaseClient } from '@supabase/supabase-js'
 import { toast } from 'sonner'
+import { t } from '@/i18n'
 import { uid } from '@/model/project'
 import { sampleProject } from '@/model/sample'
 import type { Project, ProjectAccess } from '@/model/types'
 import { useEditor } from '@/store/editor'
-import { deleteProject, listProjects, loadProject, saveProject } from '@/store/storage'
+import { clearPlans, deleteProject, isGone, listProjects, loadProject, saveProject } from '@/store/storage'
 import { AlreadyExistsError, memoryBackend, memorySharing, sharingBackend, supabaseBackend } from './backend'
 import type { CloudBackend, CloudMeta, CloudRow, SharedPlan, SharingBackend } from './backend'
 import { cloudConfig, useCloud } from './store'
@@ -107,6 +108,7 @@ export async function saveNow(): Promise<void> {
   }
   const p = useEditor.getState().project
   if (p.access && p.access.role !== 'editor') return
+  if (isGone(p.id)) return
   const meta = synced[p.id]
   if (meta && p.updatedAt <= meta.updatedAt) {
     set({ saveState: 'saved', error: null })
@@ -134,8 +136,9 @@ export async function saveNow(): Promise<void> {
     } else {
       version = await backend.update(p, meta.version)
       if (version === null) {
-        // Either changed elsewhere, or deleted elsewhere (then just recreate it).
+        // Either changed elsewhere, or deleted elsewhere (then just recreate it, unless it was deleted here).
         if ((await backend.version(p.id)) !== null) return await showConflict(p)
+        if (isGone(p.id)) return
         version = await backend.insert(p)
       }
     }
@@ -189,10 +192,12 @@ export async function reconcile(): Promise<void> {
   try {
     const remoteVersion = await backend.version(p.id)
     if (remoteVersion === null) return schedule(0)
-    if (meta && meta.version === remoteVersion) return schedule(0)
+    // A copy here older than the one this device last synced (put back from a backup) is no longer in step with it.
+    const stale = !!meta && p.updatedAt < meta.updatedAt
+    if (meta && meta.version === remoteVersion && !stale) return schedule(0)
     const remote = await backend.get(p.id)
     if (!remote) return schedule(0)
-    const unsynced = !meta || p.updatedAt > meta.updatedAt
+    const unsynced = !meta || stale || p.updatedAt > meta.updatedAt
     if (!meta && remote.data.updatedAt === p.updatedAt) {
       synced[p.id] = { version: remote.version, updatedAt: p.updatedAt }
       persistSynced()
@@ -304,21 +309,52 @@ export async function signInWithEmail(email: string) {
   if (error) throw new Error(error.message)
 }
 
-/** Sign out. With `clearDevice`, also remove this user's plans from this browser (shared computers). */
+/** Whether this device's copy of a plan is all in the account (saved there, and not changed here since). */
+function upToDate(id: string) {
+  const p = loadProject(id)
+  const s = synced[id]
+  return !p || (!!s && p.updatedAt <= s.updatedAt)
+}
+
+/**
+ * Sign out. With `clearDevice`, also remove this user's plans from this browser (shared computers): the deleted ones
+ * kept to be put back too, and the rest of theirs kept here (the AI key, a plan link waiting for sign-in, design
+ * choices); only once every change to their account's plans is in the account, so nothing's lost. If the server can't
+ * be reached, signed out on this device all the same.
+ */
 export async function signOut(clearDevice = false) {
   const uid = useCloud.getState().user?.id
+  for (let i = 0; inFlight && i < 40; i++) await new Promise((r) => setTimeout(r, 250))
   clearTimeout(timer)
   await saveNow().catch(() => {})
-  if (supabase) await supabase.auth.signOut()
-  await onSession(null)
-  if (clearDevice) {
-    for (const m of listProjects()) localStorage.removeItem(`fp.project.${m.id}`)
-    for (const k of ['fp.projects', 'fp.lastProject']) localStorage.removeItem(k)
-    if (uid) localStorage.removeItem(syncedKey(uid))
-    const p = sampleProject()
-    saveProject(p)
-    useEditor.getState().loadProject(p)
+  if (clearDevice && uid) {
+    const behind = listProjects().filter((m) => !m.shared && synced[m.id] && !upToDate(m.id))
+    if (behind.length || useCloud.getState().conflict) {
+      toast.error(
+        t("Some changes here aren't in your account yet, so nothing was removed and you're still signed in. Check your connection, then try again."),
+        { duration: 10000 },
+      )
+      return
+    }
   }
+  let forget = false
+  if (supabase) {
+    const { error } = await supabase.auth.signOut()
+    forget = !!error
+  }
+  await onSession(null)
+  if (forget) {
+    // The server couldn't be told: the session goes from this browser all the same.
+    for (const k of Object.keys(localStorage)) if (/^sb-.+-auth-token/.test(k)) localStorage.removeItem(k)
+  }
+  if (clearDevice) {
+    clearPlans()
+    for (const k of ['fp.anthropicKey', PENDING_SHARE, 'planbreeze.design']) localStorage.removeItem(k)
+    if (uid) localStorage.removeItem(syncedKey(uid))
+    saveProject(sampleProject())
+  }
+  // Nothing of theirs left in memory either (the session, the AI key in the import wizard, design choices).
+  if (forget || clearDevice) window.location.assign(window.location.origin + window.location.pathname)
 }
 
 // ---------------------------------------------------------------------------
@@ -327,6 +363,12 @@ export async function signOut(clearDevice = false) {
 export async function listCloud(): Promise<CloudMeta[]> {
   if (!backend || !useCloud.getState().user) return []
   return backend.list()
+}
+
+/** A plan in the account as it's saved there (for a backup, or a copy kept as it's deleted). */
+export async function fetchCloudProject(id: string): Promise<Project | null> {
+  if (!backend || !useCloud.getState().user) return null
+  return (await backend.get(id))?.data ?? null
 }
 
 export async function openCloudProject(id: string) {
@@ -341,6 +383,8 @@ export async function openCloudProject(id: string) {
 
 export async function deleteCloudProject(id: string) {
   if (!backend) return
+  for (let i = 0; inFlight && i < 40; i++) await new Promise((r) => setTimeout(r, 250))
+  if (useEditor.getState().project.id === id) clearTimeout(timer)
   await backend.remove(id)
   delete synced[id]
   persistSynced()
@@ -360,7 +404,7 @@ export async function renameCloudProject(id: string, name: string) {
 }
 
 /** Upload plans that are only on this device. Returns how many were uploaded. */
-export async function uploadLocal(ids: string[]) {
+export async function uploadLocal(ids: string[], quiet = false) {
   if (!backend) return 0
   let n = 0
   for (const id of ids) {
@@ -378,7 +422,7 @@ export async function uploadLocal(ids: string[]) {
     }
   }
   persistSynced()
-  toast.success(`Uploaded ${n} plan${n === 1 ? '' : 's'} to your account.`)
+  if (!quiet) toast.success(`Uploaded ${n} plan${n === 1 ? '' : 's'} to your account.`)
   return n
 }
 

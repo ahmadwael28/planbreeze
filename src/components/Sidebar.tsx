@@ -13,6 +13,21 @@ import type { SidebarTab } from '@/store/ui'
 import { LibraryPanel } from './LibraryPanel'
 import { PropertiesPanel } from './PropertiesPanel'
 import { SummaryPanel } from './SummaryPanel'
+import { refKey } from '@/model/items'
+import { ErrorBoundary, PartCrash } from './ErrorBoundary'
+
+/** What's picked, as a word (the same thing picked again gives the same one). */
+const pickKey = (s: ReturnType<typeof useEditor.getState>) =>
+  s.selection ? (s.selection.kind === 'multi' ? `multi:${s.selection.items.length}` : `${s.selection.kind}:${s.selection.id}`) : ''
+
+/** What's picked, in full: a room's wall or corners too, each of several items. */
+function pickedInFull(s: ReturnType<typeof useEditor.getState>) {
+  const sel = s.selection
+  if (!sel) return ''
+  if (sel.kind === 'multi') return `multi:${sel.items.map(refKey).join(',')}`
+  if (sel.kind === 'room') return `room:${sel.id}:${sel.edge ?? ''}:${(sel.vertices ?? (sel.vertex === undefined ? [] : [sel.vertex])).join(',')}`
+  return `${sel.kind}:${sel.id}`
+}
 
 /** For a plan shared to view: why nothing can be changed, and the way to a copy that can. */
 function ViewOnlyNote() {
@@ -91,18 +106,19 @@ export function Sidebar({ open }: { open: boolean }) {
   const setOpen = useUi((s) => s.setSidebarOpen)
   const sheetFull = useUi((s) => s.sheetFull)
   const viewOnly = useEditor((s) => isViewOnly(s.project))
+  const picked = useEditor(pickedInFull)
   const { panel } = useLayout()
   const [dragH, setDragH] = useState<number | null>(null)
 
   // Jump to properties when something gets selected.
-  useEffect(() => {
-    const key = (s: ReturnType<typeof useEditor.getState>) =>
-      s.selection ? (s.selection.kind === 'multi' ? `multi:${s.selection.items.length}` : `${s.selection.kind}:${s.selection.id}`) : ''
-    return useEditor.subscribe((s, prev) => {
-      const k = key(s)
-      if (k && k !== key(prev)) useUi.getState().setSidebarTab('properties')
-    })
-  }, [])
+  useEffect(
+    () =>
+      useEditor.subscribe((s, prev) => {
+        const k = pickKey(s)
+        if (k && k !== pickKey(prev)) useUi.getState().setSidebarTab('properties')
+      }),
+    [],
+  )
 
   const sheet = panel === 'sheet'
   const overlay = panel !== 'docked'
@@ -142,6 +158,10 @@ export function Sidebar({ open }: { open: boolean }) {
           )}
         </div>
         <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
+          <ErrorBoundary
+            resetKey={`${tab}|${picked}`}
+            fallback={(error, retry) => <PartCrash title={t('This panel ran into a problem')} error={error} retry={retry} />}
+          >
           <TabsContent value="properties">
             {viewOnly && <ViewOnlyNote />}
             {/* Shared to view: every field shows, none can be changed. */}
@@ -153,6 +173,7 @@ export function Sidebar({ open }: { open: boolean }) {
           <TabsContent value="summary">
             <SummaryPanel />
           </TabsContent>
+          </ErrorBoundary>
         </div>
       </Tabs>
     </aside>
