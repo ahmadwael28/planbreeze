@@ -461,7 +461,7 @@ Each milestone is about one to two weeks of work. It ships and deploys on its ow
 - CI runs lint, typecheck and tests, and only deploys when they pass. Dependabot.
 - *Done when:* a failing test stops a deploy.
 
-**M4. Room to grow: storage**
+**M4. Room to grow: storage** ✓ shipped 1 Nov 2026
 - Plans and images move from localStorage to IndexedDB; images are stored once as files, not inside each plan.
 - `navigator.storage.persist()` and a storage meter.
 - Existing plans move across by themselves.

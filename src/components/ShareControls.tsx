@@ -18,10 +18,10 @@ import { listProjects, loadProject, saveProject } from '@/store/storage'
 import { useUi } from '@/store/ui'
 
 /** Open another of this device's plans (after the open one is removed). */
-function openAnother(except: string) {
-  const next = listProjects().find((m) => m.id !== except)
-  const p = (next && loadProject(next.id)) || newProject()
-  saveProject(p)
+async function openAnother(except: string) {
+  const next = (await listProjects()).find((m) => m.id !== except)
+  const p = (next && (await loadProject(next.id))) || newProject()
+  void saveProject(p)
   useEditor.getState().loadProject(p)
 }
 
@@ -62,7 +62,7 @@ export function ShareControls({ inMenu = false }: { inMenu?: boolean }) {
     const { id } = useEditor.getState().project
     try {
       await leaveSharedProject(access.owner, id)
-      openAnother(id)
+      await openAnother(id)
       toast.success(t('Removed from your plans.'))
     } catch (e) {
       toast.error(t("Couldn't remove it: {error}", { error: (e as Error).message }))

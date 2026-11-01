@@ -38,10 +38,11 @@ import { newProject } from '@/model/project'
 import type { Project } from '@/model/types'
 import { fullBackup, openProjectFile, saveBackup } from '@/store/backup'
 import { useEditor } from '@/store/editor'
-import { listProjects, listTrash, loadProject, purgeTrashed, restoreProject, saveProject, trashProject, TRASH_DAYS } from '@/store/storage'
-import type { TrashedMeta } from '@/store/storage'
+import { listProjects, listTrash, loadProject, purgeTrashed, restoreProject, saveProject, storeProject, trashProject, TRASH_DAYS } from '@/store/storage'
+import type { ProjectMeta, TrashedMeta } from '@/store/storage'
 import { useUi } from '@/store/ui'
 import { ConfirmDialog } from './ConfirmDialog'
+import { StorageMeter } from './StorageMeter'
 
 interface Entry {
   id: string
@@ -65,7 +66,7 @@ interface SharedEntry {
 }
 
 /** This device's plans and the account's, together. `inCloud`: which are in the account, before its list arrives. */
-function merge(local: ReturnType<typeof listProjects>, cloud: Awaited<ReturnType<typeof listCloud>>, inCloud = (_id: string) => false): Entry[] {
+function merge(local: ProjectMeta[], cloud: Awaited<ReturnType<typeof listCloud>>, inCloud = (_id: string) => false): Entry[] {
   const map = new Map<string, Entry>()
   for (const m of local) if (!m.shared) map.set(m.id, { id: m.id, name: m.name, updatedAt: m.updatedAt, local: true, cloud: inCloud(m.id) })
   for (const c of cloud) {
@@ -78,7 +79,7 @@ function merge(local: ReturnType<typeof listProjects>, cloud: Awaited<ReturnType
   return [...map.values()].sort((a, b) => b.updatedAt - a.updatedAt)
 }
 
-function mergeShared(local: ReturnType<typeof listProjects>, cloud: SharedPlan[]): SharedEntry[] {
+function mergeShared(local: ProjectMeta[], cloud: SharedPlan[]): SharedEntry[] {
   const map = new Map<string, SharedEntry>()
   for (const m of local) {
     if (m.shared) map.set(m.id, { id: m.id, name: m.name, updatedAt: m.updatedAt, local: true, ...m.shared })
@@ -88,6 +89,14 @@ function mergeShared(local: ReturnType<typeof listProjects>, cloud: SharedPlan[]
     map.set(c.id, { ...c, key: e?.key, local: !!e, updatedAt: Math.max(c.updatedAt, e?.updatedAt ?? 0) })
   }
   return [...map.values()].sort((a, b) => b.updatedAt - a.updatedAt)
+}
+
+/** Another of this device's plans opened, after the open one is deleted or left: the last changed, or a new one. */
+async function openNext() {
+  const next = (await listProjects())[0]
+  const p = (next && (await loadProject(next.id))) || newProject()
+  void saveProject(p)
+  useEditor.getState().loadProject(p)
 }
 
 export function ProjectsDialog() {
@@ -113,18 +122,24 @@ export function ProjectsDialog() {
   const lastQuick = useRef(0)
 
   const refresh = async () => {
-    saveProject(useEditor.getState().project)
-    const local = listProjects()
-    setEntries(merge(local, [], useCloud.getState().user ? isSynced : undefined))
-    setShared(mergeShared(local, []))
-    setTrash(listTrash())
+    void saveProject(useEditor.getState().project)
+    try {
+      const local = await listProjects()
+      setEntries(merge(local, [], useCloud.getState().user ? isSynced : undefined))
+      setShared(mergeShared(local, []))
+      setTrash(await listTrash())
+    } catch (e) {
+      toast.error(t("Couldn't read the plans in this browser: {error}", { error: (e as Error).message }))
+    }
     if (!useCloud.getState().user) return
     setLoadingCloud(true)
     try {
       // Plans shared with this user are a bonus: the list works without them (e.g. before sharing is set up).
       const [mine, theirs] = await Promise.all([listCloud(), listSharedWithMe().catch(() => [] as SharedPlan[])])
-      setEntries(merge(listProjects(), mine))
-      setShared(mergeShared(listProjects(), theirs))
+      // This device's list as it is now (plans may have been deleted or put back while the account answered).
+      const local = await listProjects()
+      setEntries(merge(local, mine))
+      setShared(mergeShared(local, theirs))
     } catch (e) {
       toast.error(t("Couldn't load your cloud plans: {error}", { error: (e as Error).message }))
     } finally {
@@ -145,7 +160,7 @@ export function ProjectsDialog() {
     if (e.id === current.id) return close()
     setBusyId(e.id)
     try {
-      const local = e.local ? loadProject(e.id) : null
+      const local = e.local ? await loadProject(e.id) : null
       if (local) useEditor.getState().loadProject(local)
       else await openCloudProject(e.id)
       close()
@@ -159,10 +174,12 @@ export function ProjectsDialog() {
   const openShared = async (e: SharedEntry) => {
     setBusyId(e.id)
     try {
-      const local = loadProject(e.id)
       if (user) await openSharedProject(e.owner, e.id, e.key)
-      else if (local) useEditor.getState().loadProject(local)
-      else throw new Error(t('Sign in to open this plan.'))
+      else {
+        const local = await loadProject(e.id)
+        if (!local) throw new Error(t('Sign in to open this plan.'))
+        useEditor.getState().loadProject(local)
+      }
       close()
     } catch (err) {
       toast.error((err as Error).message)
@@ -173,12 +190,7 @@ export function ProjectsDialog() {
   const leave = async (e: SharedEntry) => {
     try {
       await leaveSharedProject(e.owner, e.id)
-      if (e.id === current.id) {
-        const next = listProjects()[0]
-        const p = (next && loadProject(next.id)) || newProject()
-        saveProject(p)
-        useEditor.getState().loadProject(p)
-      }
+      if (e.id === current.id) await openNext()
     } catch (err) {
       toast.error(t("Couldn't remove it: {error}", { error: (err as Error).message }))
     }
@@ -195,27 +207,22 @@ export function ProjectsDialog() {
   const remove = async (e: Entry) => {
     setBusyId(e.id)
     try {
-      const here = e.id === current.id ? useEditor.getState().project : e.local ? loadProject(e.id) : null
+      const here = e.id === current.id ? useEditor.getState().project : e.local ? await loadProject(e.id) : null
       const there = e.cloud ? await fetchCloudProject(e.id) : null
       const newest = [here, there].filter((p): p is Project => !!p).sort((a, b) => b.updatedAt - a.updatedAt)[0]
-      if (!trashProject(e.id, newest, e.cloud)) {
+      if (!(await trashProject(e.id, newest, e.cloud))) {
         throw new Error(t("there's no room in this browser to keep it, to put back. Empty Recently deleted or download a backup first"))
       }
       if (e.cloud) {
         try {
           await deleteCloudProject(e.id)
         } catch (err) {
-          restoreProject(e.id)
+          await restoreProject(e.id)
           throw err
         }
       }
       // The plan open now (another may have been opened while the account was answering).
-      if (useEditor.getState().project.id === e.id) {
-        const next = listProjects()[0]
-        const p = (next && loadProject(next.id)) || newProject()
-        saveProject(p)
-        useEditor.getState().loadProject(p)
-      }
+      if (useEditor.getState().project.id === e.id) await openNext()
       toast(t('“{name}” moved to Recently deleted.', { name: e.name }), { action: { label: t('Undo'), onClick: () => void putBack(e.id) } })
     } catch (err) {
       toast.error(t("Couldn't delete: {error}", { error: (err as Error).message }))
@@ -231,8 +238,8 @@ export function ProjectsDialog() {
   }
   /** A deleted plan back in the list (and in the account, if it was there and this user's signed in). */
   const putBack = async (id: string) => {
-    const was = listTrash().find((m) => m.id === id)
-    const p = restoreProject(id)
+    const was = (await listTrash()).find((m) => m.id === id)
+    const p = await restoreProject(id)
     if (!p) {
       toast.error(t("Couldn't put it back: there isn't room in this browser, or it's gone."))
     } else {
@@ -242,16 +249,23 @@ export function ProjectsDialog() {
     }
     await refresh()
   }
-  const purge = (ids: string[]) => {
-    for (const id of ids) purgeTrashed(id)
-    setTrash(listTrash())
+  const purge = async (ids: string[]) => {
+    for (const id of ids) await purgeTrashed(id)
+    setTrash(await listTrash())
   }
   const backUp = async () => {
     setBackingUp(true)
     try {
-      saveProject(useEditor.getState().project)
-      const { backup, missed, unlisted } = await fullBackup()
+      void saveProject(useEditor.getState().project)
+      const { backup, missed, unlisted, unread } = await fullBackup()
       await saveBackup(backup)
+      if (unread) {
+        toast.warning(
+          unread === 1
+            ? t("1 plan in this browser couldn't be read, so it isn't in the backup.")
+            : t("{n} plans in this browser couldn't be read, so they aren't in the backup.", { n: unread }),
+        )
+      }
       if (unlisted) toast.warning(t("Your account couldn't be reached, so the backup has the plans in this browser only."))
       if (missed) {
         toast.warning(
@@ -277,8 +291,8 @@ export function ProjectsDialog() {
       } else if (e.cloud) {
         await renameCloudProject(e.id, name)
       } else {
-        const p = loadProject(e.id)
-        if (p) saveProject({ ...p, name, updatedAt: Date.now() })
+        const p = await loadProject(e.id)
+        if (p) await storeProject({ ...p, name, updatedAt: Date.now() })
       }
     } catch (err) {
       toast.error(t("Couldn't rename: {error}", { error: (err as Error).message }))
@@ -450,7 +464,7 @@ export function ProjectsDialog() {
                         <div className="flex min-w-0 flex-1 flex-col gap-0.5 px-3 py-2">
                           <span dir="auto" className="truncate text-sm">{m.name}</span>
                           <span className="text-xs text-muted-foreground">
-                            {t('Deleted')} · {when(m.deletedAt)}
+                            {m.other ? t('Another version, kept') : t('Deleted')} · {when(m.deletedAt)}
                           </span>
                         </div>
                         <Button variant="ghost" size="sm" onClick={() => void putBack(m.id)}>
@@ -493,6 +507,7 @@ export function ProjectsDialog() {
                 await refresh()
               }}
             />
+            <StorageMeter version={`${entries.length}:${trash.length}`} />
           </div>
         </DialogContent>
       </Dialog>
@@ -515,7 +530,7 @@ export function ProjectsDialog() {
         title={t('Delete “{name}” for good?', { name: toPurge?.name ?? '' })}
         description={t("It can't be put back after this.")}
         confirmLabel={t('Delete for good')}
-        onConfirm={() => toPurge && purge([toPurge.id])}
+        onConfirm={() => toPurge && void purge([toPurge.id])}
       />
       <ConfirmDialog
         open={emptying}
@@ -525,7 +540,7 @@ export function ProjectsDialog() {
           trash.length === 1 ? t("The plan in it is deleted for good. It can't be put back.") : t("The {n} plans in it are deleted for good. They can't be put back.", { n: trash.length })
         }
         confirmLabel={t('Delete for good')}
-        onConfirm={() => purge(trash.map((m) => m.id))}
+        onConfirm={() => void purge(trash.map((m) => m.id))}
       />
       <ConfirmDialog
         open={!!toLeave}

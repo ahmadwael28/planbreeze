@@ -718,4 +718,33 @@ export default {
   'The 3D view as it is now, with light bouncing round the rooms as a camera would see it: soft shadows, real reflections, and up to {n} of the lights that are on (in the room in view, then the nearest beyond it). No AI: just more time for more detail.': 'العرض ثلاثي الأبعاد كما هو الآن، والضوء يرتدّ في أرجاء الغرف كما تراه الكاميرا: ظلال ناعمة، وانعكاسات حقيقية، وحتى {n} من الأضواء المضاءة (في الغرفة الظاهرة، ثم الأقرب خارجها). بلا ذكاء اصطناعي: مجرد وقت أطول لتفاصيل أكثر.',
   // M3: plans from a newer version
   'This plan was saved by a newer version of Planbreeze. Reload the page before changing it, so nothing in it is lost.': 'حُفظ هذا المخطط بإصدار أحدث من Planbreeze. أعد تحميل الصفحة قبل تغييره، كي لا يضيع شيء منه.',
+  // M4: plans in IndexedDB, and the storage meter
+  'Opening your plans': 'جارٍ فتح مخططاتك',
+  "Your last plan couldn't be opened. Find it in Projects, or reload the page to try again.": 'تعذّر فتح آخر مخطط لك. ابحث عنه في المشاريع، أو أعد تحميل الصفحة للمحاولة مجددًا.',
+  "Your plans in this browser can't be opened just now, so they aren't listed. Reload the page to try again; anything you make meanwhile is kept, and joins them later.":
+    'يتعذّر فتح مخططاتك في هذا المتصفح الآن، لذا لا تظهر في القائمة. أعد تحميل الصفحة للمحاولة مجددًا؛ وكل ما تصنعه في الأثناء يُحفظ وينضم إليها لاحقًا.',
+  "Couldn't read the plans in this browser: {error}": 'تعذّرت قراءة المخططات في هذا المتصفح: {error}',
+  '{n} KB': '{n} كيلوبايت',
+  '{n} MB': '{n} ميغابايت',
+  '{n} GB': '{n} غيغابايت',
+  '{used} used in this browser, of {quota}': 'مستخدَم {used} في هذا المتصفح، من أصل {quota}',
+  'Storage used': 'المساحة المستخدمة',
+  'Nearly full: empty Recently deleted, or remove plans you no longer need (download a backup first).':
+    'المساحة توشك أن تمتلئ: أفرغ المحذوفة مؤخرًا، أو احذف مخططات لم تعد تحتاجها (نزّل نسخة احتياطية أولًا).',
+  "Kept for sure: this browser won't clear your plans to make room.": 'محفوظة بأمان: لن يمسح هذا المتصفح مخططاتك ليوفّر مساحة.',
+  'This browser may clear your plans if it runs short of space.': 'قد يمسح هذا المتصفح مخططاتك إن ضاقت مساحته.',
+  'Ask it to keep them': 'اطلب منه الاحتفاظ بها',
+  "The browser didn't agree to keep them for sure. Download a backup now and then, to be safe.": 'لم يوافق المتصفح على الاحتفاظ بها بأمان. نزّل نسخة احتياطية بين حين وآخر، للاحتياط.',
+  "1 plan (or a change to one) couldn't be moved into this browser's new storage yet, as it's full. It's kept, and moves once there's room: empty Recently deleted, or remove plans you no longer need.":
+    'تعذّر نقل مخطط واحد (أو تعديل عليه) إلى مساحة التخزين الجديدة في هذا المتصفح بعد، لأنها ممتلئة. إنه محفوظ، وسيُنقل حين تتوفر مساحة: أفرغ المحذوفة مؤخرًا، أو احذف مخططات لم تعد تحتاجها.',
+  "{n} plans (or changes to them) couldn't be moved into this browser's new storage yet, as it's full. They're kept, and move once there's room: empty Recently deleted, or remove plans you no longer need.":
+    'تعذّر نقل {n} من المخططات (أو تعديلات عليها) إلى مساحة التخزين الجديدة في هذا المتصفح بعد، لأنها ممتلئة. إنها محفوظة، وستُنقل حين تتوفر مساحة: أفرغ المحذوفة مؤخرًا، أو احذف مخططات لم تعد تحتاجها.',
+  'Another version, kept': 'نسخة أخرى، محفوظة',
+  'A plan had been changed in two places. The newer is kept as usual; the other version is in Recently deleted, to put back if you need it.':
+    'كان أحد المخططات قد عُدّل في مكانين. الأحدث محفوظ كالمعتاد؛ والنسخة الأخرى في المحذوفة مؤخرًا، لتعيدها إن احتجت إليها.',
+  '{n} plans had been changed in two places. The newer of each is kept as usual; the other versions are in Recently deleted, to put back if you need them.':
+    'كانت {n} من المخططات قد عُدّلت في مكانين. الأحدث من كلٍّ منها محفوظ كالمعتاد؛ والنسخ الأخرى في المحذوفة مؤخرًا، لتعيدها إن احتجت إليها.',
+  "Your plans in this browser can't be opened just now. Reload the page, then make the backup.": 'يتعذّر فتح مخططاتك في هذا المتصفح الآن. أعد تحميل الصفحة، ثم أنشئ النسخة الاحتياطية.',
+  "1 plan in this browser couldn't be read, so it isn't in the backup.": 'تعذّرت قراءة مخطط واحد في هذا المتصفح، لذا ليس في النسخة الاحتياطية.',
+  "{n} plans in this browser couldn't be read, so they aren't in the backup.": 'تعذّرت قراءة {n} من المخططات في هذا المتصفح، لذا ليست في النسخة الاحتياطية.',
 } as Record<string, string>

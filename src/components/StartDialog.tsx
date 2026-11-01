@@ -32,7 +32,7 @@ function Thumbnail({ floor }: { floor: Floor }) {
 }
 
 function openProjectNow(p: ReturnType<typeof newProject>) {
-  saveProject(p)
+  void saveProject(p)
   useEditor.getState().loadProject(p)
 }
 

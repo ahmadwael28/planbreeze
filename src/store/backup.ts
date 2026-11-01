@@ -10,7 +10,7 @@ import type { Project } from '@/model/types'
 import { fetchCloudProject, listCloud } from '@/cloud/sync'
 import { useCloud } from '@/cloud/store'
 import { useEditor } from './editor'
-import { listProjects, listTrash, loadProject, storeProject } from './storage'
+import { leftBehindPlans, listProjects, listTrash, loadProject, plansOutOfReach, storeProject } from './storage'
 import { useUi } from './ui'
 
 export interface Backup {
@@ -27,30 +27,49 @@ const backup = (projects: Project[]): Backup => ({ app: 'planbreeze', kind: 'bac
 
 /**
  * This browser's own plans (not those others shared, which stay theirs), and the open one as it is now (even if it
- * couldn't be saved here: the browser's full).
+ * couldn't be saved here: the browser's full). `unread`: plans listed here that couldn't be read, so aren't in it. If
+ * the plans can't be listed at all, it fails; `openOnly`, it has the open plan all the same (the error screen's).
  */
-function localPlans(): Map<string, Project> {
+async function localPlans(openOnly = false): Promise<{ plans: Map<string, Project>; unread: number }> {
   const plans = new Map<string, Project>()
-  for (const m of listProjects()) {
-    if (m.shared) continue
-    const p = loadProject(m.id)
-    if (p) plans.set(p.id, p)
-  }
   const open = useEditor.getState().project
+  let unread = 0
+  let listed: Awaited<ReturnType<typeof listProjects>> = []
+  try {
+    // Out of reach, this browser's plans wouldn't be in it: better no backup than one that looks whole.
+    if (plansOutOfReach()) throw new Error(t("Your plans in this browser can't be opened just now. Reload the page, then make the backup."))
+    listed = await listProjects()
+    // Those that couldn't be moved to the browser's new storage yet are in it too.
+    for (const p of await leftBehindPlans()) if (!p.access) plans.set(p.id, p)
+  } catch (e) {
+    if (!openOnly) throw e
+    console.error("Couldn't list the plans for the backup", e)
+  }
+  for (const m of listed) {
+    if (m.shared || m.id === open.id) continue
+    try {
+      const p = await loadProject(m.id)
+      if (p && (plans.get(p.id)?.updatedAt ?? -Infinity) < p.updatedAt) plans.set(p.id, p)
+    } catch (e) {
+      console.error("Couldn't read a plan for the backup", m.id, e)
+      unread++
+    }
+  }
   if (!open.access) plans.set(open.id, open)
-  return plans
+  return { plans, unread }
 }
 
-/** A backup of this browser's plans, straight away (the error screen's). */
-export const localBackup = () => backup([...localPlans().values()])
+/** A backup of this browser's plans (the error screen's). */
+export const localBackup = async () => backup([...(await localPlans(true)).plans.values()])
 
 /**
  * A backup of every plan of this user's: this browser's, and the account's when signed in (each plan as last changed,
  * here or there). `missed`: plans in the account that couldn't be fetched, so aren't in it; `unlisted`: the account
- * couldn't be reached at all (offline), so it has this browser's plans only.
+ * couldn't be reached at all (offline), so it has this browser's plans only; `unread`: plans in this browser that
+ * couldn't be read.
  */
-export async function fullBackup(): Promise<{ backup: Backup; missed: number; unlisted: boolean }> {
-  const plans = localPlans()
+export async function fullBackup(): Promise<{ backup: Backup; missed: number; unlisted: boolean; unread: number }> {
+  const { plans, unread } = await localPlans()
   let missed = 0
   let unlisted = false
   if (useCloud.getState().user) {
@@ -70,7 +89,7 @@ export async function fullBackup(): Promise<{ backup: Backup; missed: number; un
       }
     }
   }
-  return { backup: backup([...plans.values()]), missed, unlisted }
+  return { backup: backup([...plans.values()]), missed, unlisted, unread }
 }
 
 export const backupName = () => `planbreeze-backup-${new Date().toISOString().slice(0, 10)}.json`
@@ -115,21 +134,23 @@ export interface Restored {
  * it); one that's here unchanged is left as it is; one that's here but different comes in beside it as a copy, so
  * nothing is overwritten.
  */
-export function restoreBackup(b: Backup): Restored {
+export async function restoreBackup(b: Backup): Promise<Restored> {
   const r: Restored = { added: 0, copies: 0, same: 0 }
-  const trashed = new Set(listTrash().map((m) => m.id))
+  const trashed = new Set((await listTrash()).map((m) => m.id))
+  const listed = new Map((await listProjects()).map((m) => [m.id, m]))
   for (const p of b.projects) {
     if (!isProject(p) || typeof p.id !== 'string') continue
-    const here = loadProject(p.id)
+    const here = listed.get(p.id)
     if (here && here.updatedAt === p.updatedAt) {
       r.same++
       continue
     }
     const clash = !!here || trashed.has(p.id)
     const plan: Project = clash ? { ...p, id: uid(), name: t('{name} (restored)', { name: p.name }), access: undefined } : { ...p, access: undefined }
-    if (!storeProject(plan)) {
+    if (!(await storeProject(plan))) {
       throw new Error(t("There isn't room in this browser for every plan in the backup: {n} of them were put back.", { n: r.added + r.copies }))
     }
+    listed.set(plan.id, { id: plan.id, name: plan.name, updatedAt: plan.updatedAt })
     if (clash) r.copies++
     else r.added++
   }
@@ -170,7 +191,7 @@ export async function openProjectFile(file: File) {
       throw new Error(t('Not a valid floor plan file.'))
     }
     if (isBackup(data)) {
-      toast.success(restoredNote(restoreBackup(data)))
+      toast.success(restoredNote(await restoreBackup(data)))
       useUi.getState().openProjects(true)
     } else {
       useEditor.getState().loadProject(projectFromFile(data))

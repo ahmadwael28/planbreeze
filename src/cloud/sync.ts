@@ -17,7 +17,7 @@ import { uid } from '@/model/project'
 import { sampleProject } from '@/model/sample'
 import type { Project, ProjectAccess } from '@/model/types'
 import { useEditor } from '@/store/editor'
-import { clearPlans, deleteProject, isGone, listProjects, loadProject, saveProject } from '@/store/storage'
+import { clearPlans, deleteProject, isGone, listProjects, loadProject, saveProject, storeProject } from '@/store/storage'
 import { AlreadyExistsError, memoryBackend, memorySharing, sharingBackend, supabaseBackend } from './backend'
 import type { CloudBackend, CloudMeta, CloudRow, SharedPlan, SharingBackend } from './backend'
 import { cloudConfig, useCloud } from './store'
@@ -175,7 +175,7 @@ export async function resolveConflict(keep: 'mine' | 'theirs') {
     synced[c.projectId] = { version: c.remote.version, updatedAt: c.remote.data.updatedAt }
     persistSynced()
     set({ conflict: null, saveState: 'saved', lastSaved: Date.now() })
-    saveProject(c.remote.data)
+    void saveProject(c.remote.data)
     useEditor.getState().loadProject(c.remote.data)
   }
 }
@@ -205,7 +205,7 @@ export async function reconcile(): Promise<void> {
     } else if (!unsynced) {
       synced[p.id] = { version: remote.version, updatedAt: remote.data.updatedAt }
       persistSynced()
-      saveProject(remote.data)
+      void saveProject(remote.data)
       useEditor.getState().loadProject(remote.data)
       set({ saveState: 'saved', lastSaved: remote.updatedAt })
       toast(t('Loaded the latest version of this plan from your account.'))
@@ -267,11 +267,11 @@ async function onSession(session: Session | null) {
 
 /** After signing in: say where work is saved, and offer to upload plans kept only on this device. */
 async function welcome(user: CloudUser) {
-  let local: ReturnType<typeof listProjects> = []
+  let local: Awaited<ReturnType<typeof listProjects>> = []
   try {
     const inCloud = new Set((await backend!.list()).map((m) => m.id))
     const open = useEditor.getState().project.id
-    local = listProjects().filter((m) => !inCloud.has(m.id) && m.id !== open && !m.shared)
+    local = (await listProjects()).filter((m) => !inCloud.has(m.id) && m.id !== open && !m.shared)
   } catch {
     // listing failed; skip the offer
   }
@@ -309,13 +309,6 @@ export async function signInWithEmail(email: string) {
   if (error) throw new Error(error.message)
 }
 
-/** Whether this device's copy of a plan is all in the account (saved there, and not changed here since). */
-function upToDate(id: string) {
-  const p = loadProject(id)
-  const s = synced[id]
-  return !p || (!!s && p.updatedAt <= s.updatedAt)
-}
-
 /**
  * Sign out. With `clearDevice`, also remove this user's plans from this browser (shared computers): the deleted ones
  * kept to be put back too, and the rest of theirs kept here (the AI key, a plan link waiting for sign-in, design
@@ -328,7 +321,8 @@ export async function signOut(clearDevice = false) {
   clearTimeout(timer)
   await saveNow().catch(() => {})
   if (clearDevice && uid) {
-    const behind = listProjects().filter((m) => !m.shared && synced[m.id] && !upToDate(m.id))
+    // This device's copies changed since they were last saved to the account.
+    const behind = (await listProjects()).filter((m) => !m.shared && synced[m.id] && m.updatedAt > synced[m.id].updatedAt)
     if (behind.length || useCloud.getState().conflict) {
       toast.error(
         t("Some changes here aren't in your account yet, so nothing was removed and you're still signed in. Check your connection, then try again."),
@@ -348,10 +342,10 @@ export async function signOut(clearDevice = false) {
     for (const k of Object.keys(localStorage)) if (/^sb-.+-auth-token/.test(k)) localStorage.removeItem(k)
   }
   if (clearDevice) {
-    clearPlans()
+    await clearPlans()
     for (const k of ['fp.anthropicKey', PENDING_SHARE, 'planbreeze.design']) localStorage.removeItem(k)
     if (uid) localStorage.removeItem(syncedKey(uid))
-    saveProject(sampleProject())
+    await saveProject(sampleProject())
   }
   // Nothing of theirs left in memory either (the session, the AI key in the import wizard, design choices).
   if (forget || clearDevice) window.location.assign(window.location.origin + window.location.pathname)
@@ -377,7 +371,7 @@ export async function openCloudProject(id: string) {
   if (!remote) throw new Error(t('That plan is no longer in your account.'))
   synced[id] = { version: remote.version, updatedAt: remote.data.updatedAt }
   persistSynced()
-  saveProject(remote.data)
+  void saveProject(remote.data)
   useEditor.getState().loadProject(remote.data)
 }
 
@@ -390,17 +384,36 @@ export async function deleteCloudProject(id: string) {
   persistSynced()
 }
 
-/** Rename a plan that isn't open: in the account (and this device's copy, if there is one). */
+/**
+ * Rename a plan that isn't open: in the account, and this device's copy if there is one. A copy here with changes the
+ * account doesn't have is renamed here only (it goes up with them when the plan's next opened). One that isn't in step
+ * with the account (never synced here, as one put back from a backup, or older than what was synced, after an undo)
+ * may hold other changes: each copy is renamed, keeping its own, and opening the plan asks which to keep.
+ */
 export async function renameCloudProject(id: string, name: string) {
   if (!backend) return
+  const here = (await listProjects()).find((m) => m.id === id)
+  const s = synced[id]
+  if (here && s && here.updatedAt > s.updatedAt) {
+    const p = await loadProject(id)
+    if (p) {
+      await storeProject({ ...p, name, updatedAt: Date.now() })
+      return
+    }
+  }
   const remote = await backend.get(id)
   if (!remote) throw new Error(t('That plan is no longer in your account.'))
   const data = { ...remote.data, name, updatedAt: Date.now() }
   const version = await backend.update(data, remote.version)
   if (version === null) throw new Error(t('The plan changed on another device. Open it and rename it there.'))
+  if (here && !(s && here.updatedAt === s.updatedAt)) {
+    const p = await loadProject(id)
+    if (p) await storeProject({ ...p, name })
+    return
+  }
   synced[id] = { version, updatedAt: data.updatedAt }
   persistSynced()
-  if (loadProject(id)) saveProject(data)
+  if (here) await storeProject(data)
 }
 
 /** Upload plans that are only on this device. Returns how many were uploaded. */
@@ -408,7 +421,14 @@ export async function uploadLocal(ids: string[], quiet = false) {
   if (!backend) return 0
   let n = 0
   for (const id of ids) {
-    const p = loadProject(id)
+    let p: Project | null = null
+    try {
+      p = await loadProject(id)
+    } catch (e) {
+      // One this browser can't read is left out; the rest go up.
+      console.error("Couldn't read a plan to upload", id, e)
+      continue
+    }
     if (!p || p.access) continue
     try {
       const version = await backend.insert(p)
@@ -567,7 +587,7 @@ async function reconcileShared(p: Project): Promise<void> {
     }
     synced[p.id] = { version: remote.version, updatedAt: data.updatedAt }
     persistSynced()
-    saveProject(data)
+    void saveProject(data)
     useEditor.getState().loadProject(data)
     set({ saveState: 'saved', lastSaved: remote.updatedAt, error: null })
   } catch (e) {
@@ -584,7 +604,7 @@ export async function openSharedProject(owner: string, id: string, key?: string)
   const user = useCloud.getState().user
   if (user && owner === user.id) return openCloudProject(id)
   // This device already has it as its own plan (e.g. its owner, signed out, followed its link): open that.
-  const own = loadProject(id)
+  const own = await loadProject(id)
   if (own && !own.access) return useEditor.getState().loadProject(own)
   let found = user ? await sharing.roleFor(owner, id) : null
   let remote = found ? await backend.get(id, owner) : null
@@ -605,7 +625,7 @@ export async function openSharedProject(owner: string, id: string, key?: string)
     synced[id] = { version: remote.version, updatedAt: data.updatedAt }
     persistSynced()
   }
-  saveProject(data)
+  void saveProject(data)
   useEditor.getState().loadProject(data)
 }
 
@@ -660,7 +680,7 @@ export async function listSharedWithMe(): Promise<SharedPlan[]> {
 /** Stop seeing a plan someone shared (it's removed from this device too). */
 export async function leaveSharedProject(owner: string, id: string) {
   if (sharing && useCloud.getState().user) await sharing.leave(owner, id)
-  deleteProject(id)
+  await deleteProject(id)
   delete synced[id]
   persistSynced()
 }
@@ -671,7 +691,7 @@ export function makeOwnCopy() {
   const now = Date.now()
   const { access: _access, ...rest } = structuredClone(p)
   const copy: Project = { ...rest, id: uid(), name: t('{name} (copy)', { name: p.name }), createdAt: now, updatedAt: now }
-  saveProject(copy)
+  void saveProject(copy)
   useEditor.getState().loadProject(copy)
   toast.success(t("Made a copy: “{name}”. It's yours to change.", { name: copy.name }))
 }

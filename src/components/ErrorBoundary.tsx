@@ -136,8 +136,7 @@ export function CrashScreen({ error }: { error: Error }) {
               variant="outline"
               onClick={() => {
                 useEditor.getState().undo()
-                saveNow()
-                window.location.reload()
+                void saveNow().then(() => window.location.reload())
               }}
             >
               <Undo2 /> {t('Undo the last change and reload')}
@@ -153,7 +152,7 @@ export function CrashScreen({ error }: { error: Error }) {
               <Download /> {t('Download this plan')}
             </Button>
           )}
-          <Button variant="outline" onClick={() => download(localBackup(), backupName())}>
+          <Button variant="outline" onClick={() => void localBackup().then((b) => download(b, backupName()))}>
             <Archive /> {t('Download all my plans')}
           </Button>
         </div>

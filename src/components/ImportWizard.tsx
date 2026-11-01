@@ -696,7 +696,7 @@ export function ImportWizard() {
     if (target === 'new') {
       const p = newProject(img.name === 'Hand sketch' ? t('My sketch') : t('Imported plan'))
       Object.assign(p.floors[0], content, { underlay })
-      saveProject(p)
+      void saveProject(p)
       st.loadProject(p)
     } else {
       // When adding next to existing content, place the import to the right of it.

@@ -1,14 +1,35 @@
-import { uid } from '../model/project'
+/**
+ * The plans kept in this browser, and the deleted ones kept a while to put back.
+ *
+ * They're in IndexedDB (storage-idb), with room for far more than localStorage and each photo stored once. Plans that
+ * earlier versions kept in localStorage move across by themselves each time the app starts; where IndexedDB can't be
+ * opened, plans stay in localStorage as before (storage-local).
+ *
+ * Everything here is asynchronous, and done one thing at a time, in the order asked: a save asked for before a delete
+ * is made before it.
+ */
+import { isProject } from '../model/migrate'
 import type { Project, ProjectAccess } from '../model/types'
+import { idbBackend, pack } from './storage-idb'
+import type { IdbBackend } from './storage-idb'
+import { localBackend, PROJECT_KEY, readList, TRASH_KEY, TRASHED_KEY, INDEX_KEY } from './storage-local'
 
-const INDEX_KEY = 'fp.projects'
-const PROJECT_KEY = (id: string) => `fp.project.${id}`
-const LAST_KEY = 'fp.lastProject'
-const TRASH_KEY = 'fp.trash'
-const TRASHED_KEY = (id: string) => `fp.trash.${id}`
 /** How long a deleted plan is kept, to be put back. */
 export const TRASH_DAYS = 30
 const DAY = 24 * 3600 * 1000
+const LAST_KEY = 'fp.lastProject'
+/** Set once plans are in IndexedDB: if it can't be opened later, they're there, out of reach for now. */
+const MOVED_KEY = 'fp.storage'
+/** A plan as it was when the page was left, before its save was known to be made: id → a Note (see saveOnLeave). */
+const UNSAVED = 'fp.unsaved.'
+/** Images nothing used at the last start (they go if nothing uses them at the next either). */
+const UNUSED_KEY = 'fp.unusedImages'
+
+/** A plan noted as the page was left: the plan, and when the stored copy it was made from was changed. */
+interface Note {
+  plan: Project
+  base?: number
+}
 
 export interface ProjectMeta {
   id: string
@@ -26,6 +47,25 @@ export interface TrashedMeta {
   deletedAt: number
   /** It was in the account too (put back, it goes up there again). */
   cloud?: boolean
+  /** Not deleted: another version of a plan, kept when a different copy of it took its place (as plans moved across). */
+  other?: boolean
+}
+
+/** Where plans are kept. */
+export interface Backend {
+  kind: 'idb' | 'local'
+  list(): Promise<ProjectMeta[]>
+  load(id: string): Promise<Project | null>
+  /** A plan and its entry in the list, making room in the trash if need be (never `keep`). False if refused. */
+  put(p: Project, keep?: string): Promise<boolean>
+  remove(id: string): Promise<void>
+  listTrash(): Promise<TrashedMeta[]>
+  /** Out of the list, into the trash (`data`: the copy to keep, if not this browser's). False if it couldn't be kept. */
+  trash(id: string, data: Project | null | undefined, cloud: boolean): Promise<boolean>
+  /** Out of the trash, into the list (as a copy beside it, if its id is taken). Null if it's gone, or there's no room. */
+  restore(id: string): Promise<Project | null>
+  purge(id: string): Promise<void>
+  clear(): Promise<void>
 }
 
 /**
@@ -34,122 +74,289 @@ export interface TrashedMeta {
  */
 const gone = new Set<string>()
 
-function read<T>(key: string, fallback: T): T {
-  try {
-    const raw = localStorage.getItem(key)
-    return raw ? (JSON.parse(raw) as T) : fallback
-  } catch {
-    return fallback
-  }
+const ls = {
+  get(key: string) {
+    try {
+      return localStorage.getItem(key)
+    } catch {
+      return null
+    }
+  },
+  set(key: string, value: string) {
+    try {
+      localStorage.setItem(key, value)
+      return true
+    } catch {
+      return false
+    }
+  },
+  remove(key: string) {
+    try {
+      localStorage.removeItem(key)
+    } catch {
+      // Storage blocked.
+    }
+  },
+  keys(): string[] {
+    const keys: string[] = []
+    try {
+      for (let i = 0; i < localStorage.length; i++) {
+        const k = localStorage.key(i)
+        if (k !== null) keys.push(k)
+      }
+    } catch {
+      // Storage blocked.
+    }
+    return keys
+  },
 }
 
-function write(key: string, value: unknown): boolean {
+// ---------------------------------------------------------------------------
+// Opening
+
+let backend: Backend | null = null
+let opening: Promise<Backend> | null = null
+/** Plans were moved to IndexedDB, and it couldn't be opened this time. */
+let outOfReach = false
+/** Plans (or notes of them) left in localStorage that couldn't be brought into IndexedDB this time. */
+let leftBehind = 0
+
+/** Open the plans (once): in IndexedDB, those left in localStorage moved across first; or in localStorage. */
+export const openStorage = () => start().then(() => undefined)
+
+function start(): Promise<Backend> {
+  return (opening ??= choose())
+}
+
+async function choose(): Promise<Backend> {
+  let idb: IdbBackend | null = null
   try {
-    localStorage.setItem(key, JSON.stringify(value))
-    return true
+    if (typeof indexedDB !== 'undefined') idb = await idbBackend(noted)
   } catch (e) {
-    console.error('Failed to save', key, e)
-    return false
+    console.error("Couldn't open this browser's plan storage (IndexedDB): plans are kept in localStorage", e)
   }
+  if (!idb) {
+    outOfReach = ls.get(MOVED_KEY) === 'idb'
+    return (backend = localBackend())
+  }
+  // What can't be brought in now stays where it is, for the next start; the plans in IndexedDB are used all the same.
+  leftBehind = (await moveIn(idb)) + (await catchUp(idb))
+  try {
+    let before: string[] = []
+    try {
+      before = JSON.parse(ls.get(UNUSED_KEY) ?? '[]') as string[]
+    } catch {
+      // Damaged: nothing goes this time.
+    }
+    const unused = await idb.sweep(new Set(Array.isArray(before) ? before : []))
+    if (unused.size) ls.set(UNUSED_KEY, JSON.stringify([...unused]))
+    else ls.remove(UNUSED_KEY)
+  } catch (e) {
+    console.error("Couldn't clear unused images", e)
+  }
+  ls.set(MOVED_KEY, 'idb')
+  return (backend = idb)
 }
 
-const isFull = (e: unknown) => e instanceof DOMException && (e.name === 'QuotaExceededError' || e.name === 'NS_ERROR_DOM_QUOTA_REACHED' || e.code === 22)
+/** Whether this browser's plans are out of reach for now (IndexedDB couldn't be opened): a reload may bring them back. */
+export const plansOutOfReach = () => outOfReach
+
+/** How many plans (or changes to them) were left in older storage this time, as there wasn't room to bring them in. */
+export const plansLeftBehind = () => leftBehind
+
+/** How many other versions of plans this start kept in Recently deleted (copies changed apart, that met as it started). */
+export const versionsKeptApart = () => (backend?.kind === 'idb' ? (backend as IdbBackend).keptApart() : 0)
 
 /**
- * Store it, making room if the browser's full: the plans deleted longest ago go for good, one by one (never `keep`), as
- * many as it takes. If even all of them wouldn't make room, they all stay. `value` can be worked out afresh each time
- * (a list that changes as plans go).
+ * Plans left in localStorage this time (they couldn't be brought into IndexedDB): their copies there, and notes of
+ * changes to them, for a backup to have them too. Each as it reads there, newest first by plan.
  */
-function writeRoomy(key: string, value: string | (() => string), keep?: string): boolean {
-  const attempt = () => {
-    try {
-      localStorage.setItem(key, typeof value === 'string' ? value : value())
-      return true
-    } catch (e) {
-      if (!isFull(e)) console.error('Failed to save', key, e)
-      return isFull(e) ? false : null
+export function leftBehindPlans(): Promise<Project[]> {
+  return queue(async (b) => {
+    if (b.kind !== 'idb') return []
+    const found = new Map<string, Project>()
+    for (const k of ls.keys()) {
+      let p: Project | null = null
+      if (k.startsWith('fp.project.')) p = readPlan(ls.get(k))
+      else if (k.startsWith(UNSAVED)) {
+        try {
+          const n = JSON.parse(ls.get(k) ?? 'null') as Partial<Note> | null
+          if (n && isProject(n.plan)) p = await (b as IdbBackend).withImages(n.plan)
+        } catch {
+          p = null
+        }
+      }
+      if (p && (found.get(p.id)?.updatedAt ?? -Infinity) < p.updatedAt) found.set(p.id, p)
     }
-  }
-  const first = attempt()
-  if (first !== false) return !!first
-  const held: { meta: TrashedMeta; raw: string | null }[] = []
-  for (;;) {
-    const oldest = listTrash()
-      .filter((m) => m.id !== keep)
-      .pop()
-    if (!oldest) break
-    held.push({ meta: oldest, raw: localStorage.getItem(TRASHED_KEY(oldest.id)) })
-    purgeTrashed(oldest.id)
-    const again = attempt()
-    if (again !== false) return !!again
-  }
-  // Not room enough even so: the trash as it was (it fitted before).
+    return [...found.values()]
+  })
+}
+
+/** Where plans are kept (once opened): IndexedDB, or localStorage where it can't be opened. */
+export const storageKind = () => backend?.kind ?? null
+
+/** A key's plan, as it reads now (null: not a plan, or damaged). */
+function readPlan(raw: string | null): Project | null {
   try {
-    for (const h of held) if (h.raw !== null) localStorage.setItem(TRASHED_KEY(h.meta.id), h.raw)
-    write(TRASH_KEY, [...listTrash(), ...held.map((h) => h.meta)])
-  } catch (e) {
-    console.error('Failed to put the trash back', e)
+    const p = raw ? (JSON.parse(raw) as unknown) : null
+    return isProject(p) ? p : null
+  } catch {
+    return null
   }
-  console.error('Failed to save', key, 'the browser is full')
-  return false
 }
 
-/** A list as stored, its entries checked: a damaged one is left out, a name that isn't text made text. */
-function readList<T extends { id: string; name: string }>(key: string): T[] {
-  const list = read<unknown>(key, [])
-  if (!Array.isArray(list)) return []
-  return list
-    .filter((m): m is T => !!m && typeof m === 'object' && typeof (m as T).id === 'string')
-    .map((m) => (typeof m.name === 'string' ? m : { ...m, name: String(m.name ?? '') }))
+/**
+ * Bring in what a key holds, then take the key out of localStorage: only once IndexedDB has it, and only if the key
+ * still holds what was read (a tab of an older version may have saved a newer copy meanwhile: that stays, for the next
+ * start). False if it couldn't be brought in (left for the next start too).
+ */
+async function bringIn(key: string, raw: string, adopt: () => Promise<void>): Promise<boolean> {
+  try {
+    await adopt()
+  } catch (e) {
+    console.error("Couldn't bring this plan into IndexedDB yet", key, e)
+    return false
+  }
+  if (ls.get(key) === raw) ls.remove(key)
+  return true
 }
 
-export function listProjects(): ProjectMeta[] {
-  return readList<ProjectMeta>(INDEX_KEY).sort((a, b) => b.updatedAt - a.updatedAt)
+/**
+ * Plans and deleted plans left in localStorage (by earlier versions, or a tab of one still open) move across, one by
+ * one. Where IndexedDB has a different copy, the newer is the plan and the other's kept in Recently deleted. How many
+ * couldn't.
+ */
+async function moveIn(idb: IdbBackend): Promise<number> {
+  const trashList = new Map(readList<TrashedMeta>(TRASH_KEY).map((m) => [m.id, m]))
+  let failed = 0
+  for (const k of ls.keys()) {
+    const trashed = k.startsWith('fp.trash.')
+    if (!trashed && !k.startsWith('fp.project.')) continue
+    const raw = ls.get(k)
+    const p = readPlan(raw)
+    // One that can't be read is left where it is.
+    if (!raw || !p || (trashed ? TRASHED_KEY(p.id) : PROJECT_KEY(p.id)) !== k) continue
+    const m = trashList.get(p.id)
+    const meta: TrashedMeta = { id: p.id, name: m?.name ?? p.name, updatedAt: p.updatedAt ?? 0, deletedAt: m?.deletedAt ?? Date.now(), ...(m?.cloud ? { cloud: true } : {}) }
+    if (!(await bringIn(k, raw, () => (trashed ? idb.adoptTrashed(meta, p) : idb.adopt(p))))) failed++
+  }
+  // Their lists go once they're all across.
+  const left = ls.keys()
+  if (!left.some((k) => k.startsWith('fp.project.'))) ls.remove(INDEX_KEY)
+  if (!left.some((k) => k.startsWith('fp.trash.'))) ls.remove(TRASH_KEY)
+  return failed
 }
 
-export function loadProject(id: string): Project | null {
-  return read<Project | null>(PROJECT_KEY(id), null)
+/**
+ * Notes of plans left before their save was made (the page closed straight after a change): saved now, each if it's
+ * newer than what's stored. How many couldn't be.
+ */
+async function catchUp(idb: IdbBackend): Promise<number> {
+  let failed = 0
+  for (const k of ls.keys()) {
+    if (!k.startsWith(UNSAVED)) continue
+    const raw = ls.get(k)
+    let note: Partial<Note> | null = null
+    try {
+      note = raw ? (JSON.parse(raw) as Partial<Note>) : null
+    } catch {
+      // Damaged: left where it is.
+    }
+    if (!raw || !note || !isProject(note.plan)) continue
+    const { plan, base } = note
+    if (!(await bringIn(k, raw, () => idb.adopt(plan, typeof base === 'number' ? base : undefined)))) failed++
+  }
+  return failed
 }
+
+/** Images the notes of unsaved plans refer to (kept, though no stored plan uses them). */
+function noted(): Set<string> {
+  const refs = new Set<string>()
+  for (const k of ls.keys()) {
+    if (!k.startsWith(UNSAVED)) continue
+    for (const m of (ls.get(k) ?? '').matchAll(/"ref:([^"]+)"/g)) refs.add(m[1])
+  }
+  return refs
+}
+
+// ---------------------------------------------------------------------------
+// One thing at a time
+
+let chain: Promise<unknown> = Promise.resolve()
+
+function queue<T>(f: (b: Backend) => Promise<T>): Promise<T> {
+  const next = chain.then(start).then(f)
+  chain = next.catch(() => {})
+  return next
+}
+
+/** Notes this tab made as the page was left, by plan: when the plan was changed, and the note as written. */
+const notes = new Map<string, { at: number; raw: string }>()
+
+/** This tab's note of a plan, no longer needed (its save, or a later one, is made): unless another tab's replaced it. */
+function forgetNote(id: string, upTo = Infinity) {
+  const n = notes.get(id)
+  if (!n || n.at > upTo) return
+  notes.delete(id)
+  if (ls.get(UNSAVED + id) === n.raw) ls.remove(UNSAVED + id)
+}
+
+// ---------------------------------------------------------------------------
+// Plans
+
+export const listProjects = () => queue(async (b) => (await b.list()).sort((a, c) => c.updatedAt - a.updatedAt))
+
+export const loadProject = (id: string) => queue((b) => b.load(id))
 
 /**
  * A plan into the list (not opened). False when the browser refused it, even with room made in the trash (but for
  * `keep`).
  */
-export function storeProject(p: Project, keep?: string): boolean {
-  gone.delete(p.id)
-  return put(p, keep)
-}
-
-/** The plan, then its entry in the list: never an entry for a plan that isn't there. */
-function put(p: Project, keep?: string): boolean {
-  const had = localStorage.getItem(PROJECT_KEY(p.id)) !== null
-  if (!writeRoomy(PROJECT_KEY(p.id), JSON.stringify(p), keep)) return false
-  const entry = { id: p.id, name: p.name, updatedAt: p.updatedAt, shared: p.access }
-  if (writeRoomy(INDEX_KEY, () => JSON.stringify([...listProjects().filter((m) => m.id !== p.id), entry]), keep)) return true
-  // Not listed: a new plan doesn't stay unlisted (one that was there keeps its entry, and its newer copy).
-  if (!had) localStorage.removeItem(PROJECT_KEY(p.id))
-  return false
+export function storeProject(p: Project, keep?: string): Promise<boolean> {
+  return queue((b) => {
+    gone.delete(p.id)
+    return b.put(p, keep)
+  })
 }
 
 /**
- * Save the open plan. Returns false when the browser refused to store it (usually storage is full, and nothing left
- * in the trash to make room).
+ * Save the open plan. False when the browser refused to store it (usually storage is full, and nothing left in the
+ * trash to make room).
  */
-export function saveProject(p: Project): boolean {
-  if (gone.has(p.id)) return true
-  const ok = put(p)
-  write(LAST_KEY, p.id)
-  return ok
+export function saveProject(p: Project): Promise<boolean> {
+  return queue(async (b) => {
+    if (gone.has(p.id)) return true
+    const ok = await b.put(p)
+    ls.set(LAST_KEY, JSON.stringify(p.id))
+    if (ok) forgetNote(p.id, p.updatedAt)
+    return ok
+  })
+}
+
+/**
+ * The open plan as the page is left (or hidden: a phone may close it unseen): saved, and noted in localStorage at once
+ * as well (its images by reference, those not stored yet inside it), in case the page goes before the save is made.
+ * The next start saves the note if it's newer than what's stored.
+ */
+export function saveOnLeave(p: Project): Promise<boolean> {
+  if (backend?.kind === 'idb' && !gone.has(p.id)) {
+    const idb = backend as IdbBackend
+    try {
+      const note: Note = { plan: pack(p, (key) => !idb.has(p.id, key)).data, base: idb.base(p.id) }
+      const raw = JSON.stringify(note)
+      if (ls.set(UNSAVED + p.id, raw)) notes.set(p.id, { at: p.updatedAt, raw })
+    } catch (e) {
+      console.error("Couldn't note the plan", e)
+    }
+  }
+  return saveProject(p)
 }
 
 /** Remove a plan from this browser for good (a shared plan this user left). Deleting a plan is `trashProject`. */
-export function deleteProject(id: string) {
+export function deleteProject(id: string): Promise<void> {
   gone.add(id)
-  localStorage.removeItem(PROJECT_KEY(id))
-  write(
-    INDEX_KEY,
-    listProjects().filter((m) => m.id !== id),
-  )
+  forgetNote(id)
+  return queue((b) => b.remove(id))
 }
 
 /** Whether a plan was deleted in this session (nothing's saved of it, here or in the account, until it's opened again). */
@@ -161,16 +368,19 @@ export function opened(id: string) {
 }
 
 export function lastProjectId(): string | null {
-  return read<string | null>(LAST_KEY, null)
+  const raw = ls.get(LAST_KEY)
+  try {
+    return raw ? (JSON.parse(raw) as string) : null
+  } catch {
+    return raw
+  }
 }
 
 // ---------------------------------------------------------------------------
 // Recently deleted
 
 /** The plans in the trash, the last deleted first. */
-export function listTrash(): TrashedMeta[] {
-  return readList<TrashedMeta>(TRASH_KEY).sort((a, b) => b.deletedAt - a.deletedAt)
-}
+export const listTrash = () => queue(async (b) => (await b.listTrash()).sort((a, c) => c.deletedAt - a.deletedAt))
 
 /**
  * Delete a plan: out of the list, and kept in the trash for TRASH_DAYS (or until the browser needs the room), to be
@@ -178,119 +388,96 @@ export function listTrash(): TrashedMeta[] {
  * A newer copy of it in the trash already (deleted before) stays. False if it couldn't be kept (no room even so): then
  * nothing's deleted.
  */
-export function trashProject(id: string, data?: Project | null, cloud = false): boolean {
-  try {
-    const listed = listProjects()
-    const local = localStorage.getItem(PROJECT_KEY(id))
-    const before = localStorage.getItem(TRASHED_KEY(id))
-    let raw = data ? JSON.stringify(data) : local
-    if (!raw) {
-      // Nothing of it here to keep (only its entry): just out of the list.
-      gone.add(id)
-      write(
-        INDEX_KEY,
-        listed.filter((m) => m.id !== id),
-      )
-      if (lastProjectId() === id) localStorage.removeItem(LAST_KEY)
-      return true
-    }
-    const parse = (s: string | null): Partial<Project> | null => {
-      try {
-        return s ? (JSON.parse(s) as Partial<Project>) : null
-      } catch {
-        return null
-      }
-    }
-    let p = parse(raw) ?? {}
-    const trashed = parse(before)
-    if (before && trashed && (trashed.updatedAt ?? 0) > (p.updatedAt ?? 0)) {
-      raw = before
-      p = trashed
-    }
-    const meta: TrashedMeta = {
-      id,
-      name: typeof p.name === 'string' ? p.name : (listed.find((m) => m.id === id)?.name ?? ''),
-      updatedAt: p.updatedAt ?? 0,
-      deletedAt: Date.now(),
-      cloud: cloud || undefined,
-    }
-    // Out of the list first (that only frees room), then into the trash: its copy, then its entry.
-    if (local) localStorage.removeItem(PROJECT_KEY(id))
-    write(
-      INDEX_KEY,
-      listed.filter((m) => m.id !== id),
-    )
-    const kept =
-      writeRoomy(TRASHED_KEY(id), raw, id) && writeRoomy(TRASH_KEY, () => JSON.stringify([...listTrash().filter((m) => m.id !== id), meta]), id)
-    if (!kept) {
-      // No room to keep it even so: all as it was.
-      if (before) localStorage.setItem(TRASHED_KEY(id), before)
-      else localStorage.removeItem(TRASHED_KEY(id))
-      if (local) localStorage.setItem(PROJECT_KEY(id), local)
-      write(INDEX_KEY, listed)
+export function trashProject(id: string, data?: Project | null, cloud = false): Promise<boolean> {
+  return queue(async (b) => {
+    try {
+      if (!(await b.trash(id, data, cloud))) return false
+    } catch (e) {
+      console.error('Failed to delete', id, e)
       return false
     }
     gone.add(id)
-    if (lastProjectId() === id) localStorage.removeItem(LAST_KEY)
+    forgetNote(id)
+    if (lastProjectId() === id) ls.remove(LAST_KEY)
     return true
-  } catch (e) {
-    console.error('Failed to delete', id, e)
-    return false
-  }
+  })
 }
 
 /**
  * Put a plan back from the trash, into the list (as a copy beside it, if a plan with its id is back there already, as
  * from a backup). It leaves the trash first, making room for itself. Null if it's gone, or there's no room for it.
  */
-export function restoreProject(id: string): Project | null {
-  const raw = localStorage.getItem(TRASHED_KEY(id))
-  let p: Project | null = null
-  try {
-    p = raw ? (JSON.parse(raw) as Project) : null
-  } catch {
-    p = null
-  }
-  if (!raw || !p) {
-    purgeTrashed(id)
-    return null
-  }
-  const back = loadProject(id) ? { ...p, id: uid() } : p
-  const trash = listTrash()
-  purgeTrashed(id)
-  if (!storeProject(back, id)) {
-    try {
-      localStorage.setItem(TRASHED_KEY(id), raw)
-      write(TRASH_KEY, trash)
-    } catch (e) {
-      console.error('Failed to keep it in the trash', id, e)
-    }
-    return null
-  }
-  return back
+export function restoreProject(id: string): Promise<Project | null> {
+  return queue(async (b) => {
+    const p = await b.restore(id)
+    if (p) gone.delete(p.id)
+    return p
+  })
 }
 
 /** Delete a plan in the trash for good. */
-export function purgeTrashed(id: string) {
-  localStorage.removeItem(TRASHED_KEY(id))
-  write(
-    TRASH_KEY,
-    listTrash().filter((m) => m.id !== id),
-  )
-}
+export const purgeTrashed = (id: string) => queue((b) => b.purge(id))
 
 /** Plans deleted longer ago than TRASH_DAYS go for good (on each start). */
 export function purgeOldTrash(now = Date.now()) {
-  for (const m of listTrash()) if (now - m.deletedAt > TRASH_DAYS * DAY) purgeTrashed(m.id)
+  return queue(async (b) => {
+    for (const m of await b.listTrash()) if (now - m.deletedAt > TRASH_DAYS * DAY) await b.purge(m.id)
+  })
 }
 
 /** Every plan, and the trash, gone from this browser (signing out on a shared computer). */
 export function clearPlans() {
-  const keys: string[] = []
-  for (let i = 0; i < localStorage.length; i++) {
-    const k = localStorage.key(i)
-    if (k && (k.startsWith('fp.project.') || k.startsWith('fp.trash.'))) keys.push(k)
+  return queue(async (b) => {
+    for (const m of await b.list()) gone.add(m.id)
+    await b.clear()
+    ls.remove(LAST_KEY)
+    for (const k of ls.keys()) if (k.startsWith(UNSAVED)) ls.remove(k)
+    notes.clear()
+  })
+}
+
+// ---------------------------------------------------------------------------
+// Room, and keeping plans safe
+
+export interface StorageUse {
+  /** Bytes used by this site, and what the browser allows it. */
+  used: number
+  quota: number
+  /** The browser won't clear the site's storage to make room (it was asked to keep it, and agreed). */
+  kept: boolean
+}
+
+/** How much room plans take here, and whether the browser keeps them for sure. Null where the browser doesn't say. */
+export async function storageUse(): Promise<StorageUse | null> {
+  const s = typeof navigator !== 'undefined' ? navigator.storage : undefined
+  if (!s?.estimate) return null
+  try {
+    const [{ usage = 0, quota = 0 }, kept] = await Promise.all([s.estimate(), s.persisted ? s.persisted() : Promise.resolve(false)])
+    return { used: usage, quota, kept }
+  } catch {
+    return null
   }
-  for (const m of listProjects()) gone.add(m.id)
-  for (const k of [...keys, INDEX_KEY, LAST_KEY, TRASH_KEY]) localStorage.removeItem(k)
+}
+
+/** Ask the browser to keep this site's plans until the user removes them (not clear them to make room). */
+export async function keepPlans(): Promise<boolean> {
+  try {
+    const s = navigator.storage
+    if (!s?.persist) return false
+    return (await s.persisted?.()) || (await s.persist())
+  } catch {
+    return false
+  }
+}
+
+let asked = false
+
+/**
+ * Once a session, after a change is made: ask the browser to keep the plans. Most decide by themselves; Firefox asks
+ * the user, so there it's asked only from the storage meter (when they choose to).
+ */
+export function askToKeepPlans() {
+  if (asked || /firefox\//i.test(navigator.userAgent)) return
+  asked = true
+  void keepPlans()
 }

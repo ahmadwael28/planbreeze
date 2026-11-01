@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useRef } from 'react'
+import { lazy, Suspense, useEffect, useRef, useState } from 'react'
 import { Download, FolderOpen, LayoutGrid, Lightbulb, Map as MapIcon, Maximize, Undo2 } from 'lucide-react'
 import { Loader } from '@/components/ui/loader'
 import { toast } from 'sonner'
@@ -39,7 +39,7 @@ import {
   selectAll,
   useEditor,
 } from '@/store/editor'
-import { lastProjectId, listProjects, loadProject, purgeOldTrash, saveProject } from '@/store/storage'
+import { askToKeepPlans, lastProjectId, listProjects, loadProject, openStorage, plansLeftBehind, plansOutOfReach, purgeOldTrash, saveOnLeave, saveProject, versionsKeptApart } from '@/store/storage'
 import type { Project } from '@/model/types'
 import { newProject } from '@/model/project'
 import { download, safeName } from '@/store/backup'
@@ -60,6 +60,7 @@ import { t, useLang } from '@/i18n'
 if (import.meta.env.DEV) {
   Object.assign(window, { __editor: useEditor, __ui: useUi, __cloud: { useCloud, connectMemoryCloudForTesting } })
   void import('@/cloud/sync').then((sync) => Object.assign(window, { __sync: sync }))
+  void import('@/store/storage').then((storage) => Object.assign(window, { __storage: storage }))
 }
 
 // three.js is only downloaded when the 3D view is first opened.
@@ -227,14 +228,18 @@ function useKeyboardShortcuts() {
   }, [])
 }
 
-function useAutosave() {
+/** Every change saved in this browser, shortly after it's made (once the plans are open: `ready`). */
+function useAutosave(ready: boolean) {
   useEffect(() => {
+    if (!ready) return
     let timer: ReturnType<typeof setTimeout> | undefined
-    let pending: Project | null = null
+    /** Each plan's latest change, until it's known to be saved (the open one, and one just left). */
+    const unsaved = new Map<string, Project>()
     let warned = false
-    const save = (p: Project) => {
-      if (saveProject(p)) {
+    const saved = (p: Project, ok: boolean) => {
+      if (ok) {
         warned = false
+        if (unsaved.get(p.id) === p) unsaved.delete(p.id)
       } else if (!warned) {
         warned = true
         toast.error(t('Browser storage is full, so changes are not being saved. Remove a background drawing or save the project to a file.'), {
@@ -242,24 +247,26 @@ function useAutosave() {
         })
       }
     }
+    const save = (p: Project) => void saveProject(p).then((ok) => saved(p, ok))
     const unsub = useEditor.subscribe((s, prev) => {
       if (s.project === prev.project) return
       clearTimeout(timer)
       // Switching projects: store the one being left right away so no edit is lost.
-      if (s.project.id !== prev.project.id) save(prev.project)
-      const p = (pending = s.project)
-      timer = setTimeout(() => {
-        pending = null
-        save(p)
-      }, 400)
+      if (s.project.id !== prev.project.id) {
+        if (unsaved.has(prev.project.id)) unsaved.set(prev.project.id, prev.project)
+        save(prev.project)
+      }
+      // A change: the browser's asked to keep the plans for sure (once).
+      else askToKeepPlans()
+      const p = s.project
+      unsaved.set(p.id, p)
+      timer = setTimeout(() => save(p), 400)
     })
-    // Leaving the page, or it's hidden (switching apps on a phone, which may close it unseen): saved right away.
+    // Leaving the page, or it's hidden (switching apps on a phone, which may close it unseen): saved right away, and
+    // noted at once in case the page goes before that's done.
     const flush = () => {
-      if (!pending) return
       clearTimeout(timer)
-      const p = pending
-      pending = null
-      save(p)
+      for (const p of unsaved.values()) void saveOnLeave(p).then((ok) => saved(p, ok))
     }
     const onHide = () => document.visibilityState === 'hidden' && flush()
     window.addEventListener('beforeunload', flush)
@@ -272,24 +279,61 @@ function useAutosave() {
       window.removeEventListener('pagehide', flush)
       document.removeEventListener('visibilitychange', onHide)
     }
-  }, [])
+  }, [ready])
 }
 
-function loadInitialProject() {
-  purgeOldTrash()
+let starting: Promise<void> | null = null
+
+/** Open the plans, then the one to start with (once, however often it's asked). */
+const startUp = () => (starting ??= loadInitialProject())
+
+async function loadInitialProject() {
+  await openStorage()
+  void purgeOldTrash()
+  if (plansOutOfReach()) {
+    toast.warning(t("Your plans in this browser can't be opened just now, so they aren't listed. Reload the page to try again; anything you make meanwhile is kept, and joins them later."), {
+      id: 'plans-out-of-reach',
+      duration: Infinity,
+      action: { label: t('Reload'), onClick: () => window.location.reload() },
+    })
+  }
+  const behind = plansLeftBehind()
+  if (behind) {
+    toast.warning(
+      behind === 1
+        ? t("1 plan (or a change to one) couldn't be moved into this browser's new storage yet, as it's full. It's kept, and moves once there's room: empty Recently deleted, or remove plans you no longer need.")
+        : t("{n} plans (or changes to them) couldn't be moved into this browser's new storage yet, as it's full. They're kept, and move once there's room: empty Recently deleted, or remove plans you no longer need.", { n: behind }),
+      { id: 'plans-left-behind', duration: 15000 },
+    )
+  }
+  const kept = versionsKeptApart()
+  if (kept) {
+    toast(
+      kept === 1
+        ? t('A plan had been changed in two places. The newer is kept as usual; the other version is in Recently deleted, to put back if you need it.')
+        : t('{n} plans had been changed in two places. The newer of each is kept as usual; the other versions are in Recently deleted, to put back if you need them.', { n: kept }),
+      { id: 'versions-kept', duration: 15000, action: { label: t('Show'), onClick: () => useUi.getState().openProjects(true) } },
+    )
+  }
   if (safeStart()) {
     // The new plan's the last one now, so a normal start next time doesn't open the one that failed either.
     const p = newProject()
-    saveProject(p)
+    void saveProject(p)
     useEditor.getState().loadProject(p)
     useUi.getState().openProjects(true)
     toast(t('Started with a new plan, without opening the last one. Your plans are all here.'), { id: 'safe-start', duration: 8000 })
     return
   }
-  const id = lastProjectId() ?? listProjects()[0]?.id
-  const saved = id ? loadProject(id) : null
+  let saved: Project | null = null
+  try {
+    const id = lastProjectId() ?? (await listProjects())[0]?.id
+    saved = id ? await loadProject(id) : null
+  } catch (e) {
+    console.error("Couldn't open the last plan", e)
+    toast.error(t("Your last plan couldn't be opened. Find it in Projects, or reload the page to try again."))
+  }
   const p = saved || sampleProject()
-  saveProject(p)
+  void saveProject(p)
   useEditor.getState().loadProject(p)
   // First visit: offer the quick ways to get started (the sample stays open behind it).
   if (!saved) useUi.getState().openStart(true)
@@ -405,12 +449,23 @@ export default function App() {
   // A new language: everything on screen again in it (the app itself carries on).
   const lang = useLang()
 
-  useEffect(loadInitialProject, [])
-  useEffect(() => void initCloud(), [])
+  // The plans are opened first (and moved across from older storage, the first time): until then, the loader.
+  const [ready, setReady] = useState(false)
+  useEffect(() => void startUp().finally(() => setReady(true)), [])
+  useEffect(() => void (ready && initCloud()), [ready])
   useKeyboardShortcuts()
   useFocusBackToView()
-  useAutosave()
+  useAutosave(ready)
   useAdaptivePanel()
+
+  if (!ready) {
+    return (
+      <div className="grid h-dvh place-content-center justify-items-center gap-3.5 bg-background text-sm font-medium text-foreground">
+        <Loader brand className="size-16" label={t('Opening your plans')} />
+        <span className="opacity-60">Planbreeze</span>
+      </div>
+    )
+  }
 
   return (
     <div key={lang} className="safe-area flex h-dvh flex-col overflow-hidden bg-background text-foreground">

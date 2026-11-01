@@ -3,7 +3,7 @@
  * when a new version of the app has replaced the files this page still asks for.
  */
 import { useEditor } from './editor'
-import { saveProject } from './storage'
+import { saveOnLeave } from './storage'
 
 const SAFE = 'safe'
 const RELOADED = 'fp.reloadedForUpdate'
@@ -31,10 +31,13 @@ export function startSafely() {
   window.location.assign(`${window.location.origin}${window.location.pathname}?${SAFE}`)
 }
 
-/** The plan as it is, saved in this browser (before a reload, or when part of the app has failed). */
-export function saveNow() {
+/**
+ * The plan as it is, saved in this browser (before a reload, or when part of the app has failed): done when it's saved,
+ * or after a second or two at most (it's noted at once all the same, see saveOnLeave).
+ */
+export async function saveNow(): Promise<void> {
   try {
-    saveProject(useEditor.getState().project)
+    await Promise.race([saveOnLeave(useEditor.getState().project), new Promise((r) => setTimeout(r, 2000))])
   } catch {
     // Nothing more to do: the last autosave stands.
   }
@@ -62,7 +65,6 @@ export function reloadOnUpdate() {
     } catch {
       return
     }
-    saveNow()
-    window.location.reload()
+    void saveNow().then(() => window.location.reload())
   })
 }
