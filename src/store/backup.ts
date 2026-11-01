@@ -4,6 +4,7 @@
  */
 import { toast } from 'sonner'
 import { t } from '@/i18n'
+import { isProject } from '@/model/migrate'
 import { uid } from '@/model/project'
 import type { Project } from '@/model/types'
 import { fetchCloudProject, listCloud } from '@/cloud/sync'
@@ -21,12 +22,6 @@ export interface Backup {
 }
 
 export const isBackup = (x: unknown): x is Backup => !!x && typeof x === 'object' && (x as Backup).kind === 'backup' && Array.isArray((x as Backup).projects)
-
-/** Whether it looks like a plan: floors, each with its rooms and items. */
-function isProject(x: unknown): x is Project {
-  const p = x as Project
-  return !!p && typeof p === 'object' && Array.isArray(p.floors) && p.floors.length > 0 && p.floors.every((f) => !!f && Array.isArray(f.rooms) && Array.isArray(f.symbols))
-}
 
 const backup = (projects: Project[]): Backup => ({ app: 'planbreeze', kind: 'backup', version: 1, createdAt: Date.now(), projects })
 

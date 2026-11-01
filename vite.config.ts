@@ -1,3 +1,4 @@
+/// <reference types="vitest/config" />
 import tailwindcss from '@tailwindcss/vite'
 import react from '@vitejs/plugin-react'
 import { fileURLToPath } from 'node:url'
@@ -16,4 +17,6 @@ export default defineConfig({
   // Listen on all network interfaces so other devices on the LAN can open the app.
   server: { host: true, port: 5173 },
   preview: { host: true, port: 4173 },
+  // Tests (npm test): the model's, in Node, next to what they test (src/**/*.test.ts).
+  test: { include: ['src/**/*.test.ts'], environment: 'node' },
 })

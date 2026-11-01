@@ -716,4 +716,6 @@ export default {
   'Fit to page ({scale})': 'ملاءمة الصفحة ({scale})',
   'Share “{name}”': 'مشاركة «{name}»',
   'The 3D view as it is now, with light bouncing round the rooms as a camera would see it: soft shadows, real reflections, and up to {n} of the lights that are on (in the room in view, then the nearest beyond it). No AI: just more time for more detail.': 'العرض ثلاثي الأبعاد كما هو الآن، والضوء يرتدّ في أرجاء الغرف كما تراه الكاميرا: ظلال ناعمة، وانعكاسات حقيقية، وحتى {n} من الأضواء المضاءة (في الغرفة الظاهرة، ثم الأقرب خارجها). بلا ذكاء اصطناعي: مجرد وقت أطول لتفاصيل أكثر.',
+  // M3: plans from a newer version
+  'This plan was saved by a newer version of Planbreeze. Reload the page before changing it, so nothing in it is lost.': 'حُفظ هذا المخطط بإصدار أحدث من Planbreeze. أعد تحميل الصفحة قبل تغييره، كي لا يضيع شيء منه.',
 } as Record<string, string>

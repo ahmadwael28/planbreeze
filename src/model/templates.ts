@@ -2,6 +2,7 @@ import { t } from '@/i18n'
 import { CEILING_STYLES } from './lighting'
 import { personDepth, personSupport } from './people'
 import { newFloor, newProject, newSymbol, OUTDOOR, RAILING_THICKNESS, rectPoints, uid } from './project'
+import { nameSwitchesAfterRooms } from './switches'
 import type { CeilingStyle, Dimension, Floor, LightSettings, PlanSymbol, Project, Room } from './types'
 
 const WALL = 10
@@ -463,8 +464,10 @@ export const TEMPLATES: Template[] = [
   { id: 'house', name: 'Family house', build: house },
 ]
 
+/** A new plan from a template, made as one's made now (its switches named after their rooms, as new ones are). */
 export function projectFromTemplate(tpl: Template): Project {
   const p = newProject(t(tpl.name))
   p.floors = [tpl.build()]
+  for (const f of p.floors) nameSwitchesAfterRooms(f)
   return p
 }

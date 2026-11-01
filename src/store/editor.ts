@@ -14,15 +14,15 @@ import {
 } from '@/model/project'
 import { add, bbox, crossesItself, dist, dot, inwardNormal, labelPoint, mul, normalize, pointInPolygon, signedArea, sub } from '@/model/geometry'
 import { allRefs, clipFootprint, clipSize, copyFloor, copyItems, deleteItems, exists, moveItems, pasteItems, refKey, refsOf, rotateItems, selectionOf, setGroup } from '@/model/items'
-import { nameSwitchesAfterRooms, newSwitchLabel, switchRoom } from '@/model/switches'
+import { newSwitchLabel, switchRoom } from '@/model/switches'
 import { arrange, arrangeable } from '@/model/arrange'
 import type { Arrangement } from '@/model/arrange'
 import { boxCenterShift, boxGaps } from '@/model/guides'
 import type { Side } from '@/model/guides'
-import { fixSizes } from '@/model/sizes'
+import { isNewer, upgrade } from '@/model/migrate'
 import type { Clip } from '@/model/items'
-import { CEILING_STYLES, mergeRoomLights, OTHER_LIGHTS, pruneControls, remapEdges, remapEdgeValues, ROOM_LIGHTS } from '@/model/lighting'
-import { columnIntoWall, dimensionPoints, findWallSnap, isOpen, isOutdoor, ledgeNear, moveWall, roomOuter, SLAB, symbolPose, wallMountPose } from '@/model/project'
+import { CEILING_STYLES, OTHER_LIGHTS, pruneControls, remapEdges, remapEdgeValues, ROOM_LIGHTS } from '@/model/lighting'
+import { columnIntoWall, dimensionPoints, findWallSnap, isOpen, isOutdoor, ledgeNear, moveWall, roomOuter, SLAB, symbolPose } from '@/model/project'
 import { alcoveFit } from '@/model/developed'
 import { connectedRooms, dividePoints, followersOf, healOpenings, joinPoints, movedLine, openedPoints, openPair, sharedStretch, wallAcross } from '@/model/divide'
 import { beamSpan } from '@/model/beams'
@@ -172,6 +172,8 @@ function validSelection(p: Project, floorId: string, sel: Selection | null): Sel
 }
 
 const initial = newProject()
+/** The open plan was saved by a newer version (and the warning's up). */
+let newerOpen = false
 
 export const useEditor = create<EditorState>((set, get) => ({
   project: initial,
@@ -192,9 +194,19 @@ export const useEditor = create<EditorState>((set, get) => ({
   fitRequest: 0,
 
   loadProject: (p) => {
+    const wasNewer = newerOpen
     opened(p.id)
+    // A plan from a newer version: said while it's open.
+    newerOpen = isNewer(p)
+    if (newerOpen) {
+      toast.warning(t('This plan was saved by a newer version of Planbreeze. Reload the page before changing it, so nothing in it is lost.'), {
+        id: 'newer-plan',
+        duration: Infinity,
+        action: { label: t('Reload'), onClick: () => location.reload() },
+      })
+    } else if (wasNewer) toast.dismiss('newer-plan')
     set((s) => ({
-      project: fixOutlets(fixVanities(fixBenches(fixSwitchNames(fixRoomLights(fixSizes(p)))))),
+      project: upgrade(p),
       past: [],
       future: [],
       floorId: p.floors[0].id,
@@ -369,69 +381,6 @@ export function addLShapeRoomAtCenter() {
 /** The room under a point, if any. */
 export function roomAt(floor: Floor, p: Point): Room | undefined {
   return floor.rooms.find((r) => pointInPolygon(p, r.points))
-}
-
-/** A plan as loaded, its vanities' basins (once their style) chosen apart from their style. */
-function fixVanities(p: Project): Project {
-  const old = (s: PlanSymbol) => s.type === 'bath-vanity' && (s.style === 'vessel' || s.style === 'integrated')
-  if (!p.floors.some((f) => f.symbols.some(old))) return p
-  return produce(p, (d) => {
-    for (const f of d.floors) {
-      for (const s of f.symbols) {
-        if (!old(s)) continue
-        if (s.style === 'vessel') s.basin = 'vessel'
-        delete s.style
-      }
-    }
-  })
-}
-
-/** A plan as loaded, its floating shower benches (once a style of their own) built-in ones that float. */
-function fixBenches(p: Project): Project {
-  const old = (s: PlanSymbol) => s.type === 'shower-bench' && s.style === 'floating'
-  if (!p.floors.some((f) => f.symbols.some(old))) return p
-  return produce(p, (d) => {
-    for (const f of d.floors) {
-      for (const s of f.symbols) {
-        if (!old(s)) continue
-        delete s.style
-        s.floating = true
-      }
-    }
-  })
-}
-
-/** A plan as loaded, its switches named after their rooms (an older plan's, once: see nameSwitchesAfterRooms). */
-function fixSwitchNames(p: Project): Project {
-  if (p.switchNames) return p
-  return produce(p, (d) => {
-    for (const f of d.floors) nameSwitchesAfterRooms(f)
-    d.switchNames = 'room'
-  })
-}
-
-/** Outlets from before they were mounted on walls: onto the wall they're by (flush, facing into the room). */
-function fixOutlets(p: Project): Project {
-  const moves: { f: number; i: number; pose: { x: number; y: number; rotation: number } }[] = []
-  p.floors.forEach((f, fi) =>
-    f.symbols.forEach((s, i) => {
-      if (s.type !== 'outlet' || s.wall || s.room) return
-      const pose = wallMountPose(s, f.rooms, s.depth / 2 + 15, s.depth)
-      if (pose && (Math.abs(pose.x - s.x) > 0.05 || Math.abs(pose.y - s.y) > 0.05 || Math.abs(pose.rotation - s.rotation) > 0.05)) moves.push({ f: fi, i, pose })
-    }),
-  )
-  if (!moves.length) return p
-  return produce(p, (d) => {
-    for (const m of moves) Object.assign(d.floors[m.f].symbols[m.i], m.pose)
-  })
-}
-
-/** A plan as loaded, with any room's extra hidden lights of a kind merged into its first (see mergeRoomLights). */
-function fixRoomLights(p: Project): Project {
-  if (!p.floors.some((f) => f.symbols.some((s) => s.room && ROOM_LIGHTS.includes(s.type)))) return p
-  return produce(p, (d) => {
-    for (const f of d.floors) mergeRoomLights(f)
-  })
 }
 
 export function applyCeiling(roomId: string, style: CeilingStyle | null) {

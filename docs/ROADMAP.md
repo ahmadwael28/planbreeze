@@ -450,7 +450,7 @@ Each milestone is about one to two weeks of work. It ships and deploys on its ow
 - **Translation sweep:** the ~40 untranslated strings.
 - *Done when:* "350" makes a 3.5 m wall in Arabic and English, and every bug above is fixed.
 
-**M3. A safety net**
+**M3. A safety net** ✓ shipped 1 Nov 2026
 - Vitest with golden tests:
   - the takeoff (300×200 cm room, 250 cm walls → 6, 6 and 25 m²);
   - every library kind has a takeoff rule;

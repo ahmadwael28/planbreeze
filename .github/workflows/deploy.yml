@@ -16,7 +16,12 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  # Nothing's deployed unless lint, typecheck and tests pass.
+  checks:
+    uses: ./.github/workflows/checks.yml
+
   build:
+    needs: checks
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7

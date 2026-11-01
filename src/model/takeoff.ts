@@ -596,14 +596,12 @@ const beam: Rule = (sym, ctx, pose) => {
   }
 }
 
-/**
- * What each kind of item does to the finished surfaces round it. Doors, windows and niches (items set in a wall) also
- * have their openings taken off the walls (see roomParts).
- */
 /** Stairs going up to the floor above: the ceiling's cut away over them (in each room they're under). */
 const stairs: Rule = (sym, ctx) => {
   if (!ctx.above) return
+  // (None for a few steps, that don't reach it.)
   const hole = stairOpenings({ ...ctx.floor, symbols: [sym] })[0]
+  if (!hole) return
   for (const room of ctx.floor.rooms) {
     if (room.points.length < 3 || isOutdoor(room)) continue
     const a = overlapArea(room.points, [hole])
@@ -618,6 +616,10 @@ const stairs: Rule = (sym, ctx) => {
   }
 }
 
+/**
+ * What each kind of item does to the finished surfaces round it. Doors, windows and niches (items set in a wall) also
+ * have their openings taken off the walls (see roomParts).
+ */
 const RULES: Record<string, Rule> = {
   // Columns: a column in a wall's sides and front (the wall behind it doesn't show: see roomParts), a column on its own
   // all round; finished like the wall (the room's walls).

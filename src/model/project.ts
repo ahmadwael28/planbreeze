@@ -36,14 +36,20 @@ export function newFloor(name: string): Floor {
   return { id: uid(), name, height: 250, rooms: [], symbols: [] }
 }
 
+/** The version of the format plans are saved in now: one for each step in model/migrate's STEPS. */
+export const SCHEMA_VERSION = 1
+
 export function newProject(name = t('Untitled plan')): Project {
   const now = Date.now()
   return {
     id: uid(),
+    schemaVersion: SCHEMA_VERSION,
     name,
     units: 'metric',
     defaultWallThickness: 10,
     floors: [newFloor(t('Ground floor'))],
+    // New switches are named after their rooms (see newSwitchLabel).
+    switchNames: 'room',
     createdAt: now,
     updatedAt: now,
   }

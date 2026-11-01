@@ -1,0 +1,20 @@
+# Updates as pull requests, each run through the checks (.github/workflows/checks.yml) before it can be merged.
+version: 2
+updates:
+  # npm: minor and patch updates together in one pull request a week; a major one on its own.
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    groups:
+      minor-and-patch:
+        update-types: [minor, patch]
+  # The workflows' actions, together, once a month.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly
+    groups:
+      actions:
+        patterns: ['*']

@@ -425,6 +425,8 @@ export interface SavedView {
 
 export interface Project {
   id: string
+  /** The version of the format it was saved in (none: from before there were versions). See model/migrate. */
+  schemaVersion?: number
   name: string
   units: Units
   defaultWallThickness: number
