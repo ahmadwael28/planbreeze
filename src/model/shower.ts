@@ -96,8 +96,9 @@ export interface WallPlace {
 }
 
 /**
- * Where a shower's body jets or hand shower have been put (`placed`, as seen on the plan), in its own frame: if that's
- * on one of its walls (`glass`: its glass sides as seen on the plan). Else nowhere, and they go beside the mixer.
+ * Where a shower's mixer, body jets or hand shower have been put (`placed`, as seen on the plan), in its own frame: if
+ * that's on one of its walls (`glass`: its glass sides as seen on the plan). Else nowhere, and they go where they would
+ * be (the mixer under the head, the rest beside the mixer).
  */
 export function fittingPlace(sym: PlanSymbol, placed: WallPlace | undefined, glass: ShowerSide[]): HeadPlace | undefined {
   if (!placed || glass.includes(placed.side)) return undefined
@@ -105,11 +106,13 @@ export function fittingPlace(sym: PlanSymbol, placed: WallPlace | undefined, gla
 }
 
 /**
- * Where a shower's mixer is, in its own frame (`glass`: its glass sides as seen on the plan): under its head; with its
- * head from the ceiling, on its first wall in the middle (a curved corner shower's on its back, near the corner). None
- * with glass all round.
+ * Where a shower's mixer is, in its own frame (`glass`: its glass sides as seen on the plan): where it's been put on one
+ * of its walls; else under its head, or with its head from the ceiling, on its first wall in the middle (a curved corner
+ * shower's on its back, near the corner). None with glass all round.
  */
 export function mixerOf(sym: PlanSymbol, glass: ShowerSide[]): HeadPlace | undefined {
+  const placed = fittingPlace(sym, sym.mixerAt, glass)
+  if (placed) return placed
   const head = headInModel(sym, headOf(sym, glass))
   if (head.side !== 'ceiling') return head
   if (sym.type === 'shower-quadrant') return { side: 'back', at: 0.32 }

@@ -22,6 +22,7 @@ import {
   headOf,
   headPoint,
   JET_HEIGHTS,
+  mixerOf,
   ownWalls,
   rainDrop,
   showerGlass,
@@ -2471,15 +2472,17 @@ interface Fittings {
   drop?: number
   jets?: PlanSymbol['jets']
   hand?: PlanSymbol['handShower']
+  /** Where its mixer is, in its own frame (see mixerOf): under a head on a wall if left out; none from the ceiling. */
+  mixerAt?: HeadPlace
   /** Where the body jets and the hand shower have been put, in its own frame (see fittingPlace); else by the mixer. */
   jetsAt?: HeadPlace
   handAt?: HeadPlace
 }
 
 /**
- * A shower's head where it's been put (see model/shower), in its shape: on an arm out from its wall with a mixer below,
- * or down from the ceiling (`ceilingH`) over its spot with the mixer on the first wall there is (`mixerAt`); and its
- * body jets and hand shower, where they've been put or by the mixer.
+ * A shower's head where it's been put (see model/shower), in its shape: on an arm out from its wall, or down from the
+ * ceiling (`ceilingH`) over its spot; its mixer where it is (`fit.mixerAt`); and its body jets and hand shower, where
+ * they've been put or by the mixer.
  */
 function showerHead(
   g: THREE.Group,
@@ -2490,7 +2493,6 @@ function showerHead(
   d: number,
   h: number,
   ceilingH: number,
-  mixerAt?: HeadPlace,
   columns: ColumnBox[] = [],
   fit: Fittings = {},
 ) {
@@ -2518,23 +2520,24 @@ function showerHead(
       g.add(bell)
     } else g.add(cylinder(11 * s, 1.6, x, y, z, chrome))
   }
-  let base: WallPoint | undefined
   if (head.side === 'ceiling') {
     // Down on its arm as far as it's been set to hang, or flush with the ceiling.
     const c = headPoint(head, w, d)
     const drop = fit.drop ?? ceilingH - (h - 12 + HEAD_FACE)
     if (drop > 0.5) g.add(cylinder(1.1, drop, c.x, ceilingH - drop, c.y, chrome, 1, 1.1, 12))
     face(c.x, ceilingH - drop - HEAD_FACE, c.y, true)
-    if (mixerAt) mixer((base = headPoint(mixerAt, w, d, columns)))
   } else {
     // On its wall, or on the face of a column standing there; a classic head on a shorter arm.
     const p = headPoint(head, w, d, columns)
     const reach = fit.shape === 'classic' ? 14 : 25
     outward(cylinder(1.1, reach, 0, 0, 0, chrome, 1, 1.1, 12), p, p.x + (p.nx * reach) / 2, h - 10, p.y + (p.ny * reach) / 2)
     face(p.x + p.nx * reach, h - 12, p.y + p.ny * reach, false, p)
-    mixer((base = p))
   }
-  if (!base) return
+  // The mixer where it's been put, or under the head; on its wall, or on the face of a column there.
+  const mixerAt = fit.mixerAt ?? (head.side !== 'ceiling' ? head : undefined)
+  if (!mixerAt) return
+  const base = headPoint(mixerAt, w, d, columns)
+  mixer(base)
   const spots = fittingSpots({ jets: fit.jets, handShower: fit.hand }, base, w, d, { jets: fit.jetsAt, hand: fit.handAt }, columns)
   // Body jets: round chrome plates on the wall, a dark nozzle in each.
   const dark = k.q('#2b2b2e', 'satin')
@@ -2756,10 +2759,8 @@ function shower(
       g.add(turning(leaf, pos(m(hinge), inset), swingOut(way, fit.swingIn ? { x: nx, z: nz } : { x: -nx, z: -nz }, 80)))
     }
   }
-  // Rain head where it's been put, and a mixer on its wall.
-  const sides = new Set(runs.map((r) => r.side))
-  const wall = (['back', 'left', 'right', 'front'] as const).find((s) => !sides.has(s))
-  showerHead(g, k, chrome, head, w, d, h, ceilingH, wall && { side: wall, at: 0.5 }, columns, fittings)
+  // The head where it's been put, its mixer, body jets and hand shower.
+  showerHead(g, k, chrome, head, w, d, h, ceilingH, columns, fittings)
   return g
 }
 
@@ -2841,8 +2842,8 @@ function quadrantShower(
       g.add(turning(panel, corner, s * (mid - end - 0.02)))
     }
   }
-  // The head where it's been put (from the ceiling: inside the quarter, see headOf), and a mixer on its wall.
-  showerHead(g, k, chrome, head, w, d, h, ceilingH, { side: 'back', at: 0.32 }, [], fittings)
+  // The head where it's been put (from the ceiling: inside the quarter, see headOf), its mixer and the rest on its walls.
+  showerHead(g, k, chrome, head, w, d, h, ceilingH, [], fittings)
   return g
 }
 
@@ -3723,6 +3724,7 @@ export function symbolModel(
           drop: rainDrop(sym, ceilingH),
           jets: sym.jets,
           hand: sym.handShower,
+          mixerAt: mixerOf(sym, glass),
           jetsAt: fittingPlace(sym, sym.jetsAt, glass),
           handAt: fittingPlace(sym, sym.handAt, glass),
         },
@@ -3736,6 +3738,7 @@ export function symbolModel(
         drop: rainDrop(sym, ceilingH),
         jets: sym.jets,
         hand: sym.handShower,
+        mixerAt: mixerOf(sym, glass),
         jetsAt: fittingPlace(sym, sym.jetsAt, glass),
         handAt: fittingPlace(sym, sym.handAt, glass),
       })

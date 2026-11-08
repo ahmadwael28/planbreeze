@@ -696,8 +696,9 @@ function showerHeadMark(sym: PlanSymbol | undefined, w: number, d: number, t: Pl
   const place = sym ? headInModel(sym, headOf(sym, glass)) : { side: 'back' as const, at: 0.5 }
   const p = headPoint(place, w, d, sym?.type === 'shower' ? columns : [])
   const stroke = { stroke: t.ink, vectorEffect: 'non-scaling-stroke', fill: 'none' } as const
-  // Its body jets and hand shower: where they've been put, or by its mixer (see model/shower).
-  const fittings = sym && showerFittingMarks(showerFittings(sym, glass, sym.type === 'shower' ? columns : []), t)
+  // Its mixer (unless it's under the head), body jets and hand shower: where they've been put, or where they go (see
+  // model/shower).
+  const fittings = sym && showerFittingMarks(showerFittings(sym, glass, sym.type === 'shower' ? columns : []), place.side === 'ceiling' ? undefined : p, t)
   if (place.side === 'ceiling') {
     return (
       <g data-shower-head="">
@@ -727,11 +728,29 @@ function headFace(sym: PlanSymbol | undefined, c: { x: number; y: number }, big:
   return <circle cx={c.x} cy={c.y} r={(sym?.headShape === 'classic' ? 4.5 : 7) * s} {...(style as SVGProps<SVGCircleElement>)} />
 }
 
-/** A shower's body jets (dots) and hand shower (its holder and handset) on its walls (see showerFittings). */
-function showerFittingMarks(spots: { jets: WallPoint[]; hand?: WallPoint }, t: PlanTheme) {
-  const hand = spots.hand
+/**
+ * A shower's mixer (a little plate on its wall, unless it's under the head on the wall, `head`), body jets (dots) and
+ * hand shower (its holder and handset) on its walls (see showerFittings).
+ */
+function showerFittingMarks(spots: { mixer?: WallPoint; jets: WallPoint[]; hand?: WallPoint }, head: WallPoint | undefined, t: PlanTheme) {
+  const { mixer, hand } = spots
+  const apart = mixer && (!head || Math.hypot(mixer.x - head.x, mixer.y - head.y) > 0.5)
   return (
     <>
+      {mixer && apart && (
+        <rect
+          x={mixer.ny !== 0 ? mixer.x - 6 : mixer.nx > 0 ? mixer.x : mixer.x - 3}
+          y={mixer.ny !== 0 ? (mixer.ny > 0 ? mixer.y : mixer.y - 3) : mixer.y - 6}
+          width={mixer.ny !== 0 ? 12 : 3}
+          height={mixer.ny !== 0 ? 3 : 12}
+          rx={1}
+          stroke={t.ink}
+          strokeWidth={1.2}
+          vectorEffect="non-scaling-stroke"
+          fill={t.fill}
+          data-mixer=""
+        />
+      )}
       {spots.jets.map((s, i) => (
         <circle key={i} cx={s.x + s.nx * 2} cy={s.y + s.ny * 2} r={2.6} fill={t.ink} />
       ))}

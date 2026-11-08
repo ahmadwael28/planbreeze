@@ -304,6 +304,11 @@ export interface PlanSymbol {
   headDrop?: number
   /** Showers: the shape of their head (round if left out). */
   headShape?: 'square' | 'rectangle' | 'classic'
+  /**
+   * Showers: where their mixer has been put, on a wall side, `at` along it (as the head's, as seen on the plan). Under
+   * the head if left out (or on a side that's glass); with the head from the ceiling, on its first wall, in the middle.
+   */
+  mixerAt?: { side: 'front' | 'back' | 'left' | 'right'; at: number }
   /** Showers: body jets on the wall their mixer's on, in a column of three or two columns. */
   jets?: 3 | 6
   /**

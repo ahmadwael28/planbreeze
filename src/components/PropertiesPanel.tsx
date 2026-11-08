@@ -1639,15 +1639,18 @@ function ShowerFittings({ sym }: { sym: PlanSymbol }) {
 /** A screen point on the little plan of a shower, as a pointer or a touch gives it. */
 type ScreenPoint = { clientX: number; clientY: number }
 
-/** What the little plan of a shower moves: its head, its body jets or its hand shower. */
-type ShowerPart = 'head' | 'jets' | 'hand'
+/** What the little plan of a shower moves: its head, its mixer, its body jets or its hand shower. */
+type ShowerPart = 'head' | 'mixer' | 'jets' | 'hand'
+
+/** Where each part of a shower besides its head is kept, once it's been put somewhere. */
+const PART_AT = { mixer: 'mixerAt', jets: 'jetsAt', hand: 'handAt' } as const
 
 const NO_OFFSET = { x: 0, y: 0 }
 
 /**
  * Where the shower head goes, on a little plan of the shower (turned as it is on the plan): on a wall, tapped or dragged
- * along it; or from the ceiling (a rain shower), tapped or dragged to anywhere over the shower. Its body jets and hand
- * shower are on it too, moved along the shower's walls the same way: dragged, or tapped once chosen under Move. By
+ * along it; or from the ceiling (a rain shower), tapped or dragged to anywhere over the shower. Its mixer, body jets and
+ * hand shower are on it too, moved along the shower's walls the same way: dragged, or tapped once chosen under Move. By
  * touch, a finger moves one only with a tap, or by dragging it: a swipe from anywhere else scrolls the panel, as it does
  * everywhere in it.
  */
@@ -1664,12 +1667,18 @@ function ShowerHeadPicker({ sym }: { sym: PlanSymbol }) {
   const walls = (['back', 'left', 'right', 'front'] as const).filter((s) => !glass.includes(s))
   const w = sym.width
   const d = sym.depth
-  // Its body jets and hand shower as seen on the plan: worked out in the shower's own frame, and mirrored back.
+  // Its mixer, body jets and hand shower as seen on the plan: worked out in the shower's own frame, and mirrored back.
   const fit = showerFittings(sym, glass)
   const mirror = (p: WallPoint): WallPoint => ({ x: sym.flipX ? -p.x : p.x, y: sym.flipY ? -p.y : p.y, nx: sym.flipX ? -p.nx : p.nx, ny: sym.flipY ? -p.ny : p.ny })
+  const mixer = fit.mixer && mirror(fit.mixer)
   const jets = fit.jets.map(mirror)
   const hand = fit.hand && mirror(fit.hand)
-  const parts: ShowerPart[] = ['head', ...(jets.length ? (['jets'] as const) : []), ...(hand ? (['hand'] as const) : [])]
+  const parts: ShowerPart[] = [
+    'head',
+    ...(mixer ? (['mixer'] as const) : []),
+    ...(jets.length ? (['jets'] as const) : []),
+    ...(hand ? (['hand'] as const) : []),
+  ]
   // What a tap moves (the head, if what was chosen has gone).
   const part = parts.includes(chosen) ? chosen : 'head'
   const put = (change: (s: PlanSymbol) => void, live = false) => {
@@ -1682,10 +1691,10 @@ function ShowerHeadPicker({ sym }: { sym: PlanSymbol }) {
     else st.commit(recipe)
   }
   const set = (head: PlanSymbol['showerHead'], live = false) => put((s) => void (head ? (s.showerHead = head) : delete s.showerHead), live)
-  /** Puts the body jets or the hand shower on a wall, or (with none) back beside the mixer. */
-  const setFitting = (which: 'jets' | 'hand', at: WallPlace | undefined, live = false) =>
+  /** Puts the mixer, the body jets or the hand shower on a wall, or (with none) back where it goes. */
+  const setFitting = (which: Exclude<ShowerPart, 'head'>, at: WallPlace | undefined, live = false) =>
     put((s) => {
-      const key = which === 'jets' ? 'jetsAt' : 'handAt'
+      const key = PART_AT[which]
       if (at) s[key] = at
       else delete s[key]
     }, live)
@@ -1735,15 +1744,18 @@ function ShowerHeadPicker({ sym }: { sym: PlanSymbol }) {
   const head = headPoint(place, w, d)
   // The head itself on the little plan: what's grabbed to drag it.
   const grip = ceiling ? head : { x: head.x + head.nx * 22, y: head.y + head.ny * 22 }
-  // The body jets and hand shower drawn a little in from their wall, as big as the little plan's scaled to.
+  // The mixer, body jets and hand shower drawn a little in from their wall, as big as the little plan's scaled to.
   const s = Math.max(w, d) / 100
+  const mixerDot = mixer && { x: mixer.x + mixer.nx * 4 * s, y: mixer.y + mixer.ny * 4 * s }
   const jetDot = (j: WallPoint) => ({ x: j.x + j.nx * 9 * s, y: j.y + j.ny * 9 * s })
   const handDot = hand && { x: hand.x + hand.nx * 13 * s, y: hand.y + hand.ny * 13 * s }
   // The jets' middle: their column, or between the two.
   const jetsMid = jets.length ? { x: jets.reduce((a, j) => a + j.x, 0) / jets.length, y: jets.reduce((a, j) => a + j.y, 0) / jets.length } : undefined
-  // What can be grabbed: the head, each of the jets and the hand shower; and, for those on a wall, their middle on it.
+  // What can be grabbed: the head, the mixer, each of the jets and the hand shower; and, for those on a wall, their
+  // middle on it.
   const grips: { part: ShowerPart; at: { x: number; y: number }; mid?: WallPoint }[] = [
     { part: 'head', at: grip },
+    ...(mixer && mixerDot ? [{ part: 'mixer' as const, at: mixerDot, mid: mixer }] : []),
     ...jets.map((j) => ({ part: 'jets' as const, at: jetDot(j), mid: jetsMid && { ...j, ...jetsMid } })),
     ...(hand && handDot ? [{ part: 'hand' as const, at: handDot, mid: hand }] : []),
   ]
@@ -1767,7 +1779,7 @@ function ShowerHeadPicker({ sym }: { sym: PlanSymbol }) {
   useEffect(() => {
     grabbedRef.current = grabbed
   })
-  // A finger put down on the head (or the jets, or the hand shower) drags it: the panel doesn't scroll then (elsewhere
+  // A finger put down on the head (or the mixer, the jets or the hand shower) drags it: the panel doesn't scroll then (elsewhere
   // it does, see touch-pan-y).
   useEffect(() => {
     const el = svgRef.current
@@ -1806,11 +1818,20 @@ function ShowerHeadPicker({ sym }: { sym: PlanSymbol }) {
   // What a tap moves is drawn in the accent color, the rest in ink.
   const tone = (p: ShowerPart) => (p === part ? 'var(--primary)' : theme.ink)
   const faint = (p: ShowerPart) => (p === part ? 1 : 0.5)
+  const mixerPlaced = !!fittingPlace(sym, sym.mixerAt, glass)
   const jetsPlaced = !!fittingPlace(sym, sym.jetsAt, glass)
   const handPlaced = !!fittingPlace(sym, sym.handAt, glass)
 
   let hint: string
-  if (part === 'jets' && jetsMid) {
+  if (part === 'mixer' && mixer) {
+    const c = cornerGap(mixer, mixer.ny !== 0)
+    hint =
+      !mixerPlaced && !ceiling
+        ? t('Mixer under the head. Tap a wall, or drag it along the wall, to move it.')
+        : c.middle
+          ? t('Mixer in the middle of its wall. Tap a wall, or drag it along the wall, to move it.')
+          : t('Mixer {length} from the nearer corner. Tap a wall, or drag it along the wall, to move it.', { length: formatLength(c.gap, units) })
+  } else if (part === 'jets' && jetsMid) {
     const c = cornerGap(jetsMid, jets[0].ny !== 0)
     hint = !jetsPlaced
       ? t('Body jets beside the mixer. Tap a wall, or drag them along it, to move them.')
@@ -1838,7 +1859,7 @@ function ShowerHeadPicker({ sym }: { sym: PlanSymbol }) {
         ? t('In the middle of its wall. Tap a wall, or drag the head along it, to move it.')
         : t('{length} from the nearer corner. Tap a wall, or drag the head along it, to move it.', { length: formatLength(fromCorner, units) })
   }
-  const placed = (part === 'jets' && jetsPlaced) || (part === 'hand' && handPlaced)
+  const placed = (part === 'mixer' && mixerPlaced) || (part === 'jets' && jetsPlaced) || (part === 'hand' && handPlaced)
 
   return (
     <div className="space-y-1.5">
@@ -1859,8 +1880,9 @@ function ShowerHeadPicker({ sym }: { sym: PlanSymbol }) {
           onChange={choose}
           options={[
             { value: 'head' as const, label: t('Head') },
-            ...(jets.length ? [{ value: 'jets' as const, label: t('Body jets') }] : []),
-            ...(hand ? [{ value: 'hand' as const, label: t('Handset'), title: t('Hand shower') }] : []),
+            ...(mixer ? [{ value: 'mixer' as const, label: t('Mixer') }] : []),
+            ...(jets.length ? [{ value: 'jets' as const, label: t('Jets'), title: t('Body jets') }] : []),
+            ...(hand ? [{ value: 'hand' as const, label: t('Hand'), title: t('Hand shower') }] : []),
           ]}
         />
       )}
@@ -1870,7 +1892,9 @@ function ShowerHeadPicker({ sym }: { sym: PlanSymbol }) {
         className="h-36 w-full touch-pan-y rounded-md bg-muted/60"
         role="application"
         aria-label={
-          part === 'jets'
+          part === 'mixer'
+            ? t('Tap a wall of the shower to put the mixer there')
+            : part === 'jets'
             ? t('Tap a wall of the shower to put the body jets there')
             : part === 'hand'
               ? t('Tap a wall of the shower to put the hand shower there')
@@ -1927,6 +1951,19 @@ function ShowerHeadPicker({ sym }: { sym: PlanSymbol }) {
               side === 'back' ? [-w / 2, -d / 2, w / 2, -d / 2] : side === 'front' ? [-w / 2, d / 2, w / 2, d / 2] : side === 'left' ? [-w / 2, -d / 2, -w / 2, d / 2] : [w / 2, -d / 2, w / 2, d / 2]
             return <line key={side} x1={x1} y1={y1} x2={x2} y2={y2} stroke={theme.wall} strokeWidth={8} strokeLinecap="square" vectorEffect="non-scaling-stroke" className="cursor-pointer" />
           })}
+          {mixer && (
+            <rect
+              pointerEvents="none"
+              data-part="mixer"
+              opacity={faint('mixer')}
+              x={mixer.ny !== 0 ? mixer.x - 7 * s : mixer.x + (mixer.nx > 0 ? 1.5 : -6.5) * s}
+              y={mixer.ny !== 0 ? mixer.y + (mixer.ny > 0 ? 1.5 : -6.5) * s : mixer.y - 7 * s}
+              width={(mixer.ny !== 0 ? 14 : 5) * s}
+              height={(mixer.ny !== 0 ? 5 : 14) * s}
+              rx={1.5 * s}
+              fill={tone('mixer')}
+            />
+          )}
           <g pointerEvents="none" data-part="jets" opacity={faint('jets')}>
             {jets.map((j, i) => {
               const p = jetDot(j)
@@ -1957,8 +1994,8 @@ function ShowerHeadPicker({ sym }: { sym: PlanSymbol }) {
         {placed && (
           <>
             {' '}
-            <button type="button" className="text-primary underline-offset-2 hover:underline" onClick={() => setFitting(part === 'jets' ? 'jets' : 'hand', undefined)}>
-              {t('Put back beside the mixer')}
+            <button type="button" className="text-primary underline-offset-2 hover:underline" onClick={() => setFitting(part, undefined)}>
+              {part !== 'mixer' ? t('Put back beside the mixer') : ceiling ? t('Put back in its usual place') : t('Put back under the head')}
             </button>
           </>
         )}
