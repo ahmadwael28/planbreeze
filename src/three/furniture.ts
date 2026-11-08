@@ -16,11 +16,13 @@ import {
   doorsOf,
   fittingSpots,
   HALF_WALL_THICKNESS,
+  HEAD_FACE,
   headInModel,
   headOf,
   headPoint,
   JET_HEIGHTS,
   ownWalls,
+  rainDrop,
   showerGlass,
   showerRuns,
   slideOverlap,
@@ -2461,6 +2463,8 @@ function bathtub(k: Kit, w: number, d: number, h: number) {
 /** A shower's head, how it's shaped, and the fittings on the wall its mixer's on (see model/shower). */
 interface Fittings {
   shape?: PlanSymbol['headShape']
+  /** From the ceiling: how far it hangs down from it, to the top of its face (see rainDrop). */
+  drop?: number
   jets?: PlanSymbol['jets']
   hand?: PlanSymbol['handShower']
 }
@@ -2509,9 +2513,11 @@ function showerHead(
   }
   let base: WallPoint | undefined
   if (head.side === 'ceiling') {
+    // Down on its arm as far as it's been set to hang, or flush with the ceiling.
     const c = headPoint(head, w, d)
-    g.add(cylinder(1.1, Math.max(4, ceilingH - (h - 10.4)), c.x, h - 10.4, c.y, chrome, 1, 1.1, 12))
-    face(c.x, h - 12, c.y, true)
+    const drop = fit.drop ?? ceilingH - (h - 12 + HEAD_FACE)
+    if (drop > 0.5) g.add(cylinder(1.1, drop, c.x, ceilingH - drop, c.y, chrome, 1, 1.1, 12))
+    face(c.x, ceilingH - drop - HEAD_FACE, c.y, true)
     if (mixerAt) mixer((base = headPoint(mixerAt, w, d, columns)))
   } else {
     // On its wall, or on the face of a column standing there; a classic head on a shorter arm.
@@ -3694,13 +3700,14 @@ export function symbolModel(
           hingeFar: sym.hingeFar,
           fixedAtEnd: sym.fixedAtEnd,
         },
-        { shape: sym.headShape, jets: sym.jets, hand: sym.handShower },
+        { shape: sym.headShape, drop: rainDrop(sym, ceilingH), jets: sym.jets, hand: sym.handShower },
       )
       break
     }
     case 'shower-quadrant':
       g = quadrantShower(k, w, d, h, k.glass(), sym.doors ?? 'sliding', headInModel(sym, headOf(sym, showerGlass(sym, () => []))), ceilingH, {
         shape: sym.headShape,
+        drop: rainDrop(sym, ceilingH),
         jets: sym.jets,
         hand: sym.handShower,
       })

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { headInModel, headOf, headPoint } from './shower'
+import { headInModel, headOf, headPoint, rainDrop } from './shower'
 import type { PlanSymbol } from './types'
 
 /** A shower `w` × `d` cm, its head as given. */
@@ -43,6 +43,17 @@ describe('a rain shower’s head', () => {
     const fromCorner = Math.hypot((far.x + 45) / 90, (far.y + 45) / 90)
     expect(fromCorner).toBeLessThanOrEqual(1 - 17 / 90 + 1e-3)
     expect(far.x).toBeCloseTo(far.y)
+  })
+
+  it('hangs just under the top of the glass until it’s set, then as far down as it’s set', () => {
+    // A 200 cm shower under a 280 cm ceiling: its 1.6 cm face 12 cm under the glass's top, at 188, on a 90.4 cm arm.
+    expect(rainDrop(shower(90, 90), 280)).toBe(90.4)
+    expect(rainDrop(shower(90, 90, { headDrop: 30 }), 280)).toBe(30)
+    // Flush with the ceiling, and no lower than its face 170 cm off the floor.
+    expect(rainDrop(shower(90, 90, { headDrop: -5 }), 280)).toBe(0)
+    expect(rainDrop(shower(90, 90, { headDrop: 150 }), 280)).toBe(108.4)
+    // Under a low ceiling, as low as it goes even as usual.
+    expect(rainDrop(shower(90, 90, { height: 160 }), 220)).toBe(48.4)
   })
 
   it('on a wall, is where it was', () => {

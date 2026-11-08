@@ -134,7 +134,7 @@ import { RoomSurfaces } from './Surfaces'
 import { HeaderAction, Inspector, Panel } from './Inspector'
 import { CeilingSection, GroupLightSection, GrooveLightWalls, HiddenLightControls, LightSection, SwitchSection } from './LightingProps'
 import { Choice } from './Choice'
-import { doorRun, doorsOf, headOf, headPoint, showerGlass, showerRuns, startsLeft, wayIn } from '@/model/shower'
+import { doorRun, doorsOf, HEAD_FACE, headOf, headPoint, RAIN_LOWEST, rainDrop, showerGlass, showerRuns, startsLeft, wayIn } from '@/model/shower'
 import { FloorSection, WallsSection } from './FinishProps'
 
 function Field({ label, children }: { label: string; children: (id: string) => ReactNode }) {
@@ -1826,7 +1826,31 @@ function ShowerHeadPicker({ sym }: { sym: PlanSymbol }) {
             ? t('In the middle of its wall. Tap a wall, or drag the head along it, to move it.')
             : t('{length} from the nearer corner. Tap a wall, or drag the head along it, to move it.', { length: formatLength(fromCorner, units) })}
       </p>
+      {ceiling && <RainDrop sym={sym} />}
     </div>
+  )
+}
+
+/** How far a shower's head from the ceiling hangs down from it, on its arm; and how high that leaves it. */
+function RainDrop({ sym }: { sym: PlanSymbol }) {
+  const floor = useFloor()
+  const units = useEditor((s) => s.project.units)
+  const ceilingH = ceilingHeightAt(floor, sym)
+  const drop = rainDrop(sym, ceilingH)
+  const most = Math.max(0, ceilingH - RAIN_LOWEST - HEAD_FACE)
+  return (
+    <>
+      <Field label={t('Hangs from the ceiling')}>
+        {(id) => (
+          <LengthInput id={id} value={drop} units={units} min={0} onChange={(v) => updateSymbol(sym.id, (s) => void (s.headDrop = Math.min(most, Math.max(0, v))))} />
+        )}
+      </Field>
+      <p className="-mt-2 text-xs text-muted-foreground">
+        {drop >= most
+          ? t('Its face {height} off the floor, as low as it goes.', { height: formatLength(ceilingH - drop - HEAD_FACE, units) })
+          : t('Its face {height} off the floor.', { height: formatLength(ceilingH - drop - HEAD_FACE, units) })}
+      </p>
+    </>
   )
 }
 
@@ -2684,7 +2708,9 @@ function SymbolProps({ sym, units }: { sym: PlanSymbol; units: Units }) {
           icon={ShowerHead}
           title={t('Shower head and fittings')}
           summary={[
-            sym.showerHead?.side === 'ceiling' ? t('From the ceiling') : t('On a wall'),
+            sym.showerHead?.side === 'ceiling'
+              ? t('From the ceiling, hanging {length}', { length: formatLength(rainDrop(sym, ceilingHeightAt(floor, sym)), units) })
+              : t('On a wall'),
             t({ round: 'Round', square: 'Square', rectangle: 'Rectangular', classic: 'Classic' }[sym.headShape ?? 'round']),
             sym.jets ? t('{n} body jets', { n: sym.jets }) : undefined,
             sym.handShower ? t('hand shower') : undefined,

@@ -297,6 +297,11 @@ export interface PlanSymbol {
    * the middle if left out). By default on the first wall, in its middle.
    */
   showerHead?: { side: 'front' | 'back' | 'left' | 'right' | 'ceiling'; at?: number; x?: number; y?: number }
+  /**
+   * Showers with a head from the ceiling: how far it hangs down from the ceiling (cm), on its arm to the top of its face
+   * (see model/shower: rainDrop). If left out, its face is just under the top of the glass.
+   */
+  headDrop?: number
   /** Showers: the shape of their head (round if left out). */
   headShape?: 'square' | 'rectangle' | 'classic'
   /** Showers: body jets on the wall their mixer's on, in a column of three or two columns. */

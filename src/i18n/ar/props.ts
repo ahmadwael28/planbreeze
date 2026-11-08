@@ -484,6 +484,10 @@ export default {
   'From the ceiling, over the middle. Tap a spot in the shower, or drag the head, to move it.': 'من السقف، فوق المنتصف. انقر على موضع في الدش، أو اسحب الرأس، لنقله.',
   'From the ceiling, {across} and {along} in from the nearest sides. Tap a spot in the shower, or drag the head, to move it.':
     'من السقف، على بُعد {across} و{along} من أقرب جانبين. انقر على موضع في الدش، أو اسحب الرأس، لنقله.',
+  'Hangs from the ceiling': 'التدلّي من السقف',
+  'Its face {height} off the floor.': 'وجهه على ارتفاع {height} من الأرض.',
+  'Its face {height} off the floor, as low as it goes.': 'وجهه على ارتفاع {height} من الأرض، وهو أدنى ما يصل إليه.',
+  'From the ceiling, hanging {length}': 'من السقف، متدلٍّ {length}',
   'In the middle of its wall. Tap a wall, or drag the head along it, to move it.': 'في منتصف حائطه. انقر على حائط، أو اسحب الرأس على امتداده، لنقله.',
   '{length} from the nearer corner. Tap a wall, or drag the head along it, to move it.': 'على بُعد {length} من أقرب ركن. انقر على حائط، أو اسحب الرأس على امتداده، لنقله.',
   // Where a wall's cut tiles go

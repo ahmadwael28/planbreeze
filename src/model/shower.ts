@@ -128,6 +128,23 @@ function inQuarter(sym: PlanSymbol, place: HeadPlace): HeadPlace {
   return out <= most ? place : { ...place, x: (x * most) / out, y: (y * most) / out }
 }
 
+/** How low a head from the ceiling may hang: its face this high off the floor at least (cm). */
+export const RAIN_LOWEST = 170
+
+/** How thick a head's face is (cm), under its arm. */
+export const HEAD_FACE = 1.6
+
+/**
+ * How far a shower's head from the ceiling hangs down from it (cm), on its arm to the top of its face, the ceiling over
+ * it `ceilingH` high: as it's been set, or as usual, its face just under the top of the glass. Between flush with the
+ * ceiling and its face RAIN_LOWEST off the floor.
+ */
+export function rainDrop(sym: Pick<PlanSymbol, 'headDrop' | 'height'>, ceilingH: number): number {
+  const most = Math.max(0, ceilingH - RAIN_LOWEST - HEAD_FACE)
+  const drop = sym.headDrop ?? ceilingH - (sym.height - 12 + HEAD_FACE)
+  return Math.round(Math.min(most, Math.max(0, drop)) * 10) / 10
+}
+
 /** The same in the shower's own frame, which its flips then mirror (see the 3D model and the plan symbol). */
 export function headInModel(sym: PlanSymbol, place: HeadPlace): HeadPlace {
   let { side, at } = place
