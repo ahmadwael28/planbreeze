@@ -478,11 +478,14 @@ export default {
   'Shower head': 'رأس الدش',
   'On a wall': 'على حائط',
   'From the ceiling': 'من السقف',
-  'A rain shower over the middle': 'دش مطري فوق المنتصف',
+  'A rain shower, over the shower where you put it': 'دش مطري، فوق الدش حيث تضعه',
   'Tap a wall of the shower to put the head there': 'انقر على حائط في الدش لوضع الرأس هناك',
-  'From the ceiling, over the middle.': 'من السقف، فوق المنتصف.',
-  'In the middle of its wall. Tap or drag along a wall to move it.': 'في منتصف حائطه. انقر أو اسحب على امتداد حائط لنقله.',
-  '{length} from the nearer corner. Tap or drag along a wall to move it.': 'على بُعد {length} من أقرب ركن. انقر أو اسحب على امتداد حائط لنقله.',
+  'Tap a spot in the shower to put the head there': 'انقر على موضع في الدش لوضع الرأس هناك',
+  'From the ceiling, over the middle. Tap a spot in the shower, or drag the head, to move it.': 'من السقف، فوق المنتصف. انقر على موضع في الدش، أو اسحب الرأس، لنقله.',
+  'From the ceiling, {across} and {along} in from the nearest sides. Tap a spot in the shower, or drag the head, to move it.':
+    'من السقف، على بُعد {across} و{along} من أقرب جانبين. انقر على موضع في الدش، أو اسحب الرأس، لنقله.',
+  'In the middle of its wall. Tap a wall, or drag the head along it, to move it.': 'في منتصف حائطه. انقر على حائط، أو اسحب الرأس على امتداده، لنقله.',
+  '{length} from the nearer corner. Tap a wall, or drag the head along it, to move it.': 'على بُعد {length} من أقرب ركن. انقر على حائط، أو اسحب الرأس على امتداده، لنقله.',
   // Where a wall's cut tiles go
   'Cut tiles at': 'البلاط المقصوص عند',
   'Left end': 'الطرف الأيسر',

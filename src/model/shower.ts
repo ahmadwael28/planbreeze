@@ -1,5 +1,6 @@
 /**
- * Where a shower's head is: on one of its walls, some way along it, or from the ceiling (a rain shower).
+ * Where a shower's head is: on one of its walls, some way along it, or from the ceiling (a rain shower), anywhere over
+ * the shower.
  */
 import { LEDGE_SHELF, ledgeHeight, partitionCrown, tankBoxDepth } from './symbols'
 import type { PlanSymbol } from './types'
@@ -65,6 +66,29 @@ export interface HeadPlace {
   side: ShowerSide | 'ceiling'
   /** How far along the side (0 … 1): left to right along the back or front, back to front along a side. */
   at: number
+  /** From the ceiling: where over the shower (0 … 1), left to right and back to front. Over the middle if left out. */
+  x?: number
+  y?: number
+}
+
+/**
+ * How far in from a shower's sides a head from the ceiling keeps its middle (cm), across and back to front: its face,
+ * a size bigger than on a wall, clear of them.
+ */
+function ceilingClear(sym: Pick<PlanSymbol, 'headShape'>): [number, number] {
+  if (sym.headShape === 'rectangle') return [25, 16]
+  if (sym.headShape === 'classic') return [8, 8]
+  return [17, 17]
+}
+
+/** A head from the ceiling where it's been put (over the middle if it hasn't), kept clear of the shower's sides. */
+function ceilingPlace(sym: PlanSymbol, x = 0.5, y = 0.5): HeadPlace {
+  const [cx, cy] = ceilingClear(sym)
+  const keep = (v: number, clear: number, len: number) => {
+    const m = Math.min(0.5, clear / Math.max(len, 1))
+    return Math.min(1 - m, Math.max(m, v))
+  }
+  return { side: 'ceiling', at: 0.5, x: keep(x, cx, sym.width), y: keep(y, cy, sym.depth) }
 }
 
 /**
@@ -73,22 +97,45 @@ export interface HeadPlace {
  */
 export function headPlace(sym: PlanSymbol, glass: ShowerSide[]): HeadPlace {
   const h = sym.showerHead
-  if (h?.side === 'ceiling') return { side: 'ceiling', at: 0.5 }
+  if (h?.side === 'ceiling') return ceilingPlace(sym, h.x, h.y)
   if (h && !glass.includes(h.side)) return { side: h.side, at: Math.min(1, Math.max(0, h.at ?? 0.5)) }
   const wall = ORDER.find((s) => !glass.includes(s))
-  return wall ? { side: wall, at: 0.5 } : { side: 'ceiling', at: 0.5 }
+  return wall ? { side: wall, at: 0.5 } : ceilingPlace(sym)
 }
 
-/** A shower's head as seen on the plan: a curved corner shower's sits near the corner unless it's been placed. */
+/**
+ * A shower's head as seen on the plan: a curved corner shower's sits near the corner unless it's been placed, and one
+ * from its ceiling stays inside its curve.
+ */
 export function headOf(sym: PlanSymbol, glass: ShowerSide[]): HeadPlace {
-  if (sym.type === 'shower-quadrant' && !sym.showerHead) return headInModel(sym, { side: 'back', at: 0.32 })
-  return headPlace(sym, glass)
+  if (sym.type !== 'shower-quadrant') return headPlace(sym, glass)
+  if (!sym.showerHead) return headInModel(sym, { side: 'back', at: 0.32 })
+  const place = headPlace(sym, glass)
+  return place.side === 'ceiling' ? headInModel(sym, inQuarter(sym, headInModel(sym, place))) : place
+}
+
+/**
+ * A head from the ceiling of a curved corner shower (in its own frame: the corner its walls meet in at the back on the
+ * left) kept inside the quarter round, clear of the glass.
+ */
+function inQuarter(sym: PlanSymbol, place: HeadPlace): HeadPlace {
+  const [cx, cy] = ceilingClear(sym)
+  const x = place.x ?? 0.5
+  const y = place.y ?? 0.5
+  // How far out from the corner, 1 at the glass.
+  const out = Math.hypot(x, y)
+  const most = Math.max(0, 1 - Math.max(cx / Math.max(sym.width, 1), cy / Math.max(sym.depth, 1)))
+  return out <= most ? place : { ...place, x: (x * most) / out, y: (y * most) / out }
 }
 
 /** The same in the shower's own frame, which its flips then mirror (see the 3D model and the plan symbol). */
 export function headInModel(sym: PlanSymbol, place: HeadPlace): HeadPlace {
   let { side, at } = place
-  if (side === 'ceiling') return place
+  if (side === 'ceiling') {
+    const x = place.x ?? 0.5
+    const y = place.y ?? 0.5
+    return { ...place, x: sym.flipX ? 1 - x : x, y: sym.flipY ? 1 - y : y }
+  }
   if (sym.flipX) {
     if (side === 'left' || side === 'right') side = side === 'left' ? 'right' : 'left'
     else at = 1 - at
@@ -102,7 +149,7 @@ export function headInModel(sym: PlanSymbol, place: HeadPlace): HeadPlace {
 
 /**
  * The head's spot on its wall, in a w × d shower's frame (x right, y toward the front, from its middle), kept clear
- * of the corners, and the way into the shower from there. The middle for a ceiling head.
+ * of the corners, and the way into the shower from there. For a head from the ceiling, its spot over the shower.
  */
 export function headPoint(place: HeadPlace, w: number, d: number, columns: ColumnBox[] = []): { x: number; y: number; nx: number; ny: number } {
   const clear = (len: number) => Math.min(0.5, 12 / Math.max(len, 1))
@@ -117,7 +164,7 @@ export function headPoint(place: HeadPlace, w: number, d: number, columns: Colum
           : place.side === 'right'
             ? { x: w / 2, y: along(d), nx: -1, ny: 0 }
             : null
-  if (!p) return { x: 0, y: 0, nx: 0, ny: 0 }
+  if (!p) return { x: ((place.x ?? 0.5) - 0.5) * w, y: ((place.y ?? 0.5) - 0.5) * d, nx: 0, ny: 0 }
   // Where a column stands on that wall, on the column's face (out from the wall as far as it is).
   for (const c of columns) {
     if (c.top !== undefined) continue

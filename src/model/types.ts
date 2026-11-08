@@ -293,9 +293,10 @@ export interface PlanSymbol {
   screens?: ('front' | 'back' | 'left' | 'right')[]
   /**
    * Showers: where the head is. On a wall side, `at` along it (0 … 1, left to right or back to front in the shower's
-   * own frame); or from the ceiling (a rain shower), in the middle. By default on the first wall, in its middle.
+   * own frame); or from the ceiling (a rain shower), `x` and `y` over it (0 … 1, left to right and back to front; over
+   * the middle if left out). By default on the first wall, in its middle.
    */
-  showerHead?: { side: 'front' | 'back' | 'left' | 'right' | 'ceiling'; at?: number }
+  showerHead?: { side: 'front' | 'back' | 'left' | 'right' | 'ceiling'; at?: number; x?: number; y?: number }
   /** Showers: the shape of their head (round if left out). */
   headShape?: 'square' | 'rectangle' | 'classic'
   /** Showers: body jets on the wall their mixer's on, in a column of three or two columns. */

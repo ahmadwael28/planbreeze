@@ -2467,7 +2467,7 @@ interface Fittings {
 
 /**
  * A shower's head where it's been put (see model/shower), in its shape: on an arm out from its wall with a mixer below,
- * or down from the ceiling (`ceilingH`) in the middle with the mixer on the first wall there is (`mixerAt`); and its
+ * or down from the ceiling (`ceilingH`) over its spot with the mixer on the first wall there is (`mixerAt`); and its
  * body jets and hand shower by the mixer.
  */
 function showerHead(
@@ -2817,9 +2817,8 @@ function quadrantShower(
       g.add(turning(panel, corner, s * (mid - end - 0.02)))
     }
   }
-  // Rain head where it's been put (from the ceiling: over the middle of the quarter), and a mixer on its wall.
-  const over = head.side === 'ceiling' ? { side: 'ceiling' as const, at: 0.5 } : head
-  showerHead(g, k, chrome, over, w, d, h, ceilingH, { side: 'back', at: 0.32 }, [], fittings)
+  // The head where it's been put (from the ceiling: inside the quarter, see headOf), and a mixer on its wall.
+  showerHead(g, k, chrome, head, w, d, h, ceilingH, { side: 'back', at: 0.32 }, [], fittings)
   return g
 }
 
