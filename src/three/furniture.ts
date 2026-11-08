@@ -14,6 +14,7 @@ import {
   cornerTrim,
   doorRun,
   doorsOf,
+  fittingPlace,
   fittingSpots,
   HALF_WALL_THICKNESS,
   HEAD_FACE,
@@ -2460,19 +2461,25 @@ function bathtub(k: Kit, w: number, d: number, h: number) {
   return g
 }
 
-/** A shower's head, how it's shaped, and the fittings on the wall its mixer's on (see model/shower). */
+/** How far along its wall from the mixer a hand shower's hose still comes from it (cm); farther, from an outlet of its own. */
+const HOSE_REACH = 60
+
+/** A shower's head, how it's shaped, and its body jets and hand shower (see model/shower). */
 interface Fittings {
   shape?: PlanSymbol['headShape']
   /** From the ceiling: how far it hangs down from it, to the top of its face (see rainDrop). */
   drop?: number
   jets?: PlanSymbol['jets']
   hand?: PlanSymbol['handShower']
+  /** Where the body jets and the hand shower have been put, in its own frame (see fittingPlace); else by the mixer. */
+  jetsAt?: HeadPlace
+  handAt?: HeadPlace
 }
 
 /**
  * A shower's head where it's been put (see model/shower), in its shape: on an arm out from its wall with a mixer below,
  * or down from the ceiling (`ceilingH`) over its spot with the mixer on the first wall there is (`mixerAt`); and its
- * body jets and hand shower by the mixer.
+ * body jets and hand shower, where they've been put or by the mixer.
  */
 function showerHead(
   g: THREE.Group,
@@ -2528,7 +2535,7 @@ function showerHead(
     mixer((base = p))
   }
   if (!base) return
-  const spots = fittingSpots({ jets: fit.jets, handShower: fit.hand }, base, w, d)
+  const spots = fittingSpots({ jets: fit.jets, handShower: fit.hand }, base, w, d, { jets: fit.jetsAt, hand: fit.handAt }, columns)
   // Body jets: round chrome plates on the wall, a dark nozzle in each.
   const dark = k.q('#2b2b2e', 'satin')
   for (const s of spots.jets) {
@@ -2537,7 +2544,8 @@ function showerHead(
       outward(cylinder(1.5, 1.2, 0, 0, 0, dark), s, s.x + s.nx * 0.8, y, s.y + s.ny * 0.8)
     }
   }
-  // A hand shower: on a slide rail (or a holder on the wall), its hose looping down from under the mixer.
+  // A hand shower: on a slide rail (or a holder on the wall), its hose looping down from under the mixer; or, away from
+  // it, from an outlet in the wall of its own beside the hand shower.
   const hand = spots.hand
   if (hand) {
     const at = (p: WallPoint, out: number, y: number) => new THREE.Vector3(p.x + p.nx * out, y, p.y + p.ny * out)
@@ -2560,10 +2568,20 @@ function showerHead(
     set.rotation.y = Math.atan2(hand.nx, hand.ny)
     set.rotateX(0.25)
     g.add(set)
-    // The hose, from under the mixer down in a loop and up to the handset's end.
-    const from = at(base, 4, 100)
+    // The hose, from under the mixer (or its outlet) down in a loop and up to the handset's end.
+    const along = (p: WallPoint) => (p.ny !== 0 ? p.x : p.y)
+    let from = at(base, 4, 100)
+    if (hand.nx !== base.nx || hand.ny !== base.ny || Math.abs(along(hand) - along(base)) > HOSE_REACH) {
+      // An elbow on a round plate, a hand's width toward the wall's middle.
+      const u = along(hand) + (along(hand) > 0 ? -12 : 12)
+      const o = hand.ny !== 0 ? { ...hand, x: u } : { ...hand, y: u }
+      const oy = rail ? 88 : 100
+      outward(cylinder(2.8, 0.8, 0, 0, 0, chrome), o, o.x + o.nx * 0.4, oy, o.y + o.ny * 0.4)
+      outward(cylinder(1.2, 3.4, 0, 0, 0, chrome, 1, 1.2, 12), o, o.x + o.nx * 2.2, oy, o.y + o.ny * 2.2)
+      from = at(o, 4, oy)
+    }
     const to = at(hand, out, hy - 3)
-    const curve = new THREE.CatmullRomCurve3([from, from.clone().lerp(to, 0.35).setY(62).add(new THREE.Vector3(base.nx * 6, 0, base.ny * 6)), to.clone().setY(70), to])
+    const curve = new THREE.CatmullRomCurve3([from, from.clone().lerp(to, 0.35).setY(62).add(new THREE.Vector3(hand.nx * 6, 0, hand.ny * 6)), to.clone().setY(70), to])
     g.add(mesh(new THREE.TubeGeometry(curve, 32, 0.7, 8), chrome))
   }
 }
@@ -3700,18 +3718,29 @@ export function symbolModel(
           hingeFar: sym.hingeFar,
           fixedAtEnd: sym.fixedAtEnd,
         },
-        { shape: sym.headShape, drop: rainDrop(sym, ceilingH), jets: sym.jets, hand: sym.handShower },
+        {
+          shape: sym.headShape,
+          drop: rainDrop(sym, ceilingH),
+          jets: sym.jets,
+          hand: sym.handShower,
+          jetsAt: fittingPlace(sym, sym.jetsAt, glass),
+          handAt: fittingPlace(sym, sym.handAt, glass),
+        },
       )
       break
     }
-    case 'shower-quadrant':
-      g = quadrantShower(k, w, d, h, k.glass(), sym.doors ?? 'sliding', headInModel(sym, headOf(sym, showerGlass(sym, () => []))), ceilingH, {
+    case 'shower-quadrant': {
+      const glass = showerGlass(sym, () => [])
+      g = quadrantShower(k, w, d, h, k.glass(), sym.doors ?? 'sliding', headInModel(sym, headOf(sym, glass)), ceilingH, {
         shape: sym.headShape,
         drop: rainDrop(sym, ceilingH),
         jets: sym.jets,
         hand: sym.handShower,
+        jetsAt: fittingPlace(sym, sym.jetsAt, glass),
+        handAt: fittingPlace(sym, sym.handAt, glass),
       })
       break
+    }
     case 'wall-post':
       g = wallPost(k, w, d, floorH)
       break

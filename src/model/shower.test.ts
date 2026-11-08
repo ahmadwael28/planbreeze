@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { headInModel, headOf, headPoint, rainDrop } from './shower'
+import { fittingSpots, headInModel, headOf, headPoint, rainDrop, showerFittings } from './shower'
 import type { PlanSymbol } from './types'
 
 /** A shower `w` × `d` cm, its head as given. */
@@ -58,5 +58,60 @@ describe('a rain shower’s head', () => {
 
   it('on a wall, is where it was', () => {
     expect(headOf(shower(100, 80, { showerHead: { side: 'back', at: 0.25 } }), ['front'])).toEqual({ side: 'back', at: 0.25 })
+  })
+})
+
+describe('a shower’s body jets and hand shower', () => {
+  // Where they are, in cm from the shower's middle (x right, y toward the front), its glass at the front.
+  const where = (sym: PlanSymbol) => {
+    const f = showerFittings(sym, ['front'])
+    return { jets: f.jets.map((p) => [p.x, p.y]), hand: f.hand && [f.hand.x, f.hand.y] }
+  }
+
+  it('are beside the mixer until they’re moved', () => {
+    // The head (and its mixer) in the middle of the back wall, 40 cm back: three jets 24 cm to its left, the hand shower
+    // 26 cm to its right; six jets either side of it, the hand shower past them.
+    expect(where(shower(100, 80, { jets: 3, handShower: 'rail' }))).toEqual({ jets: [[-24, -40]], hand: [26, -40] })
+    expect(where(shower(100, 80, { jets: 6, handShower: 'rail' }))).toEqual({ jets: [[-24, -40], [24, -40]], hand: [38, -40] })
+    // A rain shower's mixer is on its first wall, in the middle: they're beside it there.
+    expect(where(shower(100, 80, { jets: 3, handShower: 'holder', showerHead: { side: 'ceiling', x: 0.2, y: 0.7 } }))).toEqual({ jets: [[-24, -40]], hand: [26, -40] })
+  })
+
+  it('go on the wall they’re put on', () => {
+    // A quarter of the way along the left wall (80 cm): 20 cm back from its middle, on the wall 50 cm left.
+    expect(where(shower(100, 80, { jets: 3, jetsAt: { side: 'left', at: 0.25 } })).jets).toEqual([[-50, -20]])
+    // Six: 24 cm either side, kept 8 cm clear of the corners, so their middle no more than 8 cm from the wall's.
+    expect(where(shower(100, 80, { jets: 6, jetsAt: { side: 'left', at: 0.25 } })).jets).toEqual([[-50, -32], [-50, 16]])
+    expect(where(shower(100, 80, { handShower: 'rail', handAt: { side: 'right', at: 0.5 } })).hand).toEqual([50, 0])
+    // Each where it's put, the other by the mixer.
+    expect(where(shower(100, 80, { jets: 3, handShower: 'rail', handAt: { side: 'left', at: 0.5 } }))).toEqual({ jets: [[-24, -40]], hand: [-50, 0] })
+  })
+
+  it('stay by the mixer if put on a side that’s glass', () => {
+    expect(where(shower(100, 80, { jets: 3, jetsAt: { side: 'front', at: 0.25 } })).jets).toEqual([[-24, -40]])
+  })
+
+  it('are mirrored with the shower', () => {
+    // Put on the left wall of a shower that's flipped: on the plan they're on the left, in its own frame on the right.
+    expect(where(shower(100, 80, { flipX: true, jets: 3, jetsAt: { side: 'left', at: 0.25 } })).jets).toEqual([[50, -20]])
+  })
+
+  it('in a curved corner shower, go by its mixer near the corner, or on either of its walls', () => {
+    const q = (more: Partial<PlanSymbol>) => showerFittings(shower(90, 90, { type: 'shower-quadrant', jets: 3, handShower: 'holder', ...more }), ['front', 'right'])
+    // Its mixer on the back wall, a third of the way from the corner (16.2 cm left of the middle): the jets 24 cm further
+    // left, stopped 8 cm short of the corner; the hand shower 26 cm right of it.
+    const rain = q({ showerHead: { side: 'ceiling' } })
+    expect([rain.mixer?.x, rain.mixer?.y]).toEqual([-16.2, -45])
+    expect(rain.jets.map((p) => [p.x, p.y])).toEqual([[-37, -45]])
+    expect([rain.hand?.x, rain.hand?.y]).toEqual([expect.closeTo(9.8), -45])
+    expect(q({ jetsAt: { side: 'left', at: 0.5 } }).jets.map((p) => [p.x, p.y])).toEqual([[-45, 0]])
+  })
+
+  it('sit on the face of a column on the wall', () => {
+    // A column on the back wall from 10 to 40 cm right, its face 25 cm back: the hand shower on it, the jets on the wall.
+    const mixer = { x: 0, y: -40, nx: 0, ny: 1 }
+    const spots = fittingSpots({ jets: 3, handShower: 'rail' }, mixer, 100, 80, {}, [{ x0: 10, x1: 40, y0: -41.5, y1: -25 }])
+    expect(spots.jets.map((p) => [p.x, p.y])).toEqual([[-24, -40]])
+    expect([spots.hand?.x, spots.hand?.y]).toEqual([26, -25])
   })
 })

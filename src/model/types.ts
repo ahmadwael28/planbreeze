@@ -306,8 +306,15 @@ export interface PlanSymbol {
   headShape?: 'square' | 'rectangle' | 'classic'
   /** Showers: body jets on the wall their mixer's on, in a column of three or two columns. */
   jets?: 3 | 6
+  /**
+   * Showers: where their body jets have been put, on a wall side, `at` along it (as the head's, as seen on the plan):
+   * the column, or the middle of the two. Beside the mixer if left out (or on a side that's glass).
+   */
+  jetsAt?: { side: 'front' | 'back' | 'left' | 'right'; at: number }
   /** Showers: a hand shower on a hose, on a slide rail or a holder on the wall, beside the mixer. */
   handShower?: 'rail' | 'holder'
+  /** Showers: where their hand shower has been put, on a wall side (as jetsAt). Beside the mixer if left out. */
+  handAt?: { side: 'front' | 'back' | 'left' | 'right'; at: number }
   /** Toilets: hung on the wall with its tank concealed behind it, rather than standing on the floor with its own. */
   mount?: 'wall'
   /**

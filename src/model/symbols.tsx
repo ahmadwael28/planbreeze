@@ -6,14 +6,12 @@ import type { CeilingStyle, MirrorShape, PlanSymbol } from './types'
 import {
   doorRun,
   doorsOf,
-  fittingSpots,
   HALF_WALL_THICKNESS,
   headInModel,
   headOf,
   headPoint,
-  mixerPlace,
   ownWalls,
-  seen,
+  showerFittings,
   showerGlass,
   slideOverlap,
   stretchBox,
@@ -698,15 +696,14 @@ function showerHeadMark(sym: PlanSymbol | undefined, w: number, d: number, t: Pl
   const place = sym ? headInModel(sym, headOf(sym, glass)) : { side: 'back' as const, at: 0.5 }
   const p = headPoint(place, w, d, sym?.type === 'shower' ? columns : [])
   const stroke = { stroke: t.ink, vectorEffect: 'non-scaling-stroke', fill: 'none' } as const
+  // Its body jets and hand shower: where they've been put, or by its mixer (see model/shower).
+  const fittings = sym && showerFittingMarks(showerFittings(sym, glass, sym.type === 'shower' ? columns : []), t)
   if (place.side === 'ceiling') {
-    // Its fittings on its mixer's wall: the first wall there is (a curved corner shower's back).
-    const own = sym ? glass.map((s) => seen(sym, s)) : []
-    const at = sym?.type === 'shower-quadrant' ? { side: 'back' as const, at: 0.32 } : mixerPlace(place, own)
     return (
       <g data-shower-head="">
         {headFace(sym, p, true, true, { ...stroke, strokeWidth: 1, strokeDasharray: '3 2' })}
         <circle cx={p.x} cy={p.y} r={2.5} fill={t.ink} />
-        {sym && at && at.side !== 'ceiling' && showerFittingMarks(sym, headPoint(at, w, d, sym.type === 'shower' ? columns : []), w, d, t)}
+        {fittings}
       </g>
     )
   }
@@ -716,7 +713,7 @@ function showerHeadMark(sym: PlanSymbol | undefined, w: number, d: number, t: Pl
       <line x1={p.x} y1={p.y} x2={tip.x} y2={tip.y} {...stroke} strokeWidth={1.4} />
       {headFace(sym, tip, false, p.ny !== 0, { ...stroke, strokeWidth: 1.2, fill: t.fill })}
       <circle cx={tip.x} cy={tip.y} r={2} fill={t.ink} />
-      {sym && showerFittingMarks(sym, p, w, d, t)}
+      {fittings}
     </g>
   )
 }
@@ -730,9 +727,8 @@ function headFace(sym: PlanSymbol | undefined, c: { x: number; y: number }, big:
   return <circle cx={c.x} cy={c.y} r={(sym?.headShape === 'classic' ? 4.5 : 7) * s} {...(style as SVGProps<SVGCircleElement>)} />
 }
 
-/** A shower's body jets (dots) and hand shower (its holder and handset) on the wall its mixer's on, at `mixer`. */
-function showerFittingMarks(sym: PlanSymbol, mixer: WallPoint, w: number, d: number, t: PlanTheme) {
-  const spots = fittingSpots(sym, mixer, w, d)
+/** A shower's body jets (dots) and hand shower (its holder and handset) on its walls (see showerFittings). */
+function showerFittingMarks(spots: { jets: WallPoint[]; hand?: WallPoint }, t: PlanTheme) {
   const hand = spots.hand
   return (
     <>

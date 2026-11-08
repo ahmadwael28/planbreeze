@@ -47,19 +47,84 @@ export interface WallPoint {
 /** How high a shower's body jets are, up its wall (cm). */
 export const JET_HEIGHTS = [60, 90, 120]
 
+/** How far a shower's two columns of body jets are from their middle (cm), either side of it. */
+const JET_SPREAD = 24
+
 /**
- * A shower's body jets and hand shower, on the wall its mixer's on (`mixer`, in a w × d shower's frame): the jets in a
- * column beside it (two columns either side, six of them), the hand shower past them; kept clear of the corners.
+ * A shower's body jets and hand shower, in a w × d shower's own frame: where they've been put on its walls (`placed`,
+ * see fittingPlace), or else on the wall its mixer's on (`mixer`), the jets in a column beside it (two columns either
+ * side, six of them), the hand shower past them. Kept clear of the corners, and on the face of a column standing on
+ * the wall there (`columns`).
  */
-export function fittingSpots(sym: Pick<PlanSymbol, 'jets' | 'handShower'>, mixer: WallPoint, w: number, d: number) {
-  const alongX = mixer.ny !== 0
-  const half = (alongX ? w : d) / 2 - 8
-  const at = (off: number): WallPoint => {
-    const v = Math.max(-half, Math.min(half, (alongX ? mixer.x : mixer.y) + off))
-    return alongX ? { ...mixer, x: v } : { ...mixer, y: v }
+export function fittingSpots(
+  sym: Pick<PlanSymbol, 'jets' | 'handShower'>,
+  mixer: WallPoint | undefined,
+  w: number,
+  d: number,
+  placed: { jets?: HeadPlace; hand?: HeadPlace } = {},
+  columns: ColumnBox[] = [],
+): { jets: WallPoint[]; hand?: WallPoint } {
+  // How far along its wall a point is, from the wall's middle; and how far it can be, clear of the wall's corners.
+  const along = (p: WallPoint) => (p.ny !== 0 ? p.x : p.y)
+  const reach = (p: WallPoint) => Math.max(0, (p.ny !== 0 ? w : d) / 2 - 8)
+  // On the same wall as p, v along it: on the wall, or on the face of a column there.
+  const on = (p: WallPoint, v: number): WallPoint => {
+    const u = Math.max(-reach(p), Math.min(reach(p), v))
+    return onColumns(p.ny !== 0 ? { ...p, x: u, y: p.ny > 0 ? -d / 2 : d / 2 } : { ...p, y: u, x: p.nx > 0 ? -w / 2 : w / 2 }, columns)
   }
-  const columns = sym.jets === 6 ? [-24, 24] : sym.jets === 3 ? [-24] : []
-  return { jets: columns.map(at), hand: sym.handShower ? at(sym.jets === 6 ? 38 : 26) : undefined }
+  const n = sym.jets === 6 ? 2 : sym.jets === 3 ? 1 : 0
+  let jets: WallPoint[] = []
+  if (n && placed.jets) {
+    // Where they've been put: the column there, or the two either side of it, both on the wall.
+    const c = headPoint(placed.jets, w, d)
+    const s = n === 2 ? Math.min(JET_SPREAD, reach(c)) : 0
+    const mid = Math.max(-reach(c) + s, Math.min(reach(c) - s, along(c)))
+    jets = (n === 2 ? [mid - s, mid + s] : [mid]).map((v) => on(c, v))
+  } else if (n && mixer) jets = (n === 2 ? [-JET_SPREAD, JET_SPREAD] : [-JET_SPREAD]).map((o) => on(mixer, along(mixer) + o))
+  let hand: WallPoint | undefined
+  if (sym.handShower && placed.hand) {
+    const c = headPoint(placed.hand, w, d)
+    hand = on(c, along(c))
+  } else if (sym.handShower && mixer) hand = on(mixer, along(mixer) + (n === 2 ? 38 : 26))
+  return { jets, hand }
+}
+
+/** A spot on one of a shower's walls, as seen on the plan (as its head's): `at` along it, 0 … 1. */
+export interface WallPlace {
+  side: ShowerSide
+  at: number
+}
+
+/**
+ * Where a shower's body jets or hand shower have been put (`placed`, as seen on the plan), in its own frame: if that's
+ * on one of its walls (`glass`: its glass sides as seen on the plan). Else nowhere, and they go beside the mixer.
+ */
+export function fittingPlace(sym: PlanSymbol, placed: WallPlace | undefined, glass: ShowerSide[]): HeadPlace | undefined {
+  if (!placed || glass.includes(placed.side)) return undefined
+  return headInModel(sym, { side: placed.side, at: Math.min(1, Math.max(0, placed.at)) })
+}
+
+/**
+ * Where a shower's mixer is, in its own frame (`glass`: its glass sides as seen on the plan): under its head; with its
+ * head from the ceiling, on its first wall in the middle (a curved corner shower's on its back, near the corner). None
+ * with glass all round.
+ */
+export function mixerOf(sym: PlanSymbol, glass: ShowerSide[]): HeadPlace | undefined {
+  const head = headInModel(sym, headOf(sym, glass))
+  if (head.side !== 'ceiling') return head
+  if (sym.type === 'shower-quadrant') return { side: 'back', at: 0.32 }
+  return mixerPlace(
+    head,
+    glass.map((s) => seen(sym, s)),
+  )
+}
+
+/** A shower's mixer, body jets and hand shower, in its own frame (see mixerOf and fittingSpots); `columns` on its walls. */
+export function showerFittings(sym: PlanSymbol, glass: ShowerSide[], columns: ColumnBox[] = []): { mixer?: WallPoint; jets: WallPoint[]; hand?: WallPoint } {
+  const at = mixerOf(sym, glass)
+  const mixer = at && headPoint(at, sym.width, sym.depth, columns)
+  const placed = { jets: fittingPlace(sym, sym.jetsAt, glass), hand: fittingPlace(sym, sym.handAt, glass) }
+  return { mixer, ...fittingSpots(sym, mixer, sym.width, sym.depth, placed, columns) }
 }
 
 export interface HeadPlace {
@@ -182,7 +247,12 @@ export function headPoint(place: HeadPlace, w: number, d: number, columns: Colum
             ? { x: w / 2, y: along(d), nx: -1, ny: 0 }
             : null
   if (!p) return { x: ((place.x ?? 0.5) - 0.5) * w, y: ((place.y ?? 0.5) - 0.5) * d, nx: 0, ny: 0 }
-  // Where a column stands on that wall, on the column's face (out from the wall as far as it is).
+  return onColumns(p, columns)
+}
+
+/** A point on a shower's wall, where a column stands on that wall: on the column's face (out from the wall as far as it is). */
+function onColumns(point: WallPoint, columns: ColumnBox[]): WallPoint {
+  const p = { ...point }
   for (const c of columns) {
     if (c.top !== undefined) continue
     if (p.x < c.x0 || p.x > c.x1 || p.y < c.y0 || p.y > c.y1) continue
