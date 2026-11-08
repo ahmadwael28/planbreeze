@@ -31,7 +31,8 @@ export function ConflictDialog() {
   if (!conflict) return null
   return (
     <AlertDialog open>
-      <AlertDialogContent>
+      {/* Wide enough for both choices side by side (they go one over the other where they aren't). */}
+      <AlertDialogContent className="data-[size=default]:sm:max-w-lg">
         <AlertDialogHeader>
           <AlertDialogTitle>{t('This plan was changed on another device')}</AlertDialogTitle>
           <AlertDialogDescription>
