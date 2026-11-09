@@ -18,7 +18,7 @@ import { sampleProject } from '@/model/sample'
 import type { Project, ProjectAccess } from '@/model/types'
 import { useEditor } from '@/store/editor'
 import { clearPlans, deleteProject, isGone, listProjects, loadProject, saveProject, storeProject } from '@/store/storage'
-import { authProblem } from './auth-errors'
+import { authMessage, authProblem } from './auth-errors'
 import { AlreadyExistsError, memoryBackend, memorySharing, sharingBackend, supabaseBackend } from './backend'
 import type { CloudBackend, CloudMeta, CloudRow, SharedPlan, SharingBackend } from './backend'
 import { cloudConfig, useCloud } from './store'
@@ -27,6 +27,8 @@ import type { CloudUser } from './store'
 export type OAuthProvider = 'google' | 'github'
 
 let supabase: SupabaseClient | null = null
+/** Supabase's sign-in for what's emailed: see linkAuth. */
+let links: SupabaseClient | null = null
 let backend: CloudBackend | null = null
 let sharing: SharingBackend | null = null
 const me = () => useCloud.getState().user?.id
@@ -299,6 +301,16 @@ function auth() {
   return supabase.auth
 }
 
+/**
+ * Supabase's sign-in for links it emails (to sign in, to confirm a new account, to reset a password): links that carry
+ * the sign-in in them, so they work in whatever browser they're opened in, on any device (see takeLinkSignIn). Not the
+ * PKCE way the rest signs in, whose links only work in the browser that asked for them. It keeps no session itself.
+ */
+function linkAuth() {
+  if (!links) throw new Error(t('Cloud sign-in is not configured.'))
+  return links.auth
+}
+
 export async function signInWithProvider(provider: OAuthProvider) {
   const a = auth()
   sessionStorage.setItem(JUST_SIGNED_IN, '1')
@@ -309,11 +321,9 @@ export async function signInWithProvider(provider: OAuthProvider) {
   }
 }
 
-/** Email a link that signs in (making an account if there isn't one), opened in this browser. */
+/** Email a link that signs in (making an account if there isn't one), wherever it's opened. */
 export async function signInWithEmail(email: string) {
-  const a = auth()
-  sessionStorage.setItem(JUST_SIGNED_IN, '1')
-  const { error } = await a.signInWithOtp({ email, options: { emailRedirectTo: redirectUrl() } })
+  const { error } = await linkAuth().signInWithOtp({ email, options: { emailRedirectTo: redirectUrl() } })
   if (error) throw authProblem(error)
 }
 
@@ -334,34 +344,69 @@ export async function signInWithPassword(email: string, password: string) {
  * and says so only by a user with no ways in).
  */
 export async function signUpWithPassword(email: string, password: string): Promise<'signed-in' | 'confirm' | 'exists'> {
-  const a = auth()
-  sessionStorage.setItem(JUST_SIGNED_IN, '1')
-  const { data, error } = await a.signUp({ email, password, options: { emailRedirectTo: redirectUrl() } })
-  if (error) {
-    sessionStorage.removeItem(JUST_SIGNED_IN)
-    throw authProblem(error)
+  // Made where its link to confirm the email works anywhere; signed in here if there's no confirming to do.
+  const { data, error } = await linkAuth().signUp({ email, password, options: { emailRedirectTo: redirectUrl() } })
+  if (error) throw authProblem(error)
+  if (data.session) {
+    sessionStorage.setItem(JUST_SIGNED_IN, '1')
+    const { error: kept } = await auth().setSession(data.session)
+    if (kept) {
+      sessionStorage.removeItem(JUST_SIGNED_IN)
+      throw authProblem(kept)
+    }
+    return 'signed-in'
   }
-  if (data.session) return 'signed-in'
-  if (data.user && data.user.identities?.length === 0) {
-    sessionStorage.removeItem(JUST_SIGNED_IN)
-    return 'exists'
-  }
+  if (data.user && data.user.identities?.length === 0) return 'exists'
   return 'confirm'
 }
 
 /** Send the link that confirms a new account's email again. */
 export async function resendConfirmation(email: string) {
-  const { error } = await auth().resend({ type: 'signup', email, options: { emailRedirectTo: redirectUrl() } })
+  const { error } = await linkAuth().resend({ type: 'signup', email, options: { emailRedirectTo: redirectUrl() } })
   if (error) throw authProblem(error)
 }
 
 /**
- * Email a link to choose a new password (if there's an account with that email: Supabase doesn't say). Opened in this
- * browser, it signs in and asks for the new password (see initCloud).
+ * Email a link to choose a new password (if there's an account with that email: Supabase doesn't say). Wherever it's
+ * opened, it signs in there and asks for the new password (see takeLinkSignIn).
  */
 export async function sendPasswordReset(email: string) {
-  const { error } = await auth().resetPasswordForEmail(email, { redirectTo: redirectUrl() })
+  const { error } = await linkAuth().resetPasswordForEmail(email, { redirectTo: redirectUrl() })
   if (error) throw authProblem(error)
+}
+
+/**
+ * Back from a link Supabase emailed (see linkAuth): signed in with what's in it (#access_token=…&refresh_token=…&type=…),
+ * and from a link to reset the password, asked for the new one. Or, if it couldn't (#error=…&error_code=…), why not.
+ */
+async function takeLinkSignIn(hash: URLSearchParams) {
+  const access = hash.get('access_token')
+  const refresh = hash.get('refresh_token')
+  if (access && refresh) {
+    const recovery = hash.get('type') === 'recovery'
+    // Welcomed once signed in (see onSession); not when it's only to choose a new password.
+    if (!recovery) sessionStorage.setItem(JUST_SIGNED_IN, '1')
+    const { error } = await auth().setSession({ access_token: access, refresh_token: refresh })
+    if (!error) {
+      if (recovery) set({ passwordOpen: 'recovery' })
+      return
+    }
+    sessionStorage.removeItem(JUST_SIGNED_IN)
+    const why = t("That link didn't sign you in: {error}", { error: authMessage(error) })
+    return refused(why, why)
+  }
+  if (hash.get('error_code') === 'otp_expired') {
+    return refused(t('That link has expired, or has been used already. Ask for a new one here.'), t('That link has expired, or has been used already.'))
+  }
+  const why = t("That link didn't sign you in: {error}", { error: hash.get('error_description') || hash.get('error') || '' })
+  return refused(why, why)
+}
+
+/** Why a link didn't sign in: with the way to sign in (and to ask for another link); or, already signed in here, just why. */
+async function refused(signedOut: string, signedIn: string) {
+  const { data } = await auth().getSession()
+  if (data.session) toast.error(signedIn)
+  else useCloud.getState().openSignIn(true, signedOut)
 }
 
 /** Give the signed-in account a new password (or a first one). */
@@ -520,7 +565,17 @@ export async function initCloud() {
   if (!cloudConfig) return
   const { createClient } = await import('@supabase/supabase-js')
   supabase = createClient(cloudConfig.url, cloudConfig.key, {
-    auth: { flowType: 'pkce', detectSessionInUrl: true, persistSession: true, autoRefreshToken: true },
+    auth: {
+      flowType: 'pkce',
+      // Back from Google or GitHub (?code=…): signed in by it. What an emailed link brings in its #… is taken here
+      // instead (see takeLinkSignIn).
+      detectSessionInUrl: () => false,
+      persistSession: true,
+      autoRefreshToken: true,
+    },
+  })
+  links = createClient(cloudConfig.url, cloudConfig.key, {
+    auth: { flowType: 'implicit', detectSessionInUrl: false, persistSession: false, autoRefreshToken: false, storageKey: 'planbreeze-email-links' },
   })
   backend = supabaseBackend(supabase, me)
   sharing = sharingBackend(supabase, me)
@@ -556,8 +611,16 @@ export async function initCloud() {
     setTimeout(() => void onSession(session), 0)
   })
 
-  // Back from an emailed link with a code that couldn't sign in here: it only works in the browser it was asked for in
-  // (and once). Confirming a new account's email is done all the same, so its password signs in.
+  // Back from a link Supabase emailed: signed in with it, the sign-in taken out of the address first.
+  const hash = new URLSearchParams(window.location.hash.slice(1))
+  if (hash.has('access_token') || hash.has('error') || hash.has('error_code')) {
+    window.history.replaceState(window.history.state, '', window.location.pathname + window.location.search)
+    await takeLinkSignIn(hash)
+  }
+
+  // Back from an emailed link with a code that couldn't sign in here (one sent before they worked anywhere): it only
+  // works in the browser it was asked for in, and once. Confirming a new account's email is done all the same, so its
+  // password signs in.
   if (url.searchParams.has('code')) {
     const { data } = await supabase.auth.getSession()
     const now = new URL(window.location.href)

@@ -196,10 +196,10 @@ function SignInBody({ note }: { note: string | null }) {
         <p className="text-sm text-muted-foreground">
           {withEmail(
             sent.kind === 'link'
-              ? t('We sent a sign-in link to {email}. Open it in this browser to finish signing in.')
+              ? t("We sent a sign-in link to {email}. You're signed in wherever you open it.")
               : sent.kind === 'confirm'
                 ? t("We sent a link to {email}. Open it to confirm it's yours, and you're signed in.")
-                : t("If there's an account for {email}, we sent it a link to choose a new password. Open it in this browser."),
+                : t("If there's an account for {email}, we sent it a link to choose a new password. Open it on any device."),
             sent.email,
           )}
         </p>

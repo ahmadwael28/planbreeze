@@ -697,8 +697,11 @@ export default {
   "There's already an account with {email}. Sign in with its password, or reset it if you've forgotten it.":
     'يوجد حساب بالفعل بالبريد {email}. سجّل الدخول بكلمة مروره، أو أعد تعيينها إن نسيتها.',
   "We sent a link to {email}. Open it to confirm it's yours, and you're signed in.": 'أرسلنا رابطًا إلى {email}. افتحه لتأكيد أنه بريدك، وسيتم تسجيل دخولك.',
-  "If there's an account for {email}, we sent it a link to choose a new password. Open it in this browser.":
-    'إن كان هناك حساب بالبريد {email}، فقد أرسلنا إليه رابطًا لاختيار كلمة مرور جديدة. افتحه في هذا المتصفح.',
+  "If there's an account for {email}, we sent it a link to choose a new password. Open it on any device.":
+    'إن كان هناك حساب بالبريد {email}، فقد أرسلنا إليه رابطًا لاختيار كلمة مرور جديدة. افتحه على أي جهاز.',
+  "That link didn't sign you in: {error}": 'لم يُسجّل هذا الرابط دخولك: {error}',
+  'That link has expired, or has been used already. Ask for a new one here.': 'انتهت صلاحية هذا الرابط، أو استُخدم من قبل. اطلب رابطًا جديدًا هنا.',
+  'That link has expired, or has been used already.': 'انتهت صلاحية هذا الرابط، أو استُخدم من قبل.',
   'Nothing there? Check your spam folder, or': 'لم يصلك شيء؟ تحقّق من مجلد الرسائل غير المرغوب فيها، أو',
   'send it again': 'أعد إرساله',
   'Send the link again': 'أعد إرسال الرابط',
@@ -735,7 +738,7 @@ export default {
   'You were signed out. Sign in again, then try once more.': 'تم تسجيل خروجك. سجّل الدخول مرة أخرى، ثم حاول مجددًا.',
   "Couldn't reach the server. Check your connection, then try again.": 'تعذّر الوصول إلى الخادم. تحقّق من اتصالك، ثم حاول مرة أخرى.',
   'Something went wrong. Try again.': 'حدث خطأ ما. حاول مرة أخرى.',
-  'We sent a sign-in link to {email}. Open it in this browser to finish signing in.': 'أرسلنا رابط تسجيل الدخول إلى {email}. افتحه في هذا المتصفح لإكمال تسجيل الدخول.',
+  "We sent a sign-in link to {email}. You're signed in wherever you open it.": 'أرسلنا رابط تسجيل الدخول إلى {email}. سيتم تسجيل دخولك أينما فتحته.',
   'the doorway between them is wider than “Close doorways up to”. Raise it.': 'المدخل بينهما أعرض من «إغلاق فتحات الأبواب حتى». ارفع هذه القيمة.',
   'it leaks to the outside through a gap, often a window drawn without lines. Raise “Close doorways up to”, or the line sensitivity if the walls are pale.': 'تتسرّب إلى الخارج عبر فجوة، غالبًا نافذة مرسومة بلا خطوط. ارفع «إغلاق فتحات الأبواب حتى»، أو حساسية الخطوط إذا كانت الحوائط باهتة.',
   'choose Printed plan under Drawing type, so only thick walls count.': 'اختر «مخطط مطبوع» في نوع الرسم، لتُحتسب الحوائط السميكة فقط.',
