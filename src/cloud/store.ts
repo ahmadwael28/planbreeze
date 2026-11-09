@@ -39,6 +39,9 @@ interface CloudState {
   /** Why the sign-in dialog was opened, if not by the user (e.g. a shared plan's link). */
   signInNote: string | null
   openSignIn: (open: boolean, note?: string) => void
+  /** Choosing a new password: back from a link to reset it, or changing it (or setting one) from the account menu. */
+  passwordOpen: false | 'recovery' | 'change'
+  openPassword: (open: false | 'recovery' | 'change') => void
 }
 
 export const useCloud = create<CloudState>((set) => ({
@@ -52,4 +55,6 @@ export const useCloud = create<CloudState>((set) => ({
   signInOpen: false,
   signInNote: null,
   openSignIn: (signInOpen, note) => set({ signInOpen, signInNote: signInOpen ? (note ?? null) : null }),
+  passwordOpen: false,
+  openPassword: (passwordOpen) => set({ passwordOpen }),
 }))

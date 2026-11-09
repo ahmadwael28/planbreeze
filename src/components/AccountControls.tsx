@@ -1,6 +1,6 @@
 import { t } from '@/i18n'
 import { useEffect, useState } from 'react'
-import { CloudAlert, CloudCheck, CloudOff, HardDrive, LogIn, LogOut, RefreshCw, TriangleAlert } from 'lucide-react'
+import { CloudAlert, CloudCheck, CloudOff, HardDrive, KeyRound, LogIn, LogOut, RefreshCw, TriangleAlert } from 'lucide-react'
 import type { ComponentType } from 'react'
 import { Loader } from '@/components/ui/loader'
 import { Button } from '@/components/ui/button'
@@ -138,6 +138,7 @@ export function AccountMenuItems({ before }: { before?: ReactNode }) {
   const ready = useCloud((s) => s.ready)
   const user = useCloud((s) => s.user)
   const openSignIn = useCloud((s) => s.openSignIn)
+  const openPassword = useCloud((s) => s.openPassword)
   if (!configured) return null
   if (!user) {
     return (
@@ -158,7 +159,7 @@ export function AccountMenuItems({ before }: { before?: ReactNode }) {
           {user.email && user.email !== name && <div className="truncate text-xs text-muted-foreground">{user.email}</div>}
           {user.provider && (
             <div className="text-xs text-muted-foreground">
-              {t('Signed in with {how}', { how: ({ github: 'GitHub', google: 'Google', email: t('an email link') } as Record<string, string>)[user.provider] ?? user.provider })}
+              {t('Signed in with {how}', { how: ({ github: 'GitHub', google: 'Google', email: t('email') } as Record<string, string>)[user.provider] ?? user.provider })}
             </div>
           )}
         </DropdownMenuLabel>
@@ -166,6 +167,11 @@ export function AccountMenuItems({ before }: { before?: ReactNode }) {
         <DropdownMenuItem onSelect={() => void reconcile()}>
           <RefreshCw /> {t('Sync now')}
         </DropdownMenuItem>
+        {user.email && (
+          <DropdownMenuItem onSelect={() => openPassword('change')}>
+            <KeyRound /> {user.provider === 'email' ? t('Change password') : t('Set a password')}
+          </DropdownMenuItem>
+        )}
         <DropdownMenuSeparator />
         <DropdownMenuItem onSelect={() => void signOut(false)}>
           <LogOut /> {t('Sign out')}

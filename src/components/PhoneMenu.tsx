@@ -12,6 +12,7 @@ import {
   FileJson,
   FileUp,
   ImageIcon,
+  KeyRound,
   Languages,
   LogIn,
   LogOut,
@@ -183,6 +184,7 @@ export function PhoneMenu() {
   const ready = useCloud((s) => s.ready)
   const user = useCloud((s) => s.user)
   const openSignIn = useCloud((s) => s.openSignIn)
+  const openPassword = useCloud((s) => s.openPassword)
   const lang = useLang()
   const { theme, setTheme } = useTheme()
   const fileRef = useRef<HTMLInputElement>(null)
@@ -335,6 +337,14 @@ export function PhoneMenu() {
               </Group>
               <Group>
                 <Row icon={RefreshCw} tint="bg-sky-500" label={t('Sync now')} onClick={act(() => void reconcile())} />
+                {user.email && (
+                  <Row
+                    icon={KeyRound}
+                    tint="bg-amber-500"
+                    label={user.provider === 'email' ? t('Change password') : t('Set a password')}
+                    onClick={act(() => openPassword('change'))}
+                  />
+                )}
               </Group>
               <Group>
                 <Row label={t('Sign out')} icon={LogOut} tint="bg-slate-500" onClick={act(() => void signOut(false))} />

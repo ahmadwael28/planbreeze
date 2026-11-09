@@ -18,6 +18,7 @@ import { sampleProject } from '@/model/sample'
 import type { Project, ProjectAccess } from '@/model/types'
 import { useEditor } from '@/store/editor'
 import { clearPlans, deleteProject, isGone, listProjects, loadProject, saveProject, storeProject } from '@/store/storage'
+import { authProblem } from './auth-errors'
 import { AlreadyExistsError, memoryBackend, memorySharing, sharingBackend, supabaseBackend } from './backend'
 import type { CloudBackend, CloudMeta, CloudRow, SharedPlan, SharingBackend } from './backend'
 import { cloudConfig, useCloud } from './store'
@@ -252,7 +253,7 @@ async function onSession(session: Session | null) {
     set({ ready: true })
   } else if (!user) {
     synced = {}
-    set({ user: null, ready: true, saveState: 'local', conflict: null, error: null, lastSaved: null })
+    set({ user: null, ready: true, saveState: 'local', conflict: null, error: null, lastSaved: null, passwordOpen: false })
   } else {
     loadSynced(user.id)
     set({ user, ready: true, saveState: 'saving', signInOpen: false, signInNote: null })
@@ -292,21 +293,81 @@ function redirectUrl() {
   return window.location.origin + window.location.pathname
 }
 
-export async function signInWithProvider(provider: OAuthProvider) {
+/** Supabase's sign-in, if this copy of the app has an account server. */
+function auth() {
   if (!supabase) throw new Error(t('Cloud sign-in is not configured.'))
+  return supabase.auth
+}
+
+export async function signInWithProvider(provider: OAuthProvider) {
+  const a = auth()
   sessionStorage.setItem(JUST_SIGNED_IN, '1')
-  const { error } = await supabase.auth.signInWithOAuth({ provider, options: { redirectTo: redirectUrl() } })
+  const { error } = await a.signInWithOAuth({ provider, options: { redirectTo: redirectUrl() } })
   if (error) {
     sessionStorage.removeItem(JUST_SIGNED_IN)
-    throw new Error(error.message)
+    throw authProblem(error)
   }
 }
 
+/** Email a link that signs in (making an account if there isn't one), opened in this browser. */
 export async function signInWithEmail(email: string) {
-  if (!supabase) throw new Error(t('Cloud sign-in is not configured.'))
+  const a = auth()
   sessionStorage.setItem(JUST_SIGNED_IN, '1')
-  const { error } = await supabase.auth.signInWithOtp({ email, options: { emailRedirectTo: redirectUrl() } })
-  if (error) throw new Error(error.message)
+  const { error } = await a.signInWithOtp({ email, options: { emailRedirectTo: redirectUrl() } })
+  if (error) throw authProblem(error)
+}
+
+/** Sign in with an email and password (signed in once it resolves: see onSession). */
+export async function signInWithPassword(email: string, password: string) {
+  const a = auth()
+  sessionStorage.setItem(JUST_SIGNED_IN, '1')
+  const { error } = await a.signInWithPassword({ email, password })
+  if (error) {
+    sessionStorage.removeItem(JUST_SIGNED_IN)
+    throw authProblem(error)
+  }
+}
+
+/**
+ * Make an account with an email and password. Signed in straight away, unless the email has to be confirmed first
+ * (a link sent to it: `confirm`); `exists` if there's an account with that email already (Supabase then sends nothing,
+ * and says so only by a user with no ways in).
+ */
+export async function signUpWithPassword(email: string, password: string): Promise<'signed-in' | 'confirm' | 'exists'> {
+  const a = auth()
+  sessionStorage.setItem(JUST_SIGNED_IN, '1')
+  const { data, error } = await a.signUp({ email, password, options: { emailRedirectTo: redirectUrl() } })
+  if (error) {
+    sessionStorage.removeItem(JUST_SIGNED_IN)
+    throw authProblem(error)
+  }
+  if (data.session) return 'signed-in'
+  if (data.user && data.user.identities?.length === 0) {
+    sessionStorage.removeItem(JUST_SIGNED_IN)
+    return 'exists'
+  }
+  return 'confirm'
+}
+
+/** Send the link that confirms a new account's email again. */
+export async function resendConfirmation(email: string) {
+  const { error } = await auth().resend({ type: 'signup', email, options: { emailRedirectTo: redirectUrl() } })
+  if (error) throw authProblem(error)
+}
+
+/**
+ * Email a link to choose a new password (if there's an account with that email: Supabase doesn't say). Opened in this
+ * browser, it signs in and asks for the new password (see initCloud).
+ */
+export async function sendPasswordReset(email: string) {
+  const { error } = await auth().resetPasswordForEmail(email, { redirectTo: redirectUrl() })
+  if (error) throw authProblem(error)
+}
+
+/** Give the signed-in account a new password (or a first one). */
+export async function setNewPassword(password: string) {
+  const { error } = await auth().updateUser({ password })
+  if (error) throw authProblem(error)
 }
 
 /**
@@ -488,10 +549,26 @@ export async function initCloud() {
     window.history.replaceState(window.history.state, '', url.toString())
   }
 
-  // Supabase recommends not calling its API inside this callback, so defer the work.
-  supabase.auth.onAuthStateChange((_event, session) => {
+  // Supabase recommends not calling its API inside this callback, so defer the work. Back from a link to reset the
+  // password: signed in, and asked for the new one.
+  supabase.auth.onAuthStateChange((event, session) => {
+    if (event === 'PASSWORD_RECOVERY') set({ passwordOpen: 'recovery' })
     setTimeout(() => void onSession(session), 0)
   })
+
+  // Back from an emailed link with a code that couldn't sign in here: it only works in the browser it was asked for in
+  // (and once). Confirming a new account's email is done all the same, so its password signs in.
+  if (url.searchParams.has('code')) {
+    const { data } = await supabase.auth.getSession()
+    const now = new URL(window.location.href)
+    if (!data.session && now.searchParams.has('code')) {
+      now.searchParams.delete('code')
+      window.history.replaceState(window.history.state, '', now.toString())
+      useCloud
+        .getState()
+        .openSignIn(true, t("That link only works once, in the browser it was asked for in. If it was to confirm your email, that's done: sign in with your password."))
+    }
+  }
 }
 
 // ---------------------------------------------------------------------------

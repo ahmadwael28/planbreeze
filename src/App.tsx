@@ -51,6 +51,7 @@ import { useCloud } from '@/cloud/store'
 import { connectMemoryCloudForTesting, initCloud, resolveConflict } from '@/cloud/sync'
 import { ConflictDialog } from '@/components/ConflictDialog'
 import { SignInDialog } from '@/components/SignInDialog'
+import { PasswordDialog } from '@/components/PasswordDialog'
 import { ShareDialog } from '@/components/ShareDialog'
 import { VisibilityMenu } from '@/components/VisibilityMenu'
 import { TracingControl } from '@/components/TracingControl'
@@ -545,6 +546,9 @@ export default function App() {
       </DialogGuard>
       <DialogGuard close={() => useCloud.getState().openSignIn(false)}>
         <SignInDialog />
+      </DialogGuard>
+      <DialogGuard close={() => useCloud.getState().openPassword(false)}>
+        <PasswordDialog />
       </DialogGuard>
       <DialogGuard close={() => useUi.getState().openShare(false)}>
         <ShareDialog />
