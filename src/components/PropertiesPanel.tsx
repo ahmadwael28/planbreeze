@@ -1064,6 +1064,7 @@ function VanityOptions({ sym, units }: { sym: PlanSymbol; units: Units }) {
           t({ integrated: 'Built in', vessel: 'Bowl on top', undermount: 'Under the top', tiled: 'Tiled' }[basin]),
           !tb && sym.sinkShape === 'rect' ? t('rectangular') : undefined,
           tb ? (tb.faucets.length === 2 ? t('two faucets') : undefined) : lay.xs.length === 2 ? t('two sinks') : undefined,
+          sym.faucetOn === 'wall' ? t('faucet in the wall') : undefined,
           lay.washer ? t('washing machine') : undefined,
           styleOf(sym) !== 'open' ? (sym.onFloor ? t('On the floor') : t('On the wall')) : undefined,
         ]
@@ -1120,6 +1121,15 @@ function VanityOptions({ sym, units }: { sym: PlanSymbol; units: Units }) {
             ]}
           />
         )}
+        <Choice
+          label={t('Faucet on')}
+          value={sym.faucetOn === 'wall' ? 'wall' : 'top'}
+          onChange={(v) => updateSymbol(sym.id, (s) => void (v === 'wall' ? (s.faucetOn = 'wall') : delete s.faucetOn))}
+          options={[
+            { value: 'top', label: t('The top') },
+            { value: 'wall', label: t('The wall'), title: t('Built into the wall behind it, its spout out over the basin') },
+          ]}
+        />
         {!tb && lay.x1 - lay.x0 >= 110 && (
           <Choice
             label={t('Sinks')}

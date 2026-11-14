@@ -14,6 +14,9 @@ export function vanityBasin(sym: Pick<PlanSymbol, 'basin' | 'style'>): VanityBas
   return sym.basin ?? (tiled ? 'vessel' : 'integrated')
 }
 
+/** How high over a vanity's top a faucet built into the wall has its spout (cm): clear of a bowl standing on it. */
+export const wallSpout = (sym: Pick<PlanSymbol, 'basin' | 'style'>) => (vanityBasin(sym) === 'vessel' ? 20 : 14)
+
 /** How deep a tiled vanity's basin of its own tiles is sunk into its top (cm). */
 export const TILED_BASIN = 12
 

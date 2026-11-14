@@ -40,7 +40,7 @@ import type { Side } from '@/model/guides'
 import { personLook, restOn } from '@/model/people'
 import { nicheDepth } from '@/model/walls'
 import { BENCH_TOP, FLOATING_BENCH, TILED_VANITY, VANITY_TOP } from '@/model/built'
-import { tiledBasin, vanityBasin } from '@/model/vanity'
+import { tiledBasin, vanityBasin, wallSpout } from '@/model/vanity'
 import { worktopMaterial } from './worktops'
 import {
   chairsAlong,
@@ -2445,16 +2445,27 @@ function bathVanity(k: Kit, sym: PlanSymbol, w: number, d: number, h: number, ga
       g.add(cylinder(1.6, 0.4, x, h - 13.2 - (basin === 'undermount' ? top : 0), s.z, chrome)) // drain
     }
   }
-  // A tap behind each basin; a tiled basin's, one or two behind it, on its top.
+  // A tap behind each basin; a tiled basin's, one or two behind it, on its top. Or built into the wall (`gap` behind its
+  // back: where it's really hung): its mixer in the wall, a plate on it with a spout out over the basin and a lever.
+  const wallZ = -d / 2 - gap
   const tall = basin === 'vessel' ? 26 : 15
-  const taps = tb ? tb.faucets.map((x) => ({ x, z: tb.z0 - 5 })) : s.xs.map((x) => ({ x, z: s.z - s.rz - 4 }))
-  for (const { x, z: tz } of taps) {
+  const taps = tb ? tb.faucets.map((x) => ({ x, z: tb.z0 - 5, over: (tb.z0 + tb.z1) / 2 })) : s.xs.map((x) => ({ x, z: s.z - s.rz - 4, over: s.z }))
+  for (const { x, z: tz, over } of taps) {
+    if (sym.faucetOn === 'wall') {
+      const y = h + wallSpout(sym)
+      const reach = Math.max(10, Math.min(30, over - 2 - wallZ))
+      g.add(rbox(16, 5.5, 0.8, 0.6, x + 3, y - 2.75, wallZ + 0.4, chrome))
+      g.add(box(2.4, 2, reach, x, y - 1, wallZ + reach / 2, chrome))
+      g.add(box(2, 0.8, 1.6, x, y - 1.6, wallZ + reach - 0.9, chrome)) // its outlet, under the end
+      g.add(box(2.6, 2.6, 1.8, x + 8, y - 1.3, wallZ + 1.6, chrome)) // the lever's body
+      g.add(box(1, 1, 5.5, x + 8, y + 0.2, wallZ + 4.5, chrome)) // the lever
+      continue
+    }
     g.add(cylinder(1.6, tall, x, h, tz, chrome, 1, 2, 16))
     g.add(box(2.2, 2.2, 11, x, h + tall - 3, tz + 5.5, chrome))
     g.add(box(1, 1, 6, x + 2.4, h + tall - 2, tz + 1.5, chrome)) // lever
   }
   // On the wall over it.
-  const wallZ = -d / 2 - gap
   const above = sym.mirror ?? 'cabinet'
   const mirrorMat = k.mirror()
   if (above === 'cabinet') {

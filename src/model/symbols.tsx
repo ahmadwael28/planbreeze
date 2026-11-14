@@ -3,7 +3,7 @@ import type { ReactNode, SVGProps } from 'react'
 import { lightHex } from './lighting'
 import type { PlanTheme } from './theme'
 import type { CeilingStyle, MirrorShape, PlanSymbol } from './types'
-import { tiledBasin, vanityBasin } from './vanity'
+import { tiledBasin, vanityBasin, wallSpout } from './vanity'
 import {
   doorRun,
   doorsOf,
@@ -321,7 +321,8 @@ export function vanityMirrors(sym: PlanSymbol): { x: number; y: number; w: numbe
   const cw = s.x1 - s.x0
   const size = above === 'plain' ? sym.mirrorSize : undefined
   // A tall one comes down nearer the top and goes up to about a door's height.
-  const bottom = sym.height + (above === 'cabinet' ? 30 : size === 'tall' ? 15 : 25)
+  // Clear of faucets built into the wall under it.
+  const bottom = Math.max(sym.height + (above === 'cabinet' ? 30 : size === 'tall' ? 15 : 25), sym.faucetOn === 'wall' ? sym.height + wallSpout(sym) + 7 : 0)
   const tall = Math.max(90, 215 - bottom)
   if (above === 'cabinet') return [{ x: (s.x0 + s.x1) / 2, y: bottom, w: cw, h: 70, shape: 'rect' }]
   const shape = sym.mirrorShape ?? 'rect'
@@ -2115,24 +2116,27 @@ export const SYMBOLS: SymbolDef[] = [
             </g>
           )}
           {basin === 'tiled' && tb ? (
-            // A basin of the same tiles sunk into its top, its faucets behind it.
-            <g>
-              <rect x={tb.x0} y={tb.z0} width={tb.x1 - tb.x0} height={tb.z1 - tb.z0} {...k.s(t.fill2)} />
-              {tb.faucets.map((x) => (
-                <circle key={x} cx={x} cy={tb.z0 - 5} r={2} {...k.s(t.ink)} />
-              ))}
-            </g>
+            // A basin of the same tiles sunk into its top.
+            <rect x={tb.x0} y={tb.z0} width={tb.x1 - tb.x0} height={tb.z1 - tb.z0} {...k.s(t.fill2)} />
           ) : (
-            s.xs.map((x) => (
+            s.xs.map((x) =>
+              sym?.sinkShape === 'rect' ? (
+                <rect key={x} x={x - s.rx} y={s.z - s.rz} width={s.rx * 2} height={s.rz * 2} rx={3} {...k.s(t.fill2)} />
+              ) : (
+                <ellipse key={x} cx={x} cy={s.z} rx={s.rx} ry={s.rz} {...k.s(t.fill2)} />
+              ),
+            )
+          )}
+          {/* Its faucets behind its basins on the top; or built into the wall, a spout out over each. */}
+          {(tb ? tb.faucets.map((x) => ({ x, z: tb.z0 - 5, over: (tb.z0 + tb.z1) / 2 })) : s.xs.map((x) => ({ x, z: s.z - s.rz - 4, over: s.z }))).map(({ x, z, over }) =>
+            sym?.faucetOn === 'wall' ? (
               <g key={x}>
-                {sym?.sinkShape === 'rect' ? (
-                  <rect x={x - s.rx} y={s.z - s.rz} width={s.rx * 2} height={s.rz * 2} rx={3} {...k.s(t.fill2)} />
-                ) : (
-                  <ellipse cx={x} cy={s.z} rx={s.rx} ry={s.rz} {...k.s(t.fill2)} />
-                )}
-                <circle cx={x} cy={s.z - s.rz - 4} r={2} {...k.s(t.ink)} />
+                <line x1={x} y1={-d / 2} x2={x} y2={over - 2} {...k.s(t.ink)} />
+                <circle cx={x} cy={-d / 2 + 1.5} r={1.6} {...k.s(t.ink)} />
               </g>
-            ))
+            ) : (
+              <circle key={x} cx={x} cy={z} r={2} {...k.s(t.ink)} />
+            ),
           )}
         </>
       )

@@ -393,6 +393,8 @@ export interface PlanSymbol {
   sinkShape?: 'rect'
   /** Bathroom vanities with a tiled basin: two faucets over a trough across it (one if left out). */
   faucets?: 2
+  /** Bathroom vanities: their faucets built into the wall behind, each spout out over its basin (on the top if left out). */
+  faucetOn?: 'wall'
   /** Bathroom vanities with one sink: it's to the left or right (as seen from the front), else in the middle. */
   sinkAt?: 'left' | 'right'
   /** Bathroom vanities: a washing machine under the top at this end (as seen from the front). */
