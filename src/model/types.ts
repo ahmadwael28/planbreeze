@@ -418,6 +418,11 @@ export interface PlanSymbol {
    * to the ceiling from there (as wide as the vanity).
    */
   mirrorSize?: 'big' | 'tall' | 'ceiling'
+  /**
+   * Doors: wood slats round them on the wall, `width` beside them each side and over them up to the ceiling; on the face
+   * of the wall in the room they're in (`side` left out), the other room's, or both; their wood (a slats color).
+   */
+  slats?: { width: number; side?: 'other' | 'both'; color?: string }
   /** Kitchen upper cabinets: glass doors or open shelves instead of solid doors. */
   fronts?: 'glass' | 'open'
   /** People: standing (default), sitting or lying down (see model/people). */

@@ -19,6 +19,7 @@ import {
   CircleHelp,
   ClipboardCopy,
   Columns2,
+  Columns4,
   Copy,
   DoorOpen,
   FlipHorizontal2,
@@ -86,6 +87,8 @@ import { beamSpan } from '@/model/beams'
 import { ALCOVE_SILL, alcoveOpenings, stoneSill, CABINETS, curtainLayers, frameOf, givesLight, hasGlass, LEDGE_HEIGHT, LEDGE_RANGE, ledgeHeight, NICHES, SKIN_TONES, TANK_BOX, TANK_BOX_RANGE, tankBoxDepth, vanityLight, vanitySinks, WASHER_BAY, STYLES, styleOf, SYMBOL_MAP, tvInches, tvSize, WORKTOPS, worktopOf, hasWorktop } from '@/model/symbols'
 import type { Worktop } from '@/model/symbols'
 import { chooseBasin, tiledBasin, vanityBasin } from '@/model/vanity'
+import { SLATTED_DOORS, slatsSummary } from '@/model/doors'
+import { DoorSlats } from './DoorSlats'
 import type { FrameColor } from '@/model/symbols'
 import { formatArea, formatLength } from '@/model/units'
 import { PERSON, PERSON_PRESETS, personLook, personSupport, POSE_NAMES } from '@/model/people'
@@ -3050,6 +3053,12 @@ function SymbolProps({ sym, units }: { sym: PlanSymbol; units: Units }) {
         </Panel>
       )}
       {vanity && <VanityOptions sym={sym} units={units} />}
+      {SLATTED_DOORS.has(sym.type) && sym.wall && (
+        <Panel id="door-slats" icon={Columns4} title={t('Wood slats')} summary={slatsSummary(sym, floor, units)}>
+          <DoorSlats sym={sym} floor={floor} units={units} />
+        </Panel>
+      )}
+
       {options.length > 0 && (
         <Panel
           id="options"

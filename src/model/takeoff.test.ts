@@ -105,6 +105,43 @@ describe('takeoff', () => {
     expect(skirting(g).get(g.rooms[0].id)).toBe(1000 - 90)
   })
 
+  describe('wood slats round a door', () => {
+    /** Area of a room's parts that are slats round doors (cm²). */
+    const slatted = (f: Floor, room: Room) =>
+      takeoff(f)
+        .filter((p) => p.room === room.id && p.what === 'Wood slats round doors')
+        .reduce((a, p) => a + p.area, 0)
+    /** A 90 × 210 cm door on a wall, with slats 40 cm beside it. */
+    const door = (room: Room, edge: number, offset: number, more: Partial<PlanSymbol> = {}) => ({ ...onWall('door', room, edge, offset), width: 90, height: 210, slats: { width: 40 }, ...more })
+
+    it('go beside it from the floor and over its frame, up to the ceiling, in place of the paint there', () => {
+      const f = floorOf(rectPoints(0, 0, 300, 200))
+      f.symbols.push(door(f.rooms[0], 0, 150))
+      // Its architrave 6 cm round it: 40 cm beside each side, 250 high (2 × 40 × 250 = 20000), and over its 45 + 6 = 51
+      // either side of its middle (102 cm) from 216 up to 250 (102 × 34 = 3468): 23468 cm². The walls as a whole the
+      // same: 25 − 1.89 for the door.
+      expect(slatted(f, f.rooms[0])).toBe(23468)
+      expect(surfaces(f).walls).toBe(23.11)
+    })
+
+    it('stop at the end of the wall', () => {
+      const f = floorOf(rectPoints(0, 0, 300, 200))
+      f.symbols.push(door(f.rooms[0], 0, 60))
+      // 60 cm from the corner: 60 − 51 = 9 beside it on that side, 40 on the other. 49 × 250 + 3468 = 15718.
+      expect(slatted(f, f.rooms[0])).toBe(15718)
+    })
+
+    it('go on the other room’s face of the wall, or both', () => {
+      const two = (side: 'other' | 'both') => {
+        const f = floorOf(rectPoints(0, 0, 300, 200), rectPoints(310, 0, 300, 200))
+        f.symbols.push(door(f.rooms[0], 1, 100, { slats: { width: 40, side } }))
+        return [slatted(f, f.rooms[0]), slatted(f, f.rooms[1])]
+      }
+      expect(two('other')).toEqual([0, 23468])
+      expect(two('both')).toEqual([23468, 23468])
+    })
+  })
+
   describe('a vanity built in and tiled', () => {
     /**
      * A 300 × 200 cm room tiled in porcelain to the ceiling, and a vanity 100 cm wide, 48 deep and 85 high hung on its

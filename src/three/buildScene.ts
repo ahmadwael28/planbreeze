@@ -6,6 +6,7 @@ import { isOpen, isOutdoor, railingRuns, roomOuter, SLAB, stairOpenings, symbolP
 import { floorOrigin } from '@/model/divide'
 import { CEILING_AC, NICHES, partitionTop, SYMBOL_MAP } from '@/model/symbols'
 import { beamFinish, builtBox, halfWallBoxes, hangDepth } from '@/model/built'
+import { DOOR_SLAT, doorSlats, SLAT_BACKING, SLAT_DEPTH } from '@/model/doors'
 import type { PlanTheme } from '@/model/theme'
 import type { Floor, PlanSymbol, Point, Project, Room, Selection, Surface, WallSurface } from '@/model/types'
 import { startsAtFloor, wallBands, wallSurfaceAt } from '@/model/finishes'
@@ -544,6 +545,41 @@ export function buildProjectGroup(project: Project, opts: BuildOptions): THREE.G
             }
           }
           if (startsAtFloor(s)) obj.children.filter((o) => o.userData.skirt).forEach((o) => obj.remove(o))
+        }
+      }
+      // Wood slats round a door, on the faces of its wall they're on: standing out on a dark backing, beside it from the
+      // floor and over its frame, up to the ceiling (see doorSlats). Laid as seen, undoing its flips.
+      if (sym.slats && sym.wall) {
+        const sides = doorSlats(sym, floor)
+        if (sides.length) {
+          const t = pose.wallThickness ?? sym.depth
+          const [slat, gap] = DOOR_SLAT
+          const pitch = slat + gap
+          const slats = new THREE.Group()
+          slats.scale.set(sym.flipX ? -1 : 1, 1, sym.flipY ? -1 : 1)
+          const block = (x0: number, x1: number, y0: number, y1: number, z0: number, z1: number) =>
+            new THREE.BoxGeometry(x1 - x0, y1 - y0, Math.abs(z1 - z0)).translate((x0 + x1) / 2, (y0 + y1) / 2, (z0 + z1) / 2)
+          for (const sd of sides) {
+            const f = sd.face
+            const wallZ = (f * t) / 2
+            const back: THREE.BufferGeometry[] = []
+            const zb = [wallZ, wallZ + f * SLAT_BACKING] as const
+            if (sd.x0 < -sd.e) back.push(block(sd.x0, Math.min(-sd.e, sd.x1), 0, sd.top, ...zb))
+            if (sd.x1 > sd.e) back.push(block(Math.max(sd.e, sd.x0), sd.x1, 0, sd.top, ...zb))
+            if (sd.top > sd.doorTop + 0.5) back.push(block(Math.max(sd.x0, -sd.e), Math.min(sd.x1, sd.e), sd.doorTop, sd.top, ...zb))
+            // Slats on a grid from the door's middle, so they're alike either side of it: over the door, only above it.
+            const zs = [wallZ + f * SLAT_BACKING, wallZ + f * (SLAT_BACKING + SLAT_DEPTH)] as const
+            const wood: THREE.BufferGeometry[] = []
+            for (let k = Math.ceil((sd.x0 + slat / 2) / pitch); k * pitch <= sd.x1 - slat / 2; k++) {
+              const x = k * pitch
+              const over = Math.abs(x) - slat / 2 < sd.e
+              if (over && sd.top - sd.doorTop < 1) continue
+              wood.push(block(x - slat / 2, x + slat / 2, over ? sd.doorTop : 0, sd.top, ...zs))
+            }
+            if (back.length) slats.add(new THREE.Mesh(mergeGeometries(back), mats.get('#1d1c1b', hl, 'matte')))
+            if (wood.length) slats.add(new THREE.Mesh(mergeGeometries(wood), mats.get(sd.surface.color ?? '#c09466', hl, 'wood')))
+          }
+          obj.add(slats)
         }
       }
       // What's built against a wall (a wall-hung toilet's tank box, a shower bench) is finished like the wall behind

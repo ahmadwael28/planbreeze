@@ -40,6 +40,7 @@ import { isOpen, isOutdoor, roomOuter, stairOpenings, symbolPose } from './proje
 import type { ResolvedPose } from './project'
 import { alcoveOpenings, CEILING_AC, hasWorktop, partitionTop, stoneSill, styleOf, SYMBOL_MAP, SYMBOLS, tankBoxDepth, vanitySinks, worktopOf } from './symbols'
 import { vanityBasin } from './vanity'
+import { doorSlats, slatSpans, SLATTED_DOORS } from './doors'
 import type { Ceiling, CeilingStyle, Floor, PlanSymbol, Point, Room, Surface, WallSurface } from './types'
 import { aroundCuts, cutsFor, nicheDepth, roomFaces, wallBehind, wallOpenings } from './walls'
 import type { Opening } from './walls'
@@ -436,6 +437,27 @@ function standing(sym: PlanSymbol, ctx: Ctx, pose: ResolvedPose, s: WallSurface,
   if (top >= ceilingBy(ctx, room, sym, pose) - 0.5) underCeiling(ctx, room, pose, w * d, sym.id)
 }
 
+/**
+ * Wood slats round a door (see doorSlats): beside it from the floor and over it, up to the ceiling, on each face of the
+ * wall they're on, in place of the wall's finish there. Its opening comes off the walls as any door's (see roomParts).
+ */
+const doorSlatsRule: Rule = (sym, ctx) => {
+  for (const side of doorSlats(sym, ctx.floor)) {
+    if (!side.room || side.edge === undefined) continue
+    const part = { room: side.room.id, what: 'Wood slats round doors', from: sym.id }
+    const behind = { ...part, what: 'Hidden behind what’s built' }
+    const { beside, over } = slatSpans(side)
+    const wall = wallOf(side.room, side.edge)
+    for (const [p, s, sign] of [
+      [part, side.surface, 1],
+      [behind, wall, -1],
+    ] as const) {
+      clad(ctx, p, s, beside, 0, side.top, sign)
+      clad(ctx, p, s, over, side.doorTop, side.top, sign)
+    }
+  }
+}
+
 /** A window's or an open doorway's reveals: its sides and head in the wall's thickness, finished like the wall. */
 const reveals: Rule = (sym, ctx, pose) => {
   const room = sym.wall && ctx.floor.rooms.find((r) => r.id === sym.wall!.roomId)
@@ -699,6 +721,8 @@ const RULES: Record<string, Rule> = {
   opening: reveals,
   'shower-niche': niche,
   'wall-niche': niche,
+  // Doors: their openings come off the walls (see roomParts); wood slats round one, in place of the wall's finish.
+  ...Object.fromEntries([...SLATTED_DOORS].map((type): [string, Rule] => [type, doorSlatsRule])),
   // From the ceiling: gypsum boxes and beams; air conditioning set into it, in place of the ceiling there.
   'gypsum-box': hanging,
   stairs,
@@ -716,11 +740,12 @@ const RULES: Record<string, Rule> = {
 
 /**
  * Kinds of items that do nothing to the finished surfaces: furniture and fittings standing on a finished floor or
- * hung on a finished wall, lights, switches and the like. Doors' openings come off the walls (see roomParts), their
- * frames cover their reveals. The ceiling items set their room's ceiling (see ceilingParts).
+ * hung on a finished wall, lights, switches and the like. A barn door's opening comes off the walls (see roomParts), its
+ * frame covers its reveals (as every door's: see doorSlatsRule for the others). The ceiling items set their room's
+ * ceiling (see ceilingParts).
  */
 const UNTOUCHED = new Set([
-  'door', 'door-double', 'door-sliding', 'door-barn', 'door-alu', 'door-alu-double', 'door-alu-sliding',
+  'door-barn',
   'curtain', 'blind',
   'sofa', 'sofa-corner', 'armchair', 'coffee-table', 'sofa-table', 'tv-unit', 'display-cabinet', 'sideboard', 'coffee-corner',
   'tv-stand', 'tv', 'dining-table', 'round-table', 'chair', 'bookshelf', 'plant',
