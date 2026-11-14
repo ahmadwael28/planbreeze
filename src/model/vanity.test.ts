@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import { newSymbol } from './project'
-import { vanityMirrors } from './symbols'
+import { vanityLight, vanityMirrors } from './symbols'
 import type { PlanSymbol } from './types'
-import { tiledBasin, vanityBasin, wallSpout } from './vanity'
+import { chooseBasin, tiledBasin, vanityBasin, wallSpout } from './vanity'
 
 /** A vanity 100 cm wide, 48 deep and 85 high. */
 const vanity = (more: Partial<PlanSymbol> = {}): PlanSymbol => ({ ...newSymbol('bath-vanity', 0, 0), width: 100, depth: 48, height: 85, ...more })
@@ -26,6 +26,46 @@ describe('a vanity’s basins', () => {
     expect(tiledBasin(vanity({ sinkAt: 'left' }))).toMatchObject({ x0: -38, x1: 22, faucets: [-8] })
     // 100 − 24 = 76 wide, a faucet over the middle of each half.
     expect(tiledBasin(vanity({ faucets: 2 }))).toMatchObject({ x0: -38, x1: 38, faucets: [-19, 19] })
+  })
+})
+
+describe('choosing a vanity’s basin', () => {
+  it('of its tiles makes it built in and tiled, and another takes it back to the cabinet it was', () => {
+    const v = vanity({ style: 'fluted' })
+    chooseBasin(v, 'tiled')
+    expect([v.style, v.basin, vanityBasin(v)]).toEqual(['tiled', 'tiled', 'tiled'])
+    chooseBasin(v, 'undermount')
+    expect([v.style, v.basin, v.styleBefore]).toEqual(['fluted', 'undermount', undefined])
+    // The usual cabinet, it had none chosen.
+    const plain = vanity()
+    chooseBasin(plain, 'tiled')
+    chooseBasin(plain, 'integrated')
+    expect([plain.style, plain.basin, vanityBasin(plain)]).toEqual([undefined, undefined, 'integrated'])
+  })
+
+  it('on a vanity chosen to be built in and tiled, keeps it so; built into a ceramic top, a cabinet under it', () => {
+    const v = vanity({ style: 'tiled' })
+    chooseBasin(v, 'undermount')
+    expect([v.style, v.basin]).toEqual(['tiled', 'undermount'])
+    chooseBasin(v, 'vessel')
+    expect([v.style, v.basin, vanityBasin(v)]).toEqual(['tiled', undefined, 'vessel'])
+    chooseBasin(v, 'integrated')
+    expect([v.style, vanityBasin(v)]).toEqual([undefined, 'integrated'])
+  })
+})
+
+describe('a vanity’s mirror up to the ceiling', () => {
+  it('comes down as a tall one does, goes up to the ceiling and is as wide as the vanity', () => {
+    // From 15 cm over its top (100) to just under a 250 cm ceiling: 149.5 high, 100 − 2 = 98 wide.
+    const m = vanityMirrors(vanity({ mirror: 'plain', mirrorSize: 'ceiling' }), 250)
+    expect(m).toEqual([{ x: 0, y: 100, w: 98, h: 149.5, shape: 'rect' }])
+    // Under a gypsum ceiling 20 cm lower.
+    expect(vanityMirrors(vanity({ mirror: 'plain', mirrorSize: 'ceiling' }), 230)[0].h).toBe(129.5)
+  })
+
+  it('has no bar light over it: lit from behind instead', () => {
+    expect(vanityLight(vanity({ mirror: 'plain', mirrorSize: 'ceiling', led: true, mirrorLight: 'bar' }))).toBe('back')
+    expect(vanityLight(vanity({ mirror: 'plain', led: true, mirrorLight: 'bar' }))).toBe('bar')
   })
 })
 

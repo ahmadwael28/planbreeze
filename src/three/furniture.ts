@@ -1455,7 +1455,7 @@ export function cabinetLeds(sym: PlanSymbol, wallGap = 0, ceilingH = Infinity): 
     // On the wall over it (where it's really hung: see bathVanity): a halo round the mirror or cabinet, a band in the
     // mirror's glass, a bar over it, or a strip under the cabinet; with nothing there, under a wall-hung vanity.
     const wallZ = -d / 2 - wallGap
-    const mirrors = vanityMirrors(sym)
+    const mirrors = vanityMirrors(sym, ceilingH)
     const light = vanityLight(sym)
     // The light it gives the top, from just under each mirror (or its bar), down: none of it in front of the glass,
     // where it would show in it as a bright patch.
@@ -2269,7 +2269,7 @@ const mirrorOff = (sym: PlanSymbol) => (sym.led && vanityLight(sym) === 'back' ?
  * or to one side, maybe a washing machine under the top at one end; and over it on the wall (`gap` behind its back:
  * where it's really hung, wherever the vanity stands) a mirror cabinet, mirrors in their shape and frame, or nothing.
  */
-function bathVanity(k: Kit, sym: PlanSymbol, w: number, d: number, h: number, gap = 0) {
+function bathVanity(k: Kit, sym: PlanSymbol, w: number, d: number, h: number, gap = 0, ceilingH?: number) {
   const g = new THREE.Group()
   const color = frameOf(sym)?.hex ?? '#f4f3ef'
   const wood = ['#c19a6b', '#6e4b33'].includes(color.toLowerCase())
@@ -2469,7 +2469,7 @@ function bathVanity(k: Kit, sym: PlanSymbol, w: number, d: number, h: number, ga
   const above = sym.mirror ?? 'cabinet'
   const mirrorMat = k.mirror()
   if (above === 'cabinet') {
-    const [m] = vanityMirrors(sym)
+    const [m] = vanityMirrors(sym, ceilingH)
     const cd = 14
     g.add(rbox(m.w, m.h, cd, 1, m.x, m.y, wallZ + cd / 2, k.q('#e7e7e4', 'satin')))
     const n = m.w < 70 ? 1 : m.w < 130 ? 2 : 3
@@ -2482,7 +2482,7 @@ function bathVanity(k: Kit, sym: PlanSymbol, w: number, d: number, h: number, ga
       geo.translate(m.x, m.y + m.h / 2, z)
       return mesh(geo, mat)
     }
-    for (const m of vanityMirrors(sym)) {
+    for (const m of vanityMirrors(sym, ceilingH)) {
       // A backlit one on a dark spacer behind it, out from the wall.
       if (off > 1) g.add(flat(mirrorOutline(m.shape, m.w, m.h, -5), off, m, wallZ, dark))
       g.add(flat(mirrorOutline(m.shape, m.w, m.h), 0.6, m, wallZ + off, mirrorMat))
@@ -3826,7 +3826,7 @@ export function symbolModel(
       g = washbasin(k, w, d, h)
       break
     case 'bath-vanity':
-      g = bathVanity(k, sym, w, d, h, wallGap)
+      g = bathVanity(k, sym, w, d, h, wallGap, ceilingH)
       break
     case 'shower-niche':
     case 'wall-niche':

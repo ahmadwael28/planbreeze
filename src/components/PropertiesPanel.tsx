@@ -85,7 +85,7 @@ import { wallAcross } from '@/model/divide'
 import { beamSpan } from '@/model/beams'
 import { ALCOVE_SILL, alcoveOpenings, stoneSill, CABINETS, curtainLayers, frameOf, givesLight, hasGlass, LEDGE_HEIGHT, LEDGE_RANGE, ledgeHeight, NICHES, SKIN_TONES, TANK_BOX, TANK_BOX_RANGE, tankBoxDepth, vanityLight, vanitySinks, WASHER_BAY, STYLES, styleOf, SYMBOL_MAP, tvInches, tvSize, WORKTOPS, worktopOf, hasWorktop } from '@/model/symbols'
 import type { Worktop } from '@/model/symbols'
-import { tiledBasin, vanityBasin } from '@/model/vanity'
+import { chooseBasin, tiledBasin, vanityBasin } from '@/model/vanity'
 import type { FrameColor } from '@/model/symbols'
 import { formatArea, formatLength } from '@/model/units'
 import { PERSON, PERSON_PRESETS, personLook, personSupport, POSE_NAMES } from '@/model/people'
@@ -1043,7 +1043,8 @@ function VanityOptions({ sym, units }: { sym: PlanSymbol; units: Units }) {
       ? [
           { value: 'back', label: t('Backlit') },
           { value: 'front', label: t('Front') },
-          { value: 'bar', label: t('Bar above') },
+          // No room for a bar over a mirror up to the ceiling.
+          ...(sym.mirrorSize === 'ceiling' ? [] : [{ value: 'bar', label: t('Bar above') }]),
         ]
       : above === 'cabinet'
         ? [
@@ -1075,18 +1076,10 @@ function VanityOptions({ sym, units }: { sym: PlanSymbol; units: Units }) {
         <Choice
           label={t('Basin')}
           value={basin}
-          onChange={(v) =>
-            updateSymbol(sym.id, (s) => {
-              // A basin of the same tiles: the vanity built in and tiled, its top too.
-              if (v === 'tiled') {
-                s.basin = 'tiled'
-                s.style = 'tiled'
-              } else if (v === 'integrated' || (tiled && v === 'vessel')) delete s.basin
-              else s.basin = v
-            })
-          }
+          // A tiled basin makes it built in and tiled; another takes it back to the cabinet it was (see chooseBasin).
+          onChange={(v) => updateSymbol(sym.id, (s) => chooseBasin(s, v))}
           options={[
-            ...(tiled ? [] : [{ value: 'integrated' as const, label: t('Built in') }]),
+            { value: 'integrated' as const, label: t('Built in') },
             { value: 'vessel', label: t('Bowl on top') },
             { value: 'undermount', label: t('Under the top') },
             { value: 'tiled', label: t('Tiled'), title: t('A basin of the same tiles as the wall behind it, sunk into its top, tiled too') },
@@ -1095,7 +1088,9 @@ function VanityOptions({ sym, units }: { sym: PlanSymbol; units: Units }) {
         {tiled && (
           <p className="-mt-1 text-xs text-muted-foreground">
             {tb
-              ? t('Built of blocks and finished like the wall behind it (its tiles or porcelain), its top too, with a basin of the same tiles sunk into it.')
+              ? `${t('Built of blocks and finished like the wall behind it (its tiles or porcelain), its top too, with a basin of the same tiles sunk into it.')}${
+                  sym.styleBefore !== undefined ? ` ${t('Another basin takes it back to its cabinet.')}` : ''
+                }`
               : t('Built of blocks and finished like the wall behind it (its tiles, porcelain or paint), with a stone top.')}
           </p>
         )}
@@ -1245,6 +1240,7 @@ function VanityOptions({ sym, units }: { sym: PlanSymbol; units: Units }) {
                 { value: 'standard', label: t('Standard') },
                 { value: 'big', label: t('Big') },
                 { value: 'tall', label: t('Tall') },
+                { value: 'ceiling', label: t('To ceiling'), title: t('Up to the ceiling, as wide as the vanity') },
               ]}
             />
             <Field label={t('Frame')}>

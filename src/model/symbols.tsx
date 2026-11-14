@@ -301,7 +301,8 @@ export function vanityLight(sym: PlanSymbol): 'back' | 'front' | 'bar' | 'under'
   if (above === 'none') return 'under'
   const l = sym.mirrorLight
   if (above === 'cabinet') return l === 'back' ? 'back' : 'under'
-  return l === 'front' || l === 'bar' ? l : 'back'
+  // (No room for a bar over a mirror up to the ceiling.)
+  return l === 'front' || (l === 'bar' && sym.mirrorSize !== 'ceiling') ? l : 'back'
 }
 
 /** Mirror shapes that come one over each basin (on a double vanity), rather than one across it. */
@@ -312,7 +313,7 @@ const EACH_BASIN: MirrorShape[] = ['round', 'oval', 'arch', 'pill']
  * and from y up h): its mirror cabinet, or its mirrors (one across it, or one over each basin for the shapes that come
  * so), over its sinks; and their shape.
  */
-export function vanityMirrors(sym: PlanSymbol): { x: number; y: number; w: number; h: number; shape: MirrorShape }[] {
+export function vanityMirrors(sym: PlanSymbol, ceilingH?: number): { x: number; y: number; w: number; h: number; shape: MirrorShape }[] {
   const above = sym.mirror ?? 'cabinet'
   if (above === 'none') return []
   // Over its sinks; a tiled basin's, over its faucets.
@@ -320,10 +321,13 @@ export function vanityMirrors(sym: PlanSymbol): { x: number; y: number; w: numbe
   const s = vanityBasin(sym) === 'tiled' ? { ...sinks, xs: tiledBasin(sym).faucets } : sinks
   const cw = s.x1 - s.x0
   const size = above === 'plain' ? sym.mirrorSize : undefined
-  // A tall one comes down nearer the top and goes up to about a door's height.
-  // Clear of faucets built into the wall under it.
-  const bottom = Math.max(sym.height + (above === 'cabinet' ? 30 : size === 'tall' ? 15 : 25), sym.faucetOn === 'wall' ? sym.height + wallSpout(sym) + 7 : 0)
-  const tall = Math.max(90, 215 - bottom)
+  // A tall one comes down nearer the top and goes up to about a door's height; one to the ceiling (`ceilingH` high
+  // over it: a usual one's if not known) comes down as far, and goes up to it. Clear of faucets built into the wall
+  // under it.
+  const low = size === 'tall' || size === 'ceiling'
+  const bottom = Math.max(sym.height + (above === 'cabinet' ? 30 : low ? 15 : 25), sym.faucetOn === 'wall' ? sym.height + wallSpout(sym) + 7 : 0)
+  const roof = ceilingH !== undefined && Number.isFinite(ceilingH) ? ceilingH : 250
+  const tall = size === 'ceiling' ? Math.max(20, roof - 0.5 - bottom) : Math.max(90, 215 - bottom)
   if (above === 'cabinet') return [{ x: (s.x0 + s.x1) / 2, y: bottom, w: cw, h: 70, shape: 'rect' }]
   const shape = sym.mirrorShape ?? 'rect'
   const each = cw / s.xs.length
@@ -333,15 +337,15 @@ export function vanityMirrors(sym: PlanSymbol): { x: number; y: number; w: numbe
     const d = size ? Math.min(each - 8, 90) : Math.min(each - 12, 70)
     const [w, h] =
       shape === 'round' ? [d, d]
-      : shape === 'oval' ? [Math.min(each * (big ? 0.75 : 0.62), big ? 75 : 60), big ? 105 : size === 'tall' ? tall : 85]
-      : shape === 'arch' ? [Math.min(each * (big ? 0.85 : 0.72), big ? 90 : 70), big ? 115 : size === 'tall' ? tall : 95]
-      : [Math.min(each * (big ? 0.68 : 0.55), big ? 68 : 55), big ? 115 : size === 'tall' ? tall : 95]
+      : shape === 'oval' ? [Math.min(each * (big ? 0.75 : 0.62), big ? 75 : 60), big ? 105 : low ? tall : 85]
+      : shape === 'arch' ? [Math.min(each * (big ? 0.85 : 0.72), big ? 90 : 70), big ? 115 : low ? tall : 95]
+      : [Math.min(each * (big ? 0.68 : 0.55), big ? 68 : 55), big ? 115 : low ? tall : 95]
     return s.xs.map((x) => ({ x, y: bottom, w, h, shape }))
   }
-  // One across: over the sink (or the two), within the cabinet; a big one all across it.
-  const w = big ? Math.min(cw - 2, 200) : s.xs.length === 2 ? Math.min(cw - 6, 150) : Math.min(cw - 6, 100)
+  // One across: over the sink (or the two), within the cabinet; a big one all across it, one to the ceiling as wide.
+  const w = big ? Math.min(cw - 2, 200) : size === 'ceiling' ? Math.min(cw - 2, 240) : s.xs.length === 2 ? Math.min(cw - 6, 150) : Math.min(cw - 6, 100)
   const x = Math.min(s.x1 - w / 2, Math.max(s.x0 + w / 2, s.xs.reduce((a, b) => a + b, 0) / s.xs.length))
-  return [{ x, y: bottom, w, h: big ? 100 : size === 'tall' ? tall : 80, shape }]
+  return [{ x, y: bottom, w, h: big ? 100 : low ? tall : 80, shape }]
 }
 
 export const DRESSING_STYLES: ItemStyle[] = [

@@ -395,6 +395,11 @@ export interface PlanSymbol {
   faucets?: 2
   /** Bathroom vanities: their faucets built into the wall behind, each spout out over its basin (on the top if left out). */
   faucetOn?: 'wall'
+  /**
+   * Bathroom vanities built in and tiled by choosing a tiled basin: the style they had ('' the usual one), to go back to
+   * with another basin (see chooseBasin).
+   */
+  styleBefore?: string
   /** Bathroom vanities with one sink: it's to the left or right (as seen from the front), else in the middle. */
   sinkAt?: 'left' | 'right'
   /** Bathroom vanities: a washing machine under the top at this end (as seen from the front). */
@@ -408,8 +413,11 @@ export interface PlanSymbol {
    * under a mirror cabinet, or behind it. Behind a mirror, under a cabinet, if left out.
    */
   mirrorLight?: 'back' | 'front' | 'bar' | 'under'
-  /** A vanity's mirror: bigger (wider and taller), or tall (coming down nearer the top, up to about a door's height). */
-  mirrorSize?: 'big' | 'tall'
+  /**
+   * A vanity's mirror: bigger (wider and taller), tall (coming down nearer the top, up to about a door's height), or up
+   * to the ceiling from there (as wide as the vanity).
+   */
+  mirrorSize?: 'big' | 'tall' | 'ceiling'
   /** Kitchen upper cabinets: glass doors or open shelves instead of solid doors. */
   fronts?: 'glass' | 'open'
   /** People: standing (default), sitting or lying down (see model/people). */

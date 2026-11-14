@@ -707,7 +707,7 @@ export function buildProjectGroup(project: Project, opts: BuildOptions): THREE.G
       obj.traverse((o) => (o.userData.pick = pick))
       group.add(obj)
       // Cabinets with LEDs inside: their lights, placed like the cabinet.
-      const leds = sym.led ? cabinetLeds(sym, wallGap, sym.type === 'alcove-niche' ? ceilingHeightAt(floor, pose) : undefined) : null
+      const leds = sym.led ? cabinetLeds(sym, wallGap, sym.type === 'alcove-niche' || sym.type === 'bath-vanity' ? ceilingHeightAt(floor, pose) : undefined) : null
       if (leds) {
         const lit = cabinetLights(sym, leds, floor, floor.rooms.find((r) => pointInPolygon(pose, r.points))?.id, handles)
         lit.position.copy(obj.position)

@@ -14,6 +14,28 @@ export function vanityBasin(sym: Pick<PlanSymbol, 'basin' | 'style'>): VanityBas
   return sym.basin ?? (tiled ? 'vessel' : 'integrated')
 }
 
+/**
+ * Choose a vanity's basins (changing `sym`). A tiled one makes it built in and tiled, its top too, keeping the style it
+ * had (in `styleBefore`, '' for the usual one); another after it puts that cabinet back. Built into a ceramic top on a
+ * vanity built in and tiled: a cabinet under it (the one it had, or the usual one).
+ */
+export function chooseBasin(sym: PlanSymbol, basin: VanityBasin) {
+  if (basin === 'tiled') {
+    if (sym.style !== 'tiled') sym.styleBefore = sym.style ?? ''
+    sym.basin = 'tiled'
+    sym.style = 'tiled'
+    return
+  }
+  if (sym.style === 'tiled' && (sym.styleBefore !== undefined || basin === 'integrated')) {
+    if (sym.styleBefore && sym.styleBefore !== 'tiled') sym.style = sym.styleBefore
+    else delete sym.style
+  }
+  delete sym.styleBefore
+  // Bowls on the top are a tiled vanity's own.
+  if (basin === 'integrated' || (sym.style === 'tiled' && basin === 'vessel')) delete sym.basin
+  else sym.basin = basin
+}
+
 /** How high over a vanity's top a faucet built into the wall has its spout (cm): clear of a bowl standing on it. */
 export const wallSpout = (sym: Pick<PlanSymbol, 'basin' | 'style'>) => (vanityBasin(sym) === 'vessel' ? 20 : 14)
 

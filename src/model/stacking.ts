@@ -50,7 +50,7 @@ export function heightsOf(sym: PlanSymbol, floor: Floor): { top: number; bottom:
   }
   let top = bottom + sym.height
   // What stands above a vanity or dressing table: its mirror cabinet or mirror.
-  if (sym.type === 'bath-vanity') top = Math.max(top, ...vanityMirrors(sym).map((m) => m.y + m.h))
+  if (sym.type === 'bath-vanity') top = Math.max(top, ...vanityMirrors(sym, floor.height).map((m) => m.y + m.h))
   if (sym.type === 'dressing-table') {
     const m = vanityMirror(sym)
     top += m.bottom + m.h
