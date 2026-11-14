@@ -10,6 +10,7 @@ import { isOpen, isOutdoor, symbolPose } from './project'
 import { ownWalls, showerRuns, stretchBox } from './shower'
 import { alcoveOpenings, alcoveSolids, ledgeHeight, stoneSill, styleOf, tankBoxDepth } from './symbols'
 import type { Floor, PlanSymbol, Room, WallSurface } from './types'
+import { tiledBasin, vanityBasin } from './vanity'
 import { wallBehind } from './walls'
 
 /** A shower bench's stone top (cm), and how thick a floating one is under it. */
@@ -34,6 +35,11 @@ export interface BuiltBox {
   /** Built in stretches (from and to), not all of y0 to y1: round niches, their sills (up) and tops (down) showing. */
   spans?: [number, number][]
   caps?: { y: number; up: boolean }[]
+  /**
+   * A basin sunk into its top (a cap at y1, finished like the rest, round it), lined with the same finish: its opening
+   * in the item's frame (x across, z from its back at -depth/2), and how deep it goes.
+   */
+  basin?: { x0: number; x1: number; z0: number; z1: number; depth: number }
 }
 
 /**
@@ -65,8 +71,13 @@ export function builtBox(sym: PlanSymbol, ceilingH: number): BuiltBox | null {
     return { depth: sym.depth, y0: sym.floating ? y1 - FLOATING_BENCH : 0, y1, corner: style === 'corner', under: !!sym.floating }
   }
   if (sym.type === 'bath-vanity' && styleOf(sym) === 'tiled') {
-    const y1 = sym.height - VANITY_TOP
-    return { depth: sym.depth, y0: sym.onFloor ? 0 : Math.max(0, y1 - TILED_VANITY), y1, corner: false, under: !sym.onFloor }
+    // Up to its stone top; or, its top tiled too, all the way up, a basin of the same tiles sunk into it.
+    const own = vanityBasin(sym) === 'tiled'
+    const y1 = own ? sym.height : sym.height - VANITY_TOP
+    const y0 = sym.onFloor ? 0 : Math.max(0, y1 - TILED_VANITY)
+    if (!own) return { depth: sym.depth, y0, y1, corner: false, under: !sym.onFloor }
+    const b = tiledBasin(sym)
+    return { depth: sym.depth, y0, y1, corner: false, under: !sym.onFloor, caps: [{ y: y1, up: true }], basin: { x0: b.x0, x1: b.x1, z0: b.z0, z1: b.z1, depth: b.depth } }
   }
   return null
 }

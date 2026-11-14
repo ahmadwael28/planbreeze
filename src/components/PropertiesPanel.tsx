@@ -85,6 +85,7 @@ import { wallAcross } from '@/model/divide'
 import { beamSpan } from '@/model/beams'
 import { ALCOVE_SILL, alcoveOpenings, stoneSill, CABINETS, curtainLayers, frameOf, givesLight, hasGlass, LEDGE_HEIGHT, LEDGE_RANGE, ledgeHeight, NICHES, SKIN_TONES, TANK_BOX, TANK_BOX_RANGE, tankBoxDepth, vanityLight, vanitySinks, WASHER_BAY, STYLES, styleOf, SYMBOL_MAP, tvInches, tvSize, WORKTOPS, worktopOf, hasWorktop } from '@/model/symbols'
 import type { Worktop } from '@/model/symbols'
+import { tiledBasin, vanityBasin } from '@/model/vanity'
 import type { FrameColor } from '@/model/symbols'
 import { formatArea, formatLength } from '@/model/units'
 import { PERSON, PERSON_PRESETS, personLook, personSupport, POSE_NAMES } from '@/model/people'
@@ -1025,9 +1026,10 @@ const MIRROR_FRAME_COLORS: [NonNullable<PlanSymbol['mirrorFrame']> | 'none', str
 ]
 
 /**
- * A bathroom vanity's options: its basins (built in, bowls on top or under the top), one or two, where a single one
- * is, a washing machine under the top at one end, how it's mounted; what's on the wall over it (a mirror cabinet, a
- * mirror in its shape and frame, or nothing) and the light there.
+ * A bathroom vanity's options: its basins (built in, bowls on top, under the top, or of the same tiles as a tiled
+ * vanity, sunk into its tiled top) and their shape, one or two (a tiled basin: one faucet or two over a trough), where a
+ * single one is, a washing machine under the top at one end, how it's mounted; what's on the wall over it (a mirror
+ * cabinet, a mirror in its shape and frame, or nothing) and the light there.
  */
 function VanityOptions({ sym, units }: { sym: PlanSymbol; units: Units }) {
   const lay = vanitySinks(sym)
@@ -1049,7 +1051,9 @@ function VanityOptions({ sym, units }: { sym: PlanSymbol; units: Units }) {
             { value: 'back', label: t('Backlit') },
           ]
         : [{ value: 'under', label: t('Under it') }]
-  const basin = sym.basin ?? (tiled ? 'vessel' : 'integrated')
+  const basin = vanityBasin(sym)
+  const tb = basin === 'tiled' ? tiledBasin(sym) : null
+  const single = tb ? tb.faucets.length === 1 : lay.xs.length === 1
   return (
     <>
       <Panel
@@ -1057,8 +1061,9 @@ function VanityOptions({ sym, units }: { sym: PlanSymbol; units: Units }) {
         icon={Bath}
         title={t('Basin and sinks')}
         summary={[
-          t({ integrated: 'Built in', vessel: 'Bowl on top', undermount: 'Under the top' }[basin]),
-          lay.xs.length === 2 ? t('two sinks') : undefined,
+          t({ integrated: 'Built in', vessel: 'Bowl on top', undermount: 'Under the top', tiled: 'Tiled' }[basin]),
+          !tb && sym.sinkShape === 'rect' ? t('rectangular') : undefined,
+          tb ? (tb.faucets.length === 2 ? t('two faucets') : undefined) : lay.xs.length === 2 ? t('two sinks') : undefined,
           lay.washer ? t('washing machine') : undefined,
           styleOf(sym) !== 'open' ? (sym.onFloor ? t('On the floor') : t('On the wall')) : undefined,
         ]
@@ -1069,15 +1074,53 @@ function VanityOptions({ sym, units }: { sym: PlanSymbol; units: Units }) {
         <Choice
           label={t('Basin')}
           value={basin}
-          onChange={(v) => updateSymbol(sym.id, (s) => void (v === 'integrated' || (tiled && v === 'vessel') ? delete s.basin : (s.basin = v)))}
+          onChange={(v) =>
+            updateSymbol(sym.id, (s) => {
+              // A basin of the same tiles: the vanity built in and tiled, its top too.
+              if (v === 'tiled') {
+                s.basin = 'tiled'
+                s.style = 'tiled'
+              } else if (v === 'integrated' || (tiled && v === 'vessel')) delete s.basin
+              else s.basin = v
+            })
+          }
           options={[
             ...(tiled ? [] : [{ value: 'integrated' as const, label: t('Built in') }]),
             { value: 'vessel', label: t('Bowl on top') },
             { value: 'undermount', label: t('Under the top') },
+            { value: 'tiled', label: t('Tiled'), title: t('A basin of the same tiles as the wall behind it, sunk into its top, tiled too') },
           ]}
         />
-        {tiled && <p className="-mt-1 text-xs text-muted-foreground">{t('Built of blocks and finished like the wall behind it (its tiles, porcelain or paint), with a stone top.')}</p>}
-        {lay.x1 - lay.x0 >= 110 && (
+        {tiled && (
+          <p className="-mt-1 text-xs text-muted-foreground">
+            {tb
+              ? t('Built of blocks and finished like the wall behind it (its tiles or porcelain), its top too, with a basin of the same tiles sunk into it.')
+              : t('Built of blocks and finished like the wall behind it (its tiles, porcelain or paint), with a stone top.')}
+          </p>
+        )}
+        {!tb && (
+          <Choice
+            label={t('Sink shape')}
+            value={sym.sinkShape ?? 'oval'}
+            onChange={(v) => updateSymbol(sym.id, (s) => void (v === 'rect' ? (s.sinkShape = 'rect') : delete s.sinkShape))}
+            options={[
+              { value: 'oval', label: basin === 'vessel' ? t('Round') : t('Oval') },
+              { value: 'rect', label: t('Rectangular') },
+            ]}
+          />
+        )}
+        {tb && (
+          <Choice
+            label={t('Faucets')}
+            value={sym.faucets === 2 ? 'two' : 'one'}
+            onChange={(v) => updateSymbol(sym.id, (s) => void (v === 'two' ? (s.faucets = 2) : delete s.faucets))}
+            options={[
+              { value: 'one', label: t('One') },
+              { value: 'two', label: t('Two'), title: t('Two faucets over a long basin across the top') },
+            ]}
+          />
+        )}
+        {!tb && lay.x1 - lay.x0 >= 110 && (
           <Choice
             label={t('Sinks')}
             value={sym.sinks === 2 ? 'two' : 'one'}
@@ -1088,7 +1131,7 @@ function VanityOptions({ sym, units }: { sym: PlanSymbol; units: Units }) {
             ]}
           />
         )}
-        {lay.xs.length === 1 && (
+        {single && (
           <Choice
             physical
             label={t('Sink')}

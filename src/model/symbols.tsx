@@ -3,6 +3,7 @@ import type { ReactNode, SVGProps } from 'react'
 import { lightHex } from './lighting'
 import type { PlanTheme } from './theme'
 import type { CeilingStyle, MirrorShape, PlanSymbol } from './types'
+import { tiledBasin, vanityBasin } from './vanity'
 import {
   doorRun,
   doorsOf,
@@ -140,7 +141,8 @@ export const VANITY_STYLES: ItemStyle[] = [
   { id: 'curved', name: 'Rounded ends', kind: 'Modern' },
   { id: 'shaker', name: 'Shaker doors', kind: 'Classic' },
   { id: 'open', name: 'Open shelf', kind: 'Industrial' },
-  // Built of blocks, finished like the wall behind (porcelain, tiles…), with a stone top.
+  // Built of blocks, finished like the wall behind (porcelain, tiles…), with a stone top (or its top tiled too, a basin
+  // of the same tiles sunk into it).
   { id: 'tiled', name: 'Built in, tiled', kind: 'Modern' },
 ]
 
@@ -250,9 +252,11 @@ export function hasWorktop(sym: PlanSymbol) {
       return true
     case 'washing-machine':
       return styleOf(sym) === 'built-in'
-    case 'bath-vanity':
-      // A stone top: under bowls on it, round sinks under it, over a washing machine.
-      return !!sym.basin || !!vanitySinks(sym).washer || styleOf(sym) === 'tiled'
+    case 'bath-vanity': {
+      // A stone top: under bowls on it, round sinks under it, over a washing machine; none with its top tiled.
+      const basin = vanityBasin(sym)
+      return basin === 'vessel' || basin === 'undermount' || (basin === 'integrated' && !!vanitySinks(sym).washer)
+    }
     case 'shower-bench':
       return styleOf(sym) !== 'fold-down'
   }
@@ -311,7 +315,9 @@ const EACH_BASIN: MirrorShape[] = ['round', 'oval', 'arch', 'pill']
 export function vanityMirrors(sym: PlanSymbol): { x: number; y: number; w: number; h: number; shape: MirrorShape }[] {
   const above = sym.mirror ?? 'cabinet'
   if (above === 'none') return []
-  const s = vanitySinks(sym)
+  // Over its sinks; a tiled basin's, over its faucets.
+  const sinks = vanitySinks(sym)
+  const s = vanityBasin(sym) === 'tiled' ? { ...sinks, xs: tiledBasin(sym).faucets } : sinks
   const cw = s.x1 - s.x0
   const size = above === 'plain' ? sym.mirrorSize : undefined
   // A tall one comes down nearer the top and goes up to about a door's height.
@@ -2085,6 +2091,8 @@ export const SYMBOLS: SymbolDef[] = [
     render: (w, d, t, sym) => {
       const k = kit(t)
       const s = vanitySinks({ width: w, depth: d, sinks: sym?.sinks, sinkAt: sym?.sinkAt, washer: sym?.washer, style: sym?.style })
+      const basin = sym ? vanityBasin(sym) : 'integrated'
+      const tb = sym && basin === 'tiled' ? tiledBasin({ ...sym, width: w, depth: d }) : null
       // Rounded ends: its front corners round.
       const r = sym && styleOf(sym) === 'curved' ? Math.min(d * 0.45, 22, w / 4) : 0
       const bay = s.washer === 'left' ? -w / 2 : s.washer === 'right' ? s.x1 : null
@@ -2106,12 +2114,26 @@ export const SYMBOLS: SymbolDef[] = [
               <circle cx={bay + WASHER_BAY / 2} cy={d / 2 - Math.min(d * 0.32, 18) - 3} r={Math.min(d * 0.32, 18)} {...k.thin} strokeDasharray="4 3" />
             </g>
           )}
-          {s.xs.map((x) => (
-            <g key={x}>
-              <ellipse cx={x} cy={s.z} rx={s.rx} ry={s.rz} {...k.s(t.fill2)} />
-              <circle cx={x} cy={s.z - s.rz - 4} r={2} {...k.s(t.ink)} />
+          {basin === 'tiled' && tb ? (
+            // A basin of the same tiles sunk into its top, its faucets behind it.
+            <g>
+              <rect x={tb.x0} y={tb.z0} width={tb.x1 - tb.x0} height={tb.z1 - tb.z0} {...k.s(t.fill2)} />
+              {tb.faucets.map((x) => (
+                <circle key={x} cx={x} cy={tb.z0 - 5} r={2} {...k.s(t.ink)} />
+              ))}
             </g>
-          ))}
+          ) : (
+            s.xs.map((x) => (
+              <g key={x}>
+                {sym?.sinkShape === 'rect' ? (
+                  <rect x={x - s.rx} y={s.z - s.rz} width={s.rx * 2} height={s.rz * 2} rx={3} {...k.s(t.fill2)} />
+                ) : (
+                  <ellipse cx={x} cy={s.z} rx={s.rx} ry={s.rz} {...k.s(t.fill2)} />
+                )}
+                <circle cx={x} cy={s.z - s.rz - 4} r={2} {...k.s(t.ink)} />
+              </g>
+            ))
+          )}
         </>
       )
     },

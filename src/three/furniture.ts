@@ -40,6 +40,7 @@ import type { Side } from '@/model/guides'
 import { personLook, restOn } from '@/model/people'
 import { nicheDepth } from '@/model/walls'
 import { BENCH_TOP, FLOATING_BENCH, TILED_VANITY, VANITY_TOP } from '@/model/built'
+import { tiledBasin, vanityBasin } from '@/model/vanity'
 import { worktopMaterial } from './worktops'
 import {
   chairsAlong,
@@ -2173,11 +2174,24 @@ function prism(shape: THREE.Shape, t: number, x: number, y: number, z: number, m
   return m
 }
 
-function slabWithHoles(w: number, d: number, t: number, holes: { x: number; z: number; rx: number; rz: number }[], mat: Mat, r = 0) {
+function slabWithHoles(w: number, d: number, t: number, holes: { x: number; z: number; rx: number; rz: number; rect?: boolean }[], mat: Mat, r = 0) {
   const shape = plan(w, d, r)
   for (const o of holes) {
     const p = new THREE.Path()
-    p.absellipse(o.x, -o.z, o.rx, o.rz, 0, Math.PI * 2, false, 0)
+    if (o.rect) {
+      // A rectangle, its corners just rounded.
+      const c = Math.min(2, o.rx / 2, o.rz / 2)
+      const [x0, x1, y0, y1] = [o.x - o.rx, o.x + o.rx, -o.z - o.rz, -o.z + o.rz]
+      p.moveTo(x0 + c, y0)
+      p.lineTo(x1 - c, y0)
+      p.absarc(x1 - c, y0 + c, c, -Math.PI / 2, 0, false)
+      p.lineTo(x1, y1 - c)
+      p.absarc(x1 - c, y1 - c, c, 0, Math.PI / 2, false)
+      p.lineTo(x0 + c, y1)
+      p.absarc(x0 + c, y1 - c, c, Math.PI / 2, Math.PI, false)
+      p.lineTo(x0, y0 + c)
+      p.absarc(x0 + c, y0 + c, c, Math.PI, Math.PI * 1.5, false)
+    } else p.absellipse(o.x, -o.z, o.rx, o.rz, 0, Math.PI * 2, false, 0)
     shape.holes.push(p)
   }
   return prism(shape, t, 0, 0, 0, mat)
@@ -2265,9 +2279,12 @@ function bathVanity(k: Kit, sym: PlanSymbol, w: number, d: number, h: number, ga
   const chrome = k.q(COLORS.chrome, 'chrome')
   const style = styleOf(sym)
   const s = vanitySinks(sym)
-  // Built in and tiled: a block finished like the wall behind it (see buildScene), bowls on its stone top.
+  // Built in and tiled: a block finished like the wall behind it (see buildScene), bowls on its stone top or sinks under
+  // it; or its top tiled too, a basin of the same tiles sunk into it.
   const tiled = style === 'tiled'
-  const basin = sym.basin ?? (tiled ? 'vessel' : s.washer ? 'undermount' : 'integrated')
+  const basin = vanityBasin(sym)
+  const tb = basin === 'tiled' ? tiledBasin(sym) : null
+  const rect = sym.sinkShape === 'rect'
   const open = style === 'open'
   const top = VANITY_TOP
   const bottom = open ? 0 : sym.onFloor ? (style === 'shaker' ? 14 : 10) : 30
@@ -2280,8 +2297,19 @@ function bathVanity(k: Kit, sym: PlanSymbol, w: number, d: number, h: number, ga
   const ch = h - top - bottom - sunk
   if (tiled) {
     // Plain here: tiled like the wall it's against when that has a finish.
-    const y0 = sym.onFloor ? 0 : Math.max(0, h - top - TILED_VANITY)
-    g.add(box(w, h - top - y0, d, 0, y0, 0, k.q(WALL_WHITE, 'satin')))
+    const plain = k.q(WALL_WHITE, 'satin')
+    const y0 = sym.onFloor ? 0 : Math.max(0, (tb ? h : h - top) - TILED_VANITY)
+    if (tb) {
+      // Its top tiled too: the block up to the basin's bottom, a slab over it with the basin's opening, and a slot along
+      // the back of the basin's bottom to drain it.
+      const yb = h - tb.depth
+      const bx = (tb.x0 + tb.x1) / 2
+      g.add(box(w, yb - y0, d, 0, y0, 0, plain))
+      const slab = slabWithHoles(w, d, tb.depth, [{ x: bx, z: (tb.z0 + tb.z1) / 2, rx: (tb.x1 - tb.x0) / 2, rz: (tb.z1 - tb.z0) / 2, rect: true }], plain)
+      slab.position.y = yb
+      g.add(slab)
+      g.add(box(Math.max(4, tb.x1 - tb.x0 - 8), 0.3, 1.4, bx, yb + 0.3, tb.z0 + 3, dark))
+    } else g.add(box(w, h - top - y0, d, 0, y0, 0, plain))
   } else if (!open) {
     if (r) {
       // Rounded ends: the cabinet a slab rounded at its front corners, seen from above.
@@ -2377,23 +2405,38 @@ function bathVanity(k: Kit, sym: PlanSymbol, w: number, d: number, h: number, ga
     const end = s.washer === 'left' ? -w / 2 + 0.9 : w / 2 - 0.9
     if (!open) g.add(box(1.8, h - top, d - 2, end, 0, -1, body))
   }
-  // The top, and the basins in, on or under it.
-  const holes = s.xs.map((x) => ({ x, z: s.z, rx: s.rx, rz: s.rz }))
+  // The top, and the basins in, on or under it (a tiled one's top is its own).
+  const holes = s.xs.map((x) => ({ x, z: s.z, rx: s.rx, rz: s.rz, rect }))
   if (basin === 'integrated') {
     const slab = slabWithHoles(cw, d, top, holes.map((o) => ({ ...o, x: o.x - cx })), k.q(COLORS.ceramic, 'gloss'), r)
     slab.position.set(cx, h - top, 0)
     g.add(slab)
     // Over a washing machine beside it, a stone top.
     if (s.washer) g.add(rbox(w - cw, top, d, 0.6, s.washer === 'left' ? (-w / 2 + s.x0) / 2 : (w / 2 + s.x1) / 2, h - top, 0, k.top()))
-  } else {
+  } else if (basin !== 'tiled') {
     const slab = slabWithHoles(w, d, top, basin === 'undermount' ? holes : [], k.top(), r)
     slab.position.y = h - top
     g.add(slab)
   }
-  for (const x of s.xs) {
-    if (basin === 'vessel') {
+  for (const x of tb ? [] : s.xs) {
+    if (basin === 'vessel' && rect) {
+      // A rectangular bowl: its bottom and four sides, a drain in the middle.
+      const bw = Math.min(s.rx * 2.1, 52)
+      const bd = Math.min(s.rz * 2.1, 38)
+      g.add(rbox(bw, 1.4, bd, 0.5, x, h, s.z, ceramic))
+      for (const sz of [-1, 1]) g.add(rbox(bw, 12, 1.4, 0.5, x, h, s.z + sz * (bd / 2 - 0.7), ceramic))
+      for (const sx of [-1, 1]) g.add(rbox(1.4, 12, bd, 0.5, x + sx * (bw / 2 - 0.7), h, s.z, ceramic))
+      g.add(cylinder(1.6, 0.3, x, h + 1.4, s.z, chrome))
+    } else if (basin === 'vessel') {
       const rr = Math.min(s.rx, s.rz) * 1.15
       g.add(lathe([[0.1, 0.5], [rr * 0.45, 0], [rr * 0.9, 5], [rr, 12], [rr - 1.2, 12], [rr * 0.82, 6], [rr * 0.38, 1.6], [0.1, 1.6]], x, h, s.z, ceramic))
+    } else if (rect) {
+      // A rectangular sink under its opening: an open box, its bottom and four sides, a drain in the middle.
+      const yb = h - (basin === 'undermount' ? top : 0.4) - 13
+      g.add(box(s.rx * 2, 1, s.rz * 2, x, yb, s.z, ceramic))
+      for (const sz of [-1, 1]) g.add(box(s.rx * 2, 13, 1, x, yb, s.z + sz * (s.rz - 0.5), ceramic))
+      for (const sx of [-1, 1]) g.add(box(1, 13, s.rz * 2, x + sx * (s.rx - 0.5), yb, s.z, ceramic))
+      g.add(cylinder(1.6, 0.4, x, yb + 1, s.z, chrome)) // drain
     } else {
       const bowl = mesh(new THREE.SphereGeometry(1, 32, 12, 0, Math.PI * 2, Math.PI / 2, Math.PI / 2), ceramic)
       bowl.scale.set(s.rx, 13, s.rz)
@@ -2402,10 +2445,10 @@ function bathVanity(k: Kit, sym: PlanSymbol, w: number, d: number, h: number, ga
       g.add(cylinder(1.6, 0.4, x, h - 13.2 - (basin === 'undermount' ? top : 0), s.z, chrome)) // drain
     }
   }
-  // A tap behind each basin.
+  // A tap behind each basin; a tiled basin's, one or two behind it, on its top.
   const tall = basin === 'vessel' ? 26 : 15
-  for (const x of s.xs) {
-    const tz = s.z - s.rz - 4
+  const taps = tb ? tb.faucets.map((x) => ({ x, z: tb.z0 - 5 })) : s.xs.map((x) => ({ x, z: s.z - s.rz - 4 }))
+  for (const { x, z: tz } of taps) {
     g.add(cylinder(1.6, tall, x, h, tz, chrome, 1, 2, 16))
     g.add(box(2.2, 2.2, 11, x, h + tall - 3, tz + 5.5, chrome))
     g.add(box(1, 1, 6, x + 2.4, h + tall - 2, tz + 1.5, chrome)) // lever

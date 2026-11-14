@@ -384,8 +384,15 @@ export interface PlanSymbol {
   onFloor?: boolean
   /** Bathroom vanities: what's above them, a mirror cabinet (default), a mirror or nothing. */
   mirror?: 'cabinet' | 'plain' | 'none'
-  /** Bathroom vanities: their basins, built into a ceramic top (if left out), bowls on a stone top, or under one. */
-  basin?: 'vessel' | 'undermount'
+  /**
+   * Bathroom vanities: their basins, built into a ceramic top (if left out), bowls on a stone top, or under one; or, built
+   * in and tiled, a basin of the same tiles sunk into its top (also tiled), no stone (see vanityBasin).
+   */
+  basin?: 'vessel' | 'undermount' | 'tiled'
+  /** Bathroom vanities: rectangular basins (oval if left out); a tiled one's is always rectangular. */
+  sinkShape?: 'rect'
+  /** Bathroom vanities with a tiled basin: two faucets over a trough across it (one if left out). */
+  faucets?: 2
   /** Bathroom vanities with one sink: it's to the left or right (as seen from the front), else in the middle. */
   sinkAt?: 'left' | 'right'
   /** Bathroom vanities: a washing machine under the top at this end (as seen from the front). */

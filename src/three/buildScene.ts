@@ -590,15 +590,55 @@ export function buildProjectGroup(project: Project, opts: BuildOptions): THREE.G
               }
             }
           }
-          // The sills and tops of its niches, in the finish at their height.
+          // The sills and tops of its niches, in the finish at their height; a top with a basin sunk into it, round it.
+          // Laid as seen: a basin's opening mirrored with the item.
+          const sunk = built.basin && {
+            ...built.basin,
+            x0: flip > 0 ? built.basin.x0 : -built.basin.x1,
+            x1: flip > 0 ? built.basin.x1 : -built.basin.x0,
+          }
+          // A flat face from x0 to x1 and z0 (back) to z1 (front) at y, facing up, the tiles laid on from its front.
+          const flat = (x0: number, x1: number, z0: number, z1: number, y: number, surface: Surface) => {
+            if (x1 - x0 < 0.1 || z1 - z0 < 0.1) return
+            clad.add(mesh(rectGeo(v3(x0, y, z1), v3(1, 0, 0), v3(0, 0, -1), x1 - x0, z1 - z0, uL + x0 + w / 2, zf - z1), matAt(surface)))
+          }
           for (const cap of built.caps ?? []) {
             const band = bands.find((x) => cap.y >= x.z0 && cap.y < x.z1) ?? bands[bands.length - 1]
             if (!band) continue
             const y = cap.y + (cap.up ? 0.3 : -0.3)
+            if (sunk && cap.up && cap.y === built.y1) {
+              flat(-w / 2, w / 2, -d / 2, sunk.z0, y, band.surface)
+              flat(-w / 2, w / 2, sunk.z1, zf, y, band.surface)
+              flat(-w / 2, sunk.x0, sunk.z0, sunk.z1, y, band.surface)
+              flat(sunk.x1, w / 2, sunk.z0, sunk.z1, y, band.surface)
+              continue
+            }
             const geo = cap.up
               ? rectGeo(v3(-w / 2, y, zf), v3(1, 0, 0), v3(0, 0, -1), w, built.depth, uL, 0)
               : rectGeo(v3(-w / 2, y, -d / 2), v3(1, 0, 0), v3(0, 0, 1), w, built.depth, uL, 0)
             clad.add(mesh(geo, matAt(band.surface)))
+          }
+          // The basin lined with the same finish: its four sides, facing in, and its bottom.
+          if (sunk) {
+            const yb = built.y1 - sunk.depth
+            const band = bands.find((x) => yb >= x.z0 && yb < x.z1) ?? bands[bands.length - 1]
+            if (band) {
+              const sides: { A: [number, number]; B: [number, number] }[] = [
+                { A: [sunk.x0, sunk.z0], B: [sunk.x1, sunk.z0] },
+                { A: [sunk.x1, sunk.z1], B: [sunk.x0, sunk.z1] },
+                { A: [sunk.x0, sunk.z1], B: [sunk.x0, sunk.z0] },
+                { A: [sunk.x1, sunk.z0], B: [sunk.x1, sunk.z1] },
+              ]
+              for (const f of sides) {
+                const A = v3(f.A[0], yb, f.A[1])
+                const along = v3(f.B[0], yb, f.B[1]).sub(A)
+                const len = along.length()
+                along.normalize()
+                const out = along.clone().cross(up)
+                clad.add(mesh(rectGeo(A.addScaledVector(out, 0.3), along, up, len, sunk.depth, uL + f.A[0] + w / 2, yb), matAt(band.surface)))
+              }
+              flat(sunk.x0, sunk.x1, sunk.z0, sunk.z1, yb + 0.3, band.surface)
+            }
           }
           // A floating bench's underside, in the finish it has at its bottom (across a corner, a triangle).
           const low = built.under && (bands.find((band) => built.y0 < band.z1) ?? bands[0])

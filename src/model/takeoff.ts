@@ -39,6 +39,7 @@ import {
 import { isOpen, isOutdoor, roomOuter, stairOpenings, symbolPose } from './project'
 import type { ResolvedPose } from './project'
 import { alcoveOpenings, CEILING_AC, hasWorktop, partitionTop, stoneSill, styleOf, SYMBOL_MAP, SYMBOLS, tankBoxDepth, vanitySinks, worktopOf } from './symbols'
+import { vanityBasin } from './vanity'
 import type { Ceiling, CeilingStyle, Floor, PlanSymbol, Point, Room, Surface, WallSurface } from './types'
 import { aroundCuts, cutsFor, nicheDepth, roomFaces, wallBehind, wallOpenings } from './walls'
 import type { Opening } from './walls'
@@ -406,8 +407,15 @@ const built: Rule = (sym, ctx, pose) => {
     clad(ctx, behind, s, hidden, a, b, -1)
   }
   // Its niches' sills and tops (an alcove's niches' backs and sides are the wall's and the column's, which show there),
-  // and an underside that shows.
-  for (const cap of box.caps ?? []) cladFlat(ctx, part, s, footprint, cap.y)
+  // a tiled top round the basin sunk into it, and an underside that shows.
+  const b = box.basin
+  const opening = b ? (b.x1 - b.x0) * (b.z1 - b.z0) : 0
+  for (const cap of box.caps ?? []) cladFlat(ctx, part, s, footprint - (b && cap.up && cap.y === box.y1 ? opening : 0), cap.y)
+  if (b) {
+    // The basin lined with the same finish: its four sides and its bottom.
+    clad(ctx, part, s, 2 * (b.x1 - b.x0 + (b.z1 - b.z0)), box.y1 - b.depth, box.y1)
+    cladFlat(ctx, part, s, opening, box.y1 - b.depth)
+  }
   if (box.under) cladFlat(ctx, part, s, footprint, box.y0)
   // The floor under it, if it stands on it; the ceiling over it, if it goes up to it.
   if (spans[0][0] < 0.5) onFloor(ctx, room, footprint, sym.id)
@@ -485,9 +493,11 @@ function builtStone(sym: PlanSymbol, ctx: Ctx, pose: ResolvedPose) {
   const d = sym.depth
   const top = worktopOf(sym).id
   if (sym.type === 'bath-vanity') {
+    // A stone top under bowls or over sinks; over a washing machine's bay beside a ceramic top; none, its top tiled.
     const lay = vanitySinks(sym)
-    if (sym.basin || styleOf(sym) === 'tiled') stone(ctx, room, 'Vanity tops', top, w * d, w, sym.id)
-    else if (lay.washer) stone(ctx, room, 'Vanity tops', top, (w - (lay.x1 - lay.x0)) * d, w - (lay.x1 - lay.x0), sym.id)
+    const basin = vanityBasin(sym)
+    if (basin === 'vessel' || basin === 'undermount') stone(ctx, room, 'Vanity tops', top, w * d, w, sym.id)
+    else if (basin === 'integrated' && lay.washer) stone(ctx, room, 'Vanity tops', top, (w - (lay.x1 - lay.x0)) * d, w - (lay.x1 - lay.x0), sym.id)
   } else if (sym.type === 'shower-bench' && styleOf(sym) !== 'fold-down') {
     // A nose over its front; across a corner, a triangle.
     stone(ctx, room, 'Bench tops', top, styleOf(sym) === 'corner' ? (w * d) / 2 : w * (d + 1.5), styleOf(sym) === 'corner' ? Math.hypot(w, d) : w, sym.id)

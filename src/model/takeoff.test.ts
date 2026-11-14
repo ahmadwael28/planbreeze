@@ -105,6 +105,39 @@ describe('takeoff', () => {
     expect(skirting(g).get(g.rooms[0].id)).toBe(1000 - 90)
   })
 
+  describe('a vanity built in and tiled', () => {
+    /**
+     * A 300 × 200 cm room tiled in porcelain to the ceiling, and a vanity 100 cm wide, 48 deep and 85 high hung on its
+     * back wall, built in and tiled like it.
+     */
+    function tiledVanity(more: Partial<PlanSymbol> = {}) {
+      const f = floorOf(rectPoints(0, 0, 300, 200))
+      f.rooms[0].walls = { finish: 'porcelain' }
+      f.symbols.push({ ...newSymbol('bath-vanity', 150, 24), width: 100, depth: 48, height: 85, style: 'tiled', ...more })
+      const parts = takeoff(f)
+      return { walls: surfaces(f).walls, stone: parts.filter((p) => p.place === 'stone').map((p) => [p.what, m2(p.area)]) }
+    }
+
+    it('on a stone top: its front, sides and underside tiled, the wall behind it not', () => {
+      // A 35 cm box under the 3 cm top: its front and both sides 100 + 2 × 48 = 196 cm round × 35 = 6860 cm²; its
+      // underside 100 × 48 = 4800; less the wall behind it, 100 × 35 = 3500. The top 100 × 48 in stone.
+      expect(tiledVanity()).toEqual({ walls: 25.816, stone: [['Vanity tops', 0.48]] })
+    })
+
+    it('with its top tiled too, a basin of the same tiles sunk into it, and no stone', () => {
+      // The box 35 cm high up to the top (85): 196 × 35 = 6860, its underside 4800, less 3500 behind it. The basin 60
+      // wide (one faucet), 26 front to back, 12 deep: its opening 1560 off the top (4800 − 1560 = 3240), its sides
+      // 2 × (60 + 26) × 12 = 2064 and its bottom 1560 lined. 6860 + 4800 − 3500 + 3240 + 2064 + 1560 = 15024 cm².
+      expect(tiledVanity({ basin: 'tiled' })).toEqual({ walls: 26.5024, stone: [] })
+    })
+
+    it('with two faucets, a trough across it, 12 cm in from its ends', () => {
+      // 76 wide: its opening 1976 (top 2824), its sides 2 × (76 + 26) × 12 = 2448, its bottom 1976.
+      // 6860 + 4800 − 3500 + 2824 + 2448 + 1976 = 15408 cm².
+      expect(tiledVanity({ basin: 'tiled', faucets: 2 })).toEqual({ walls: 26.5408, stone: [] })
+    })
+  })
+
   it('has a rule for every kind of item in the library (or knows it does nothing to the surfaces)', () => {
     expect(unaccounted()).toEqual([])
   })
