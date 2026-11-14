@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { newSymbol } from './project'
+import { newFloor, newRoom, newSymbol, rectPoints } from './project'
+import { vanityCeiling } from './stacking'
 import { vanityLight, vanityMirrors } from './symbols'
 import type { PlanSymbol } from './types'
 import { chooseBasin, tiledBasin, vanityBasin, wallSpout } from './vanity'
@@ -61,6 +62,32 @@ describe('a vanity’s mirror up to the ceiling', () => {
     expect(m).toEqual([{ x: 0, y: 100, w: 98, h: 149.5, shape: 'rect' }])
     // Under a gypsum ceiling 20 cm lower.
     expect(vanityMirrors(vanity({ mirror: 'plain', mirrorSize: 'ceiling' }), 230)[0].h).toBe(129.5)
+  })
+
+  it('stops under a gypsum ceiling lowered along the wall behind it, though not over the vanity', () => {
+    // A 300 × 200 cm bathroom 250 cm high, its tray ceiling 25 cm down in a 20 cm band along the walls.
+    const floor = newFloor('Ground floor')
+    floor.height = 250
+    const room = newRoom(floor, rectPoints(0, 0, 300, 200), 10)
+    room.ceiling = { style: 'tray', drop: 25, band: 20 }
+    floor.rooms.push(room)
+    // Its back on the wall at y = 0: its middle (24 cm out) is under the slab, the wall behind it under the band.
+    const v = vanity({ x: 150, y: 24, mirror: 'plain', mirrorSize: 'ceiling' })
+    expect(vanityCeiling(v, floor)).toBe(225)
+    // From 100 cm up to just under it: 225 − 0.5 − 100.
+    expect(vanityMirrors(v, vanityCeiling(v, floor))[0].h).toBe(124.5)
+    // Flipped, against the wall at y = 200; 5 cm out from it, all the same.
+    expect(vanityCeiling({ ...v, y: 176, flipY: true }, floor)).toBe(225)
+    expect(vanityCeiling({ ...v, y: 29 }, floor, 5)).toBe(225)
+    // With no gypsum ceiling, the room's.
+    delete room.ceiling
+    expect(vanityCeiling(v, floor)).toBe(250)
+  })
+
+  it('keeps any mirror under a low ceiling', () => {
+    // A tall one would go up to 215 cm: under a 200 cm ceiling, 99.5 high from 100.
+    expect(vanityMirrors(vanity({ mirror: 'plain', mirrorSize: 'tall' }), 200)[0].h).toBe(99.5)
+    expect(vanityMirrors(vanity({ mirror: 'plain', mirrorSize: 'tall' }))[0].h).toBe(115)
   })
 
   it('has no bar light over it: lit from behind instead', () => {

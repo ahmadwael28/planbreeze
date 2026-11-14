@@ -12,7 +12,8 @@ import {
   signedArea,
   sub,
 } from '@/model/geometry'
-import { finishOf, surfaceLayout, wallSurfaceAt } from '@/model/finishes'
+import { FINISHES, finishOf, surfaceLayout, wallSurfaceAt } from '@/model/finishes'
+import { DOOR_SLAT, doorSlats } from '@/model/doors'
 import { openSides } from '@/model/guides'
 import { columnBoxes, inShowersWay, showerRuns } from '@/model/shower'
 import { aroundColumns, developed, wallColumns } from '@/model/developed'
@@ -376,6 +377,69 @@ function WallFinishes({ room, floor, theme, images }: { room: Room; floor: Floor
   )
 }
 
+/**
+ * Wood slats round doors on the plan: on each face of the wall a door has them on, a strip of the wood beside it, slat by
+ * slat on their dark backing, in place of the wall's finish there; over the door (overhead), dashed.
+ */
+function DoorSlatStrips({ floor, theme }: { floor: Floor; theme: PlanTheme }) {
+  const doors = floor.symbols.filter((s) => s.slats && s.wall)
+  if (!doors.length) return null
+  const [slat, gap] = DOOR_SLAT
+  const pitch = slat + gap
+  return (
+    <g pointerEvents="none">
+      {doors.flatMap((sym) => {
+        const sides = doorSlats(sym, floor)
+        if (!sides.length) return []
+        const pose = symbolPose(sym, floor.rooms)
+        const t = pose.wallThickness ?? sym.depth
+        const r = (pose.rotation * Math.PI) / 180
+        // Across the door (x, its middle at 0) and out from the wall's centre line (y, into its room).
+        const at = (x: number, y: number) => ({ x: pose.x + x * Math.cos(r) - y * Math.sin(r), y: pose.y + x * Math.sin(r) + y * Math.cos(r) })
+        return sides.map((sd) => {
+          const y = sd.face * (t / 2 + WALL_STRIP / 2)
+          const edge = sd.face * (t / 2 + WALL_STRIP)
+          const color = sd.surface.color ?? FINISHES.slats.colors[0].hex
+          const beside = [
+            ...(sd.x0 < -sd.e ? [[sd.x0, Math.min(-sd.e, sd.x1)]] : []),
+            ...(sd.x1 > sd.e ? [[Math.max(sd.e, sd.x0), sd.x1]] : []),
+          ].filter(([a, b]) => b - a > 0.5)
+          const over = sd.top > sd.doorTop + 0.5 ? [Math.max(sd.x0, -sd.e), Math.min(sd.x1, sd.e)] : null
+          return (
+            <g key={`${sym.id}${sd.face}`}>
+              {beside.map(([a, b]) => {
+                const [p, q] = [at(a, y), at(b, y)]
+                // Slats on a grid from the door's middle, as they're built (see buildScene).
+                const phase = (((a + slat / 2) % pitch) + pitch) % pitch
+                const [p1, q1] = [at(a, edge), at(b, edge)]
+                return (
+                  <g key={a}>
+                    <line x1={p.x} y1={p.y} x2={q.x} y2={q.y} stroke="#1d1c1b" strokeWidth={WALL_STRIP} />
+                    <line x1={p.x} y1={p.y} x2={q.x} y2={q.y} stroke={color} strokeWidth={WALL_STRIP} strokeDasharray={`${slat} ${gap}`} strokeDashoffset={phase} />
+                    <line x1={p1.x} y1={p1.y} x2={q1.x} y2={q1.y} stroke={theme.ink} strokeOpacity={0.45} strokeWidth={0.8} vectorEffect="non-scaling-stroke" />
+                  </g>
+                )
+              })}
+              {over && over[1] - over[0] > 0.5 && (
+                <line
+                  x1={at(over[0], y).x}
+                  y1={at(over[0], y).y}
+                  x2={at(over[1], y).x}
+                  y2={at(over[1], y).y}
+                  stroke={color}
+                  strokeWidth={1.4}
+                  strokeDasharray="5 4"
+                  vectorEffect="non-scaling-stroke"
+                />
+              )}
+            </g>
+          )
+        })
+      })}
+    </g>
+  )
+}
+
 function uprightAngle(deg: number) {
   return deg > 90 || deg < -90 ? deg + 180 : deg
 }
@@ -673,6 +737,7 @@ export function PlanLayers({
         ))}
         {!lighting && !forPrint && floor.rooms.map((r) => <FloorFinish key={r.id} room={r} origin={floorOrigin(r, floor.rooms)} theme={theme} scale={scale} images={images} />)}
         {!lighting && floor.rooms.map((r) => <WallFinishes key={r.id} room={r} floor={floor} theme={theme} images={images} />)}
+        {!lighting && <DoorSlatStrips floor={floor} theme={theme} />}
       </g>
       {lighting && (
         <g>

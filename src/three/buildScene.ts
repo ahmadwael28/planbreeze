@@ -5,6 +5,7 @@ import { isSelected } from '@/model/items'
 import { isOpen, isOutdoor, railingRuns, roomOuter, SLAB, stairOpenings, symbolPose, wallEnds } from '@/model/project'
 import { floorOrigin } from '@/model/divide'
 import { CEILING_AC, NICHES, partitionTop, SYMBOL_MAP } from '@/model/symbols'
+import { vanityCeiling } from '@/model/stacking'
 import { beamFinish, builtBox, halfWallBoxes, hangDepth } from '@/model/built'
 import { DOOR_SLAT, doorSlats, SLAT_BACKING, SLAT_DEPTH } from '@/model/doors'
 import type { PlanTheme } from '@/model/theme'
@@ -478,7 +479,7 @@ export function buildProjectGroup(project: Project, opts: BuildOptions): THREE.G
               floor.height,
               !!def,
               floor.rooms,
-              hangs ? ceilingHeightAt(floor, pose) : floor.height,
+              hangs ? ceilingHeightAt(floor, pose) : sym.type === 'bath-vanity' ? vanityCeiling(sym, floor, wallGap) : floor.height,
               sym.type === 'curtain' ? washFor(pose) : undefined,
               floor.symbols,
               wallGap,
@@ -743,7 +744,8 @@ export function buildProjectGroup(project: Project, opts: BuildOptions): THREE.G
       obj.traverse((o) => (o.userData.pick = pick))
       group.add(obj)
       // Cabinets with LEDs inside: their lights, placed like the cabinet.
-      const leds = sym.led ? cabinetLeds(sym, wallGap, sym.type === 'alcove-niche' || sym.type === 'bath-vanity' ? ceilingHeightAt(floor, pose) : undefined) : null
+      const ledsUnder = sym.type === 'alcove-niche' ? ceilingHeightAt(floor, pose) : sym.type === 'bath-vanity' ? vanityCeiling(sym, floor, wallGap) : undefined
+      const leds = sym.led ? cabinetLeds(sym, wallGap, ledsUnder) : null
       if (leds) {
         const lit = cabinetLights(sym, leds, floor, floor.rooms.find((r) => pointInPolygon(pose, r.points))?.id, handles)
         lit.position.copy(obj.position)

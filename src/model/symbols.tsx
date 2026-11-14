@@ -314,6 +314,17 @@ const EACH_BASIN: MirrorShape[] = ['round', 'oval', 'arch', 'pill']
  * so), over its sinks; and their shape.
  */
 export function vanityMirrors(sym: PlanSymbol, ceilingH?: number): { x: number; y: number; w: number; h: number; shape: MirrorShape }[] {
+  const all = mirrorsOver(sym, ceilingH)
+  if (ceilingH === undefined || !Number.isFinite(ceilingH)) return all
+  // None goes up into a lowered ceiling: a round one gets smaller, the others shorter.
+  return all.map((m) => {
+    const most = Math.max(20, ceilingH - 0.5 - m.y)
+    if (m.h <= most) return m
+    return m.shape === 'round' ? { ...m, w: most, h: most } : { ...m, h: most }
+  })
+}
+
+function mirrorsOver(sym: PlanSymbol, ceilingH?: number): { x: number; y: number; w: number; h: number; shape: MirrorShape }[] {
   const above = sym.mirror ?? 'cabinet'
   if (above === 'none') return []
   // Over its sinks; a tiled basin's, over its faucets.

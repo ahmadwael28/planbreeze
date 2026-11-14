@@ -2,6 +2,7 @@
  * What's drawn over what in the plan. Seen from above, what reaches higher hides what's under it: a wall TV over the
  * TV unit below it, the upper of two switches over the lower one, a person over the sofa they sit on.
  */
+import { ceilingHeightAt } from './lighting'
 import { personSupport } from './people'
 import { alcoveSolids, CEILING_AC, LEDGE_SHELF, ledgeHeight, partitionCrown, styleOf, SYMBOL_MAP, vanityMirror, vanityMirrors } from './symbols'
 import type { Floor, PlanSymbol } from './types'
@@ -50,12 +51,26 @@ export function heightsOf(sym: PlanSymbol, floor: Floor): { top: number; bottom:
   }
   let top = bottom + sym.height
   // What stands above a vanity or dressing table: its mirror cabinet or mirror.
-  if (sym.type === 'bath-vanity') top = Math.max(top, ...vanityMirrors(sym, floor.height).map((m) => m.y + m.h))
+  if (sym.type === 'bath-vanity') top = Math.max(top, ...vanityMirrors(sym, vanityCeiling(sym, floor)).map((m) => m.y + m.h))
   if (sym.type === 'dressing-table') {
     const m = vanityMirror(sym)
     top += m.bottom + m.h
   }
   return { top, bottom }
+}
+
+/**
+ * How high the ceiling is over a vanity's mirrors, on the wall behind it (`wallGap` behind its back, as it stands in the
+ * plan): the lowest a gypsum ceiling, box or beam comes anywhere over them, across each one.
+ */
+export function vanityCeiling(sym: PlanSymbol, floor: Floor, wallGap = 0): number {
+  const r = (sym.rotation * Math.PI) / 180
+  const fx = sym.flipX ? -1 : 1
+  // Just out from the wall, so a lowered band along it counts.
+  const ly = (sym.flipY ? -1 : 1) * -Math.max(sym.depth / 2 + wallGap - 2, 0)
+  const at = (x: number) => ({ x: sym.x + fx * x * Math.cos(r) - ly * Math.sin(r), y: sym.y + fx * x * Math.sin(r) + ly * Math.cos(r) })
+  const xs = vanityMirrors(sym, floor.height).flatMap((m) => [m.x - m.w / 2 + 1, m.x, m.x + m.w / 2 - 1])
+  return Math.min(floor.height, ...(xs.length ? xs : [0]).map((x) => ceilingHeightAt(floor, at(x))))
 }
 
 /** Items in the order to draw them in the plan: the lowest first, so the higher ones are drawn over them. */
