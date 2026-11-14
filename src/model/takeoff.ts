@@ -40,7 +40,7 @@ import { isOpen, isOutdoor, roomOuter, stairOpenings, symbolPose } from './proje
 import type { ResolvedPose } from './project'
 import { alcoveOpenings, CEILING_AC, hasWorktop, partitionTop, stoneSill, styleOf, SYMBOL_MAP, SYMBOLS, tankBoxDepth, vanitySinks, worktopOf } from './symbols'
 import { vanityBasin } from './vanity'
-import { doorSlats, slatSpans, SLATTED_DOORS } from './doors'
+import { doorSlats, SLATTED_DOORS } from './doors'
 import type { Ceiling, CeilingStyle, Floor, PlanSymbol, Point, Room, Surface, WallSurface } from './types'
 import { aroundCuts, cutsFor, nicheDepth, roomFaces, wallBehind, wallOpenings } from './walls'
 import type { Opening } from './walls'
@@ -438,22 +438,20 @@ function standing(sym: PlanSymbol, ctx: Ctx, pose: ResolvedPose, s: WallSurface,
 }
 
 /**
- * Wood slats round a door (see doorSlats): beside it from the floor and over it, up to the ceiling, on each face of the
- * wall they're on, in place of the wall's finish there. Its opening comes off the walls as any door's (see roomParts).
+ * Wood slats round a door (see doorSlats): beside it from the floor, over it, or both, up to the ceiling, on each face of
+ * the wall they're on, in place of the wall's finish there. Its opening comes off the walls as any door's (see roomParts).
  */
 const doorSlatsRule: Rule = (sym, ctx) => {
   for (const side of doorSlats(sym, ctx.floor)) {
     if (!side.room || side.edge === undefined) continue
     const part = { room: side.room.id, what: 'Wood slats round doors', from: sym.id }
     const behind = { ...part, what: 'Hidden behind what’s built' }
-    const { beside, over } = slatSpans(side)
     const wall = wallOf(side.room, side.edge)
     for (const [p, s, sign] of [
       [part, side.surface, 1],
       [behind, wall, -1],
     ] as const) {
-      clad(ctx, p, s, beside, 0, side.top, sign)
-      clad(ctx, p, s, over, side.doorTop, side.top, sign)
+      for (const { x0, x1, bottom } of side.pieces) clad(ctx, p, s, x1 - x0, bottom, side.top, sign)
     }
   }
 }

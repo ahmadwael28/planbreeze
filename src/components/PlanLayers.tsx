@@ -379,7 +379,7 @@ function WallFinishes({ room, floor, theme, images }: { room: Room; floor: Floor
 
 /**
  * Wood slats round doors on the plan: on each face of the wall a door has them on, a strip of the wood beside it, slat by
- * slat on their dark backing, in place of the wall's finish there; over the door (overhead), dashed.
+ * slat on their dark backing, in place of the wall's finish there; what's over the door (overhead), dashed.
  */
 function DoorSlatStrips({ floor, theme }: { floor: Floor; theme: PlanTheme }) {
   const doors = floor.symbols.filter((s) => s.slats && s.wall)
@@ -400,11 +400,8 @@ function DoorSlatStrips({ floor, theme }: { floor: Floor; theme: PlanTheme }) {
           const y = sd.face * (t / 2 + WALL_STRIP / 2)
           const edge = sd.face * (t / 2 + WALL_STRIP)
           const color = sd.surface.color ?? FINISHES.slats.colors[0].hex
-          const beside = [
-            ...(sd.x0 < -sd.e ? [[sd.x0, Math.min(-sd.e, sd.x1)]] : []),
-            ...(sd.x1 > sd.e ? [[Math.max(sd.e, sd.x0), sd.x1]] : []),
-          ].filter(([a, b]) => b - a > 0.5)
-          const over = sd.top > sd.doorTop + 0.5 ? [Math.max(sd.x0, -sd.e), Math.min(sd.x1, sd.e)] : null
+          const beside = sd.pieces.filter((p) => p.bottom < 1).map((p) => [p.x0, p.x1])
+          const over = sd.pieces.filter((p) => p.bottom >= 1)
           return (
             <g key={`${sym.id}${sd.face}`}>
               {beside.map(([a, b]) => {
@@ -420,18 +417,19 @@ function DoorSlatStrips({ floor, theme }: { floor: Floor; theme: PlanTheme }) {
                   </g>
                 )
               })}
-              {over && over[1] - over[0] > 0.5 && (
+              {over.map((p) => (
                 <line
-                  x1={at(over[0], y).x}
-                  y1={at(over[0], y).y}
-                  x2={at(over[1], y).x}
-                  y2={at(over[1], y).y}
+                  key={p.x0}
+                  x1={at(p.x0, y).x}
+                  y1={at(p.x0, y).y}
+                  x2={at(p.x1, y).x}
+                  y2={at(p.x1, y).y}
                   stroke={color}
                   strokeWidth={1.4}
                   strokeDasharray="5 4"
                   vectorEffect="non-scaling-stroke"
                 />
-              )}
+              ))}
             </g>
           )
         })

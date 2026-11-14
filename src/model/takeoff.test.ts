@@ -140,6 +140,65 @@ describe('takeoff', () => {
       expect(two('other')).toEqual([0, 23468])
       expect(two('both')).toEqual([23468, 23468])
     })
+
+    it('go only over it, from its frame up, and as far past it as asked', () => {
+      const over = (width: number) => {
+        const f = floorOf(rectPoints(0, 0, 300, 200))
+        f.symbols.push(door(f.rooms[0], 0, 150, { slats: { width, style: 'over' } }))
+        return slatted(f, f.rooms[0])
+      }
+      // Over its frame, 102 cm across from 216 up to 250: 3468. 20 cm past it either side: 142 × 34 = 4828.
+      expect(over(0)).toBe(3468)
+      expect(over(20)).toBe(4828)
+    })
+
+    it('go only beside it, either side', () => {
+      const f = floorOf(rectPoints(0, 0, 300, 200))
+      f.symbols.push(door(f.rooms[0], 0, 150, { slats: { width: 40, style: 'beside' } }))
+      // 2 × 40 × 250.
+      expect(slatted(f, f.rooms[0])).toBe(20000)
+    })
+
+    it('stop at a door or window next to it, where there’s no wall', () => {
+      const next = (window: boolean) => {
+        const f = floorOf(rectPoints(0, 0, 300, 200))
+        f.symbols.push(door(f.rooms[0], 0, 150), { ...onWall('door', f.rooms[0], 0, 50), width: 70, height: 210 })
+        if (window) f.symbols.push({ ...onWall('window', f.rooms[0], 0, 260), width: 60 })
+        return slatted(f, f.rooms[0])
+      }
+      // A 70 cm door 100 cm along from its middle, its frame 35 + 6 = 41 round its own: 100 − 41 = 59 from this one's
+      // middle, 59 − 51 = 8 cm of slats on that side, 40 on the other: 48 × 250 + 3468 = 15468.
+      expect(next(false)).toBe(15468)
+      // And a 60 cm window 110 cm along the other way, 1 cm of frame round it: 110 − 31 = 79, so 79 − 51 = 28 cm there.
+      // 36 × 250 + 3468 = 12468.
+      expect(next(true)).toBe(12468)
+    })
+
+    it('meet another door’s slats halfway, where the two would overlap', () => {
+      const f = floorOf(rectPoints(0, 0, 300, 200))
+      f.symbols.push(door(f.rooms[0], 0, 80), door(f.rooms[0], 0, 220))
+      // Their frames 29…131 and 169…271 along the wall: 38 cm between them, which both would cover (40 each), shared
+      // 19 and 19; 29 cm to the wall's end beyond each. 96 × 250 and the two over their doors (2 × 3468): 30936.
+      expect(slatted(f, f.rooms[0])).toBe(30936)
+      // The other only over its door, 40 past it: this one's go on to its frame, 38 cm (29 + 38 = 67 × 250 + 3468 =
+      // 20218); its own, from its frame to the wall's end 80 cm on (131 × 34 = 4454).
+      const g = floorOf(rectPoints(0, 0, 300, 200))
+      g.symbols.push(door(g.rooms[0], 0, 80), door(g.rooms[0], 0, 220, { slats: { width: 40, style: 'over' } }))
+      expect(slatted(g, g.rooms[0])).toBe(20218 + 4454)
+    })
+
+    it('stop at a niche only on the face it’s cut into', () => {
+      const two = (side?: 'other') => {
+        const f = floorOf(rectPoints(0, 0, 300, 200), rectPoints(310, 0, 300, 200))
+        f.symbols.push(door(f.rooms[0], 1, 100, { slats: { width: 40, side } }))
+        // In the other room's face of the wall, 30 wide, its middle 70 cm along from the door's: from 70 − 16 = 54.
+        f.symbols.push({ ...onWall('wall-niche', f.rooms[1], 3, 30), width: 30 })
+        return slatted(f, f.rooms[side ? 1 : 0])
+      }
+      expect(two()).toBe(23468)
+      // 54 − 51 = 3 cm on that side, 40 on the other: 43 × 250 + 3468 = 14218.
+      expect(two('other')).toBe(14218)
+    })
   })
 
   describe('a vanity built in and tiled', () => {
