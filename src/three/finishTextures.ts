@@ -237,15 +237,26 @@ function piecePainter(ctx: CanvasRenderingContext2D, s: Surface, place: Place, f
             ctx.bezierCurveTo(c1.x, c1.y, c2.x, c2.y, p1.x, p1.y)
             ctx.stroke()
           }
-        } else {
-          // A speckle (ceramic) or a gentle mottling (porcelain).
-          const n = s.finish === 'ceramic' ? 50 : 8
-          for (let i = 0; i < n; i++) {
+        } else if (s.finish === 'ceramic') {
+          // A fine speckle in the glaze.
+          for (let i = 0; i < 50; i++) {
             ctx.fillStyle = rand() < 0.5 ? 'rgba(0,0,0,0.05)' : 'rgba(255,255,255,0.06)'
-            const r = s.finish === 'ceramic' ? 0.6 + rand() * 1.2 : wid * (0.1 + rand() * 0.25)
             ctx.beginPath()
-            ctx.arc(cx + (rand() - 0.5) * len * a.x + (rand() - 0.5) * wid * nrm.x, cy + (rand() - 0.5) * len * a.y + (rand() - 0.5) * wid * nrm.y, r, 0, Math.PI * 2)
+            ctx.arc(cx + (rand() - 0.5) * len * a.x + (rand() - 0.5) * wid * nrm.x, cy + (rand() - 0.5) * len * a.y + (rand() - 0.5) * wid * nrm.y, 0.6 + rand() * 1.2, 0, Math.PI * 2)
             ctx.fill()
+          }
+        } else {
+          // Porcelain: a gentle clouding, a little lighter here and darker there, with no edges to it.
+          for (let i = 0; i < 6; i++) {
+            const x = cx + (rand() - 0.5) * len * a.x + (rand() - 0.5) * wid * nrm.x
+            const y = cy + (rand() - 0.5) * len * a.y + (rand() - 0.5) * wid * nrm.y
+            const r = Math.max(len, wid) * (0.25 + rand() * 0.35)
+            const g = ctx.createRadialGradient(x, y, 0, x, y, r)
+            const tone = rand() < 0.5 ? '0,0,0' : '255,255,255'
+            g.addColorStop(0, `rgba(${tone},0.035)`)
+            g.addColorStop(1, `rgba(${tone},0)`)
+            ctx.fillStyle = g
+            ctx.fillRect(x - r, y - r, r * 2, r * 2)
           }
         }
       } else {
@@ -471,7 +482,7 @@ export function floorMaterial(room: Room, photo?: Photo, origin?: Point, photos?
     ? mixedTexture(floor, 'floor', g, room.points.map((p) => ({ x: p.x - o.x, y: p.y - o.y })), photos!, o.x, -o.y)
     : laidTexture(floor, 'floor', photo, o.x, -o.y)
   const f = finishOf(floor, 'floor')
-  return new THREE.MeshStandardMaterial({ map, color: map ? '#ffffff' : f.color, roughness: f.def.roughness, metalness: 0 })
+  return new THREE.MeshStandardMaterial({ map, color: map ? '#ffffff' : f.color, roughness: f.roughness, metalness: 0 })
 }
 
 /**
@@ -492,5 +503,5 @@ export function wallMaterial(s: Surface, photo?: Photo, extent?: { u0: number; u
       ], photos!, 0, 0)
     : laidTexture(s, 'wall', photo, 0, 0, grid)
   const f = finishOf(s, 'wall')
-  return new THREE.MeshStandardMaterial({ map, color: map ? '#ffffff' : f.color, roughness: f.def.roughness, metalness: 0 })
+  return new THREE.MeshStandardMaterial({ map, color: map ? '#ffffff' : f.color, roughness: f.roughness, metalness: 0 })
 }

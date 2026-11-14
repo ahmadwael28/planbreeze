@@ -24,6 +24,7 @@ import { aroundColumns, columnFaces, developed, wallColumns } from '@/model/deve
 import { currentFloor, draftFloor, useEditor } from '@/store/editor'
 import { useUi } from '@/store/ui'
 import { t } from '@/i18n'
+import { KeptColors } from './KeptColors'
 
 type Target = { roomId: string; edge?: number }
 
@@ -136,7 +137,7 @@ function TileFace({ style, fallback, images, className }: { style: TileMix; fall
   )
 }
 
-/** Choosing a tile: a new photo, one of the plan's photos, or one of the finish's colors. */
+/** Choosing a tile: a new photo, one of the plan's photos, one of the finish's colors, or one the plan keeps. */
 function TileChoices({ colors, images, onPick, footer }: { colors: { hex: string; name: string }[]; images: ProjectImage[]; onPick: (m: TileMix, add?: ProjectImage) => void; footer?: ReactNode }) {
   const fileRef = useRef<HTMLInputElement>(null)
   const [busy, setBusy] = useState(false)
@@ -185,6 +186,7 @@ function TileChoices({ colors, images, onPick, footer }: { colors: { hex: string
           ))}
         </div>
       </div>
+      <KeptColors size="lg" onPick={(hex) => onPick({ color: hex })} />
       {footer}
     </div>
   )

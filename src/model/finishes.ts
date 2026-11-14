@@ -5,7 +5,7 @@
  * of the real thing instead of a color.
  */
 import type { FrameColor } from './symbols'
-import type { Finish, FloorFinish, FloorPattern, Point, Room, Surface, WallFinish, WallSurface } from './types'
+import type { Finish, FloorFinish, FloorPattern, Gloss, Point, Room, Surface, WallFinish, WallSurface } from './types'
 
 export type Place = 'floor' | 'wall'
 
@@ -20,7 +20,10 @@ interface FinishDef {
   /** …and on walls, when they're different. */
   wallSizes?: [number, number][]
   patterns: FloorPattern[]
+  /** How rough its face is, for the 3D view (0 a mirror, 1 chalk); a tile's comes from its gloss. */
   roughness: number
+  /** Tiles: how shiny they usually are. */
+  gloss?: Gloss
   /** Joint between tiles (cm). */
   grout?: number
   /** Wallpaper designs, and the size of one repeat of each (cm). */
@@ -61,6 +64,7 @@ export const FINISHES: Record<Finish, FinishDef> = {
     ],
     patterns: TILE_PATTERNS,
     roughness: 0.4,
+    gloss: 'satin',
     grout: 0.3,
     hint: 'Glazed ceramic, for bathrooms and kitchens.',
   },
@@ -93,6 +97,7 @@ export const FINISHES: Record<Finish, FinishDef> = {
     ],
     patterns: TILE_PATTERNS,
     roughness: 0.22,
+    gloss: 'glossy',
     grout: 0.2,
     hint: 'Dense and hard wearing, in large formats with thin joints.',
   },
@@ -121,6 +126,7 @@ export const FINISHES: Record<Finish, FinishDef> = {
     ],
     patterns: TILE_PATTERNS,
     roughness: 0.12,
+    gloss: 'polished',
     grout: 0.1,
     hint: 'Polished natural stone, veined.',
   },
@@ -318,6 +324,8 @@ export function finishOf(s: Surface, place: Place = 'floor') {
   const design = def.designs && (def.designs.find((d) => d.id === s.design) ?? def.designs[0])
   const size: [number, number] | undefined = s.size ?? sizes[0] ?? (s.image ? PHOTO_REPEAT : design?.repeat)
   const patterns = patternsFor(def, size)
+  // Tiles as shiny as chosen, or as their kind usually is.
+  const gloss = def.gloss && (s.gloss && GLOSS[s.gloss] ? s.gloss : def.gloss)
   return {
     def,
     sizes,
@@ -326,7 +334,31 @@ export function finishOf(s: Surface, place: Place = 'floor') {
     patterns,
     pattern: s.pattern && patterns.includes(s.pattern) ? s.pattern : (patterns[0] ?? 'straight'),
     design,
+    gloss,
+    roughness: gloss ? GLOSS[gloss].roughness : def.roughness,
   }
+}
+
+/**
+ * How shiny tiles can be, and how rough that makes their face in the 3D view. Each kind of tile is usually one of
+ * these (ceramic satin, porcelain glossy, marble polished: see FINISHES), at its own roughness.
+ */
+export const GLOSS: Record<Gloss, { name: string; roughness: number }> = {
+  matte: { name: 'Matte', roughness: 0.72 },
+  satin: { name: 'Satin', roughness: 0.4 },
+  glossy: { name: 'Glossy', roughness: 0.22 },
+  polished: { name: 'Polished', roughness: 0.12 },
+}
+
+/** How many colors a plan keeps to use again (the oldest go first). */
+export const PALETTE_SIZE = 24
+
+/** A plan's kept colors with one more (at the end, unless it's there already), as many as it keeps. */
+export function withColor(palette: string[] | undefined, hex: string): string[] {
+  const list = palette ?? []
+  const c = hex.toLowerCase()
+  if (list.some((p) => p.toLowerCase() === c)) return list
+  return [...list, c].slice(-PALETTE_SIZE)
 }
 
 /** One piece of a finish in a layout block: its outline, which way it runs, and which piece it is (for its shade). */

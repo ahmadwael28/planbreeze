@@ -1,5 +1,5 @@
 import { t, tc } from '@/i18n'
-import { useId, useRef, useState } from 'react'
+import { useEffect, useId, useRef, useState } from 'react'
 import type { KeyboardEvent, ReactNode } from 'react'
 import { ImagePlus, LayoutDashboard, X } from 'lucide-react'
 import { toast } from 'sonner'
@@ -8,16 +8,18 @@ import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectSeparator, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { readPhoto } from '@/lib/images'
 import { cn } from '@/lib/utils'
-import { FINISHES, finishOf, FLOOR_GROUPS, PATTERN_NAMES, WALL_GROUPS, WALL_WHITE, wallSurfaceAt } from '@/model/finishes'
+import { FINISHES, finishOf, FLOOR_GROUPS, GLOSS, PATTERN_NAMES, WALL_GROUPS, WALL_WHITE, wallSurfaceAt } from '@/model/finishes'
 import type { Place } from '@/model/finishes'
 import { bbox, dist, polygonPath } from '@/model/geometry'
 import { uid } from '@/model/project'
 import { formatLength } from '@/model/units'
-import type { Finish, FloorFinish, FloorPattern, Project, ProjectImage, Room, Surface, Units, WallFinish, WallSurface } from '@/model/types'
+import type { Finish, FloorFinish, FloorPattern, Gloss, Project, ProjectImage, Room, Surface, Units, WallFinish, WallSurface } from '@/model/types'
 import { draftFloor, useEditor } from '@/store/editor'
 import { useUi } from '@/store/ui'
 import { hasMix, tileGrid } from '@/model/tiles'
 import { Choice } from './Choice'
+import { keepColor } from '@/store/palette'
+import { KeptColors } from './KeptColors'
 import { LengthInput, NumberInput } from './LengthInput'
 
 function Field({ label, children }: { label: string; children: (id: string) => ReactNode }) {
@@ -105,9 +107,25 @@ function Swatch({ color, name, on, onClick, small }: { color: string; name: stri
   )
 }
 
-/** Any color, from the browser's color picker (one undo step however long it's dragged around). */
-function CustomColor({ value, on, onChange }: { value: string; on: boolean; onChange: (c: string, first: boolean) => void }) {
+/**
+ * Any color, from the browser's color picker (one undo step however long it's dragged around); once picked (the
+ * picker closed), `onPicked` with it.
+ */
+function CustomColor({ value, on, onChange, onPicked }: { value: string; on: boolean; onChange: (c: string, first: boolean) => void; onPicked?: (c: string) => void }) {
   const started = useRef(false)
+  const input = useRef<HTMLInputElement>(null)
+  const picked = useRef(onPicked)
+  useEffect(() => {
+    picked.current = onPicked
+  })
+  // React's onChange is every move in the picker; the input's own change event is the color it's left at.
+  useEffect(() => {
+    const el = input.current
+    if (!el) return
+    const done = () => picked.current?.(el.value)
+    el.addEventListener('change', done)
+    return () => el.removeEventListener('change', done)
+  }, [])
   return (
     <label
       title={t('Any color')}
@@ -118,6 +136,7 @@ function CustomColor({ value, on, onChange }: { value: string; on: boolean; onCh
       style={{ background: on ? value : 'conic-gradient(#f87171, #facc15, #4ade80, #22d3ee, #818cf8, #e879f9, #f87171)' }}
     >
       <input
+        ref={input}
         type="color"
         aria-label={t('Any color')}
         className="absolute inset-0 size-full cursor-pointer opacity-0"
@@ -215,8 +234,11 @@ function SurfaceControls<S extends Surface>({
                 value={f.color}
                 on={!photo && !named}
                 onChange={(c, first) => set({ color: c, image: undefined } as Partial<S>, undefined, !first)}
+                // Kept to use again on other floors and walls, with the pick (one undo step).
+                onPicked={(c) => keepColor(c, true)}
               />
             </div>
+            <KeptColors current={photo ? undefined : f.color} keep={photo ? undefined : f.color} onPick={(hex) => set({ color: hex, image: undefined } as Partial<S>)} />
             <div className="flex flex-wrap items-center gap-2">
               {images.map((img) => (
                 <span key={img.id} className="group relative">
@@ -277,6 +299,14 @@ function SurfaceControls<S extends Surface>({
           </div>
         )}
       </Field>
+      {f.gloss && (
+        <Choice
+          label={t('Gloss')}
+          value={f.gloss}
+          onChange={(v) => set({ gloss: v === f.def.gloss ? undefined : v } as Partial<S>)}
+          options={(Object.keys(GLOSS) as Gloss[]).map((g) => ({ value: g, label: t(GLOSS[g].name) }))}
+        />
+      )}
       {f.design && !photo && (
         <Field label={t('Design')}>
           {(id) => (
@@ -430,10 +460,13 @@ function PartWay({ surface, units, set }: { surface: WallSurface; units: Units; 
           <Field label={t('Height')}>{(id) => <LengthInput id={id} value={surface.height!} units={units} min={10} onChange={(v) => set({ height: v })} />}</Field>
           <Field label={t('Paint above')}>
             {() => (
-              <div className="flex flex-wrap items-center gap-1.5 py-1">
-                {FINISHES.paint.colors.map((c) => (
-                  <Swatch key={c.hex} small color={c.hex} name={c.name} on={c.hex === above} onClick={() => set({ above: c.hex })} />
-                ))}
+              <div className="space-y-1.5 py-1">
+                <div className="flex flex-wrap items-center gap-1.5">
+                  {FINISHES.paint.colors.map((c) => (
+                    <Swatch key={c.hex} small color={c.hex} name={c.name} on={c.hex === above} onClick={() => set({ above: c.hex })} />
+                  ))}
+                </div>
+                <KeptColors size="sm" current={above} keep={above} onPick={(hex) => set({ above: hex })} />
               </div>
             )}
           </Field>

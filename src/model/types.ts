@@ -14,12 +14,16 @@ export type FloorFinish = 'ceramic' | 'porcelain' | 'marble' | 'hdf' | 'spc' | '
 export type WallFinish = 'paint' | 'wallpaper' | 'ceramic' | 'porcelain' | 'marble' | 'slats' | 'concrete'
 export type Finish = FloorFinish | WallFinish
 export type FloorPattern = 'straight' | 'offset' | 'diagonal' | 'herringbone' | 'chevron'
+/** How shiny a tile's face is (see model/finishes: GLOSS). */
+export type Gloss = 'matte' | 'satin' | 'glossy' | 'polished'
 
 /** What a floor or wall is finished with (see model/finishes). */
 export interface Surface {
   finish: Finish
   /** Its color (one of the finish's, or any). */
   color?: string
+  /** Tiles: how shiny they are; as the kind of tile usually is if left out (see model/finishes). */
+  gloss?: Gloss
   /** A photo of the real thing (one of the project's `images`): one tile or plank, or a repeat of a wallpaper. */
   image?: string
   /** Tile sides, plank width × length, or the repeat of a wallpaper photo (cm). */
@@ -451,6 +455,8 @@ export interface Project {
   floors: Floor[]
   /** Photos of real tiles and wallpapers, used as finishes. */
   images?: ProjectImage[]
+  /** Colors kept to use again on any floor or wall in the plan (hex), as they were added. */
+  palette?: string[]
   /** Its switches have been named after their rooms (older plans' are, once, when opened: see model/switches). */
   switchNames?: 'room'
   /** A plan someone else owns, opened because it's shared (never saved to the cloud with the plan). */

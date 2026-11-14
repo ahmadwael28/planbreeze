@@ -1,6 +1,6 @@
 import { useMemo } from 'react'
 import { t } from '@/i18n'
-import { finishOf } from '@/model/finishes'
+import { finishOf, GLOSS } from '@/model/finishes'
 import { SHELF_STONE, takeoff } from '@/model/takeoff'
 import { WORKTOPS } from '@/model/symbols'
 import type { TakeoffPart, TakeoffPlace } from '@/model/takeoff'
@@ -29,7 +29,8 @@ export function finishLabel(surface: Surface | undefined, place: TakeoffPlace, i
   const color = f.def.colors.find((c) => c.hex.toLowerCase() === f.color.toLowerCase())?.name
   const what = photo ? photo.name : place === 'ceiling' ? t('Ceiling white') : color ? t(color) : t('Custom color')
   const size = f.size && (kind === 'tile' || kind === 'plank') ? ` · ${f.size[0]}×${f.size[1]}` : ''
-  return { name: t(f.def.name), detail: `${what}${size}${f.design && !photo ? ` · ${t(f.design.name)}` : ''}` }
+  const gloss = f.gloss ? ` · ${t(GLOSS[f.gloss].name)}` : ''
+  return { name: t(f.def.name), detail: `${what}${size}${gloss}${f.design && !photo ? ` · ${t(f.design.name)}` : ''}` }
 }
 
 /** What a stone's called (a worktop's, or the light stone shelves are made of). */
